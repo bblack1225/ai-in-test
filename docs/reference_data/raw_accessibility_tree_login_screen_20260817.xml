@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AppiumAUT>
+  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="國泰證券" label="國泰證券" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="" processId="1608" bundleId="tw.cathaysec.STP">
+    <XCUIElementTypeWindow type="XCUIElementTypeWindow" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+      <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+          <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+            <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+              <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+                <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
+                  <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="91" index="0" traits="">
+                    <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="91" index="0" traits="">
+                      <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="false" accessible="false" x="0" y="0" width="390" height="47" index="0" traits=""/>
+                      <XCUIElementTypeImage type="XCUIElementTypeImage" enabled="true" visible="false" accessible="false" x="0" y="0" width="390" height="91" index="1" traits="Image"/>
+                      <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="47" width="390" height="44" index="2" traits=""/>
+                    </XCUIElementTypeOther>
+                  </XCUIElementTypeOther>
+                  <XCUIElementTypeScrollView type="XCUIElementTypeScrollView" enabled="true" visible="true" accessible="false" x="0" y="91" width="390" height="753" index="1" traits="">
+                    <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="91" width="390" height="821" index="0" traits="">
+                      <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="91" width="358" height="410" index="0" traits="">
+                        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="91" width="358" height="55" index="0" traits="">
+                          <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="歡迎登入！" name="歡迎登入！" label="歡迎登入！" enabled="true" visible="true" accessible="true" x="16" y="111" width="116" height="35" index="0" traits="StaticText"/>
+                        </XCUIElementTypeOther>
+                        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="146" width="358" height="40" index="1" traits="">
+                          <XCUIElementTypeButton type="XCUIElementTypeButton" name="還不能登入？可以 線上開戶 或 立即啟用帳戶" label="還不能登入？可以 線上開戶 或 立即啟用帳戶" enabled="true" visible="true" accessible="true" x="16" y="146" width="283" height="20" index="0" traits="StaticText, Button"/>
+                        </XCUIElementTypeOther>
+                        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="186" width="358" height="289" index="2" traits="">
+                          <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="186" width="358" height="289" index="0" traits="">
+                            <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="202" width="326" height="257" index="0" traits="">
+                              <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="202" width="326" height="65" index="0" traits="">
+                                <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="202" width="326" height="65" index="0" traits="">
+                                  <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="202" width="326" height="20" index="0" traits="">
+                                    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="身分證字號/統一編號" name="身分證字號/統一編號" label="身分證字號/統一編號" enabled="true" visible="true" accessible="true" x="32" y="202" width="137" height="20" index="0" traits="StaticText"/>
+                                    <XCUIElementTypeButton type="XCUIElementTypeButton" name="loginremeberbutton" enabled="true" visible="true" accessible="true" x="295" y="202" width="63" height="20" index="1" traits="Button">
+                                      <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" enabled="true" visible="false" accessible="false" x="295" y="202" width="0" height="0" index="0" traits="StaticText"/>
+                                    </XCUIElementTypeButton>
+                                    <XCUIElementTypeImage type="XCUIElementTypeImage" name="ic16PxGreyCheckboxNormalNsp" enabled="true" visible="false" accessible="false" x="295" y="204" width="16" height="16" index="2" traits="Image"/>
+                                    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="記住我" name="記住我" label="記住我" enabled="true" visible="false" accessible="true" x="315" y="202" width="43" height="20" index="3" traits="StaticText"/>
+                                  </XCUIElementTypeOther>
+                                  <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="226" width="326" height="41" index="1" traits="">
+                                    <XCUIElementTypeTextField type="XCUIElementTypeTextField" name="loginidfield" label="" enabled="true" visible="true" accessible="true" x="44" y="226" width="274" height="41" index="0" placeholderValue="" traits=""/>
+                                  </XCUIElementTypeOther>
+                                </XCUIElementTypeOther>
+                              </XCUIElementTypeOther>
+                              <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="287" width="326" height="66" index="1" traits="">
+                                <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="287" width="326" height="66" index="0" traits="">
+                                  <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="287" width="326" height="20" index="0" traits="">
+                                    <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="密碼" name="密碼" label="密碼" enabled="true" visible="true" accessible="true" x="32" y="287" width="29" height="20" index="0" traits="StaticText"/>
+                                    <XCUIElementTypeButton type="XCUIElementTypeButton" name="ic24PxGreyEyesClosedNsp" label="ic24PxGreyEyesClosedNsp" enabled="true" visible="true" accessible="true" x="64" y="289" width="17" height="16" index="1" traits="Button">
+                                      <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" enabled="true" visible="false" accessible="false" x="64" y="289" width="1" height="0" index="0" traits="StaticText"/>
+                                    </XCUIElementTypeButton>
+                                    <XCUIElementTypeButton type="XCUIElementTypeButton" name="忘記密碼" label="忘記密碼" enabled="true" visible="true" accessible="true" x="300" y="282" width="58" height="30" index="2" traits="Button">
+                                      <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="忘記密碼" name="忘記密碼" label="忘記密碼" enabled="true" visible="true" accessible="false" x="300" y="288" width="58" height="18" index="0" traits="StaticText"/>
+                                    </XCUIElementTypeButton>
+                                  </XCUIElementTypeOther>
+                                  <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="32" y="311" width="326" height="42" index="1" traits="">
+                                    <XCUIElementTypeSecureTextField type="XCUIElementTypeSecureTextField" name="loginpassfield" label="" enabled="true" visible="true" accessible="true" x="44" y="311" width="274" height="42" index="0" placeholderValue="" traits=""/>
+                                  </XCUIElementTypeOther>
+                                </XCUIElementTypeOther>
+                              </XCUIElementTypeOther>
+                              <XCUIElementTypeButton type="XCUIElementTypeButton" name="loginbutton" label="登入" enabled="true" visible="true" accessible="true" x="32" y="373" width="326" height="46" index="2" traits="Button">
+                                <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="登入" name="登入" label="登入" enabled="true" visible="true" accessible="false" x="177" y="385" width="36" height="22" index="0" traits="StaticText"/>
+                              </XCUIElementTypeButton>
+                              <XCUIElementTypeButton type="XCUIElementTypeButton" name="不登入先逛逛" label="不登入先逛逛" enabled="true" visible="true" accessible="true" x="32" y="439" width="326" height="20" index="3" traits="Button">
+                                <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="不登入先逛逛" name="不登入先逛逛" label="不登入先逛逛" enabled="true" visible="true" accessible="false" x="152" y="440" width="86" height="18" index="0" traits="StaticText"/>
+                              </XCUIElementTypeButton>
+                            </XCUIElementTypeOther>
+                          </XCUIElementTypeOther>
+                        </XCUIElementTypeOther>
+                        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="16" y="475" width="358" height="26" index="3" traits=""/>
+                      </XCUIElementTypeOther>
+                      <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="119" y="733" width="152" height="41" index="1" traits="">
+                        <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="119" y="733" width="152" height="41" index="0" traits="">
+                          <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="如系統異常，請洽客服專線 " name="如系統異常，請洽客服專線 " label="如系統異常，請洽客服專線 " enabled="true" visible="true" accessible="true" x="119" y="733" width="152" height="17" index="0" traits="StaticText"/>
+                          <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="119" y="758" width="152" height="16" index="1" traits="">
+                            <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="143" y="758" width="104" height="16" index="0" traits="">
+                              <XCUIElementTypeImage type="XCUIElementTypeImage" name="bxPhone" enabled="true" visible="true" accessible="false" x="143" y="758" width="16" height="16" index="0" traits="Image"/>
+                              <XCUIElementTypeButton type="XCUIElementTypeButton" name="02-7732-6888" label="02-7732-6888" enabled="true" visible="true" accessible="true" x="159" y="758" width="88" height="16" index="1" traits="Button">
+                                <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="02-7732-6888" name="02-7732-6888" label="02-7732-6888" enabled="true" visible="true" accessible="false" x="159" y="758" width="88" height="16" index="0" traits="StaticText"/>
+                              </XCUIElementTypeButton>
+                            </XCUIElementTypeOther>
+                          </XCUIElementTypeOther>
+                        </XCUIElementTypeOther>
+                      </XCUIElementTypeOther>
+                    </XCUIElementTypeOther>
+                    <XCUIElementTypeOther type="XCUIElementTypeOther" value="0%" name="垂直捲軸, 2頁" label="垂直捲軸, 2頁" enabled="true" visible="true" accessible="false" x="357" y="112" width="30" height="690" index="1" traits="Adjustable"/>
+                    <XCUIElementTypeOther type="XCUIElementTypeOther" value="0%" name="水平捲軸, 1頁" label="水平捲軸, 1頁" enabled="true" visible="true" accessible="false" x="41" y="811" width="308" height="30" index="2" traits="Adjustable"/>
+                  </XCUIElementTypeScrollView>
+                  <XCUIElementTypeImage type="XCUIElementTypeImage" name="imgLoginbg" enabled="true" visible="false" accessible="false" x="0" y="643" width="390" height="201" index="2" traits="Image"/>
+                </XCUIElementTypeOther>
+              </XCUIElementTypeOther>
+            </XCUIElementTypeOther>
+          </XCUIElementTypeOther>
+        </XCUIElementTypeOther>
+      </XCUIElementTypeOther>
+    </XCUIElementTypeWindow>
+  </XCUIElementTypeApplication>
+</AppiumAUT>

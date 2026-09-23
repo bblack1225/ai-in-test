@@ -1,0 +1,17 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# 執行時自動產生的圖片（可重新產生，體積大）
+crops/
+test_results/
+
+# 掃描資料：含 App 畫面上的文字與截圖，可能有帳號、金額等敏感資訊
+screenshots/
+app_map_tree.json
+app_map_tree_export_*.json
+element_map.json
