@@ -14,16 +14,265 @@ XML 節點 tag 本身就是 class，座標是 x/y/width/height 數值屬性；�
 """
 
 import time
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from capture_screen_map import find_scrollable_regions, swipe_within_region
-from capture_screen_map import scan_screen as ios_scan_screen
+from capture_screen_map import identity_keys_in_region, position_bucket, read_and_merge_round
 from run_test_case import raise_if_stopped
 from test_config import DESIRED_CAPS
 
+
+# ---------------------------------------------------------------------------
+# 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
+# ---------------------------------------------------------------------------
+
+SCROLLABLE_CLASSES = {"XCUIElementTypeScrollView", "XCUIElementTypeTable", "XCUIElementTypeCollectionView"}
+
+# 橫向捲動收集時，只把這兩種容器當成「可能是橫向卡片列」的候選，刻意排除
+# XCUIElementTypeTable——iOS 的 Table 幾乎都是垂直清單，而且對 Table 的某一列
+# 「往左滑」在 iOS 上是系統級的 swipe-to-delete / 滑動操作手勢（會叫出刪除鈕
+# 等），不是捲動，硬去橫向滑很容易誤觸真實後果。橫向卡片輪播在 iOS 慣例上是
+# 用 ScrollView 或 CollectionView 實作。
+HORIZONTAL_SCROLL_CANDIDATE_CLASSES = {"XCUIElementTypeScrollView", "XCUIElementTypeCollectionView"}
+
+
+def has_scrollable_content(xml_source: str) -> bool:
+    """畫面上有沒有可捲動容器（ScrollView/Table/CollectionView），決定要不要
+    走「邊捲邊抓」流程。iOS 沒有 Android 那種 scrollable="true" 屬性，只能
+    用 class 類型判斷。"""
+    root = ET.fromstring(xml_source)
+    return any(node.tag in SCROLLABLE_CLASSES for node in root.iter())
+
+
+def find_scrollable_regions(xml_source: str, classes: set = SCROLLABLE_CLASSES) -> list[dict]:
+    """
+    找出畫面上所有屬於 `classes` 的可捲動容器節點（class + bounds）。iOS 沒有
+    Android 的 scrollable="true" 屬性可讀，只能用 class 類型判斷。
+
+    不在這裡猜測方向——iOS accessibility tree 一樣沒有可靠的方向屬性可讀，
+    交給呼叫端用「實際滑一次、看內容有沒有換一批」來判斷（見
+    collect_horizontal_region 與 TROUBLESHOOTING.md 問題42 的 iOS 版落差說明：
+    Android 靠 mobile: scrollGesture 的布林回傳值，iOS 只能靠內容比對，
+    可靠度略低）。
+
+    預設 `classes` 是全部可捲動類型（垂直定位重查用，見本檔案的
+    _locate_by_xpath_with_scroll）；橫向卡片收集會傳
+    HORIZONTAL_SCROLL_CANDIDATE_CLASSES 進來排除 Table。
+    """
+    root = ET.fromstring(xml_source)
+    regions = []
+    for node in root.iter():
+        if node.tag not in classes:
+            continue
+        try:
+            x = float(node.attrib.get("x", 0))
+            y = float(node.attrib.get("y", 0))
+            width = float(node.attrib.get("width", 0))
+            height = float(node.attrib.get("height", 0))
+        except ValueError:
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        regions.append({"class": node.tag, "bounds": {"x": x, "y": y, "width": width, "height": height}})
+    return regions
+
+
+def swipe_within_region(driver, bounds: dict, direction: str,
+                        distance_ratio: float = 0.7, duration_ms: int = 500) -> None:
+    """
+    在指定區域範圍內做一次滑動手勢。`direction` 是「內容捲動方向」（跟 Android
+    版 scroll_step 的語意一致）：
+      - "left"  → 想看到右邊還沒出現的內容，手指從右往左滑
+      - "right" → 往回捲，手指從左往右滑
+      - "down"/"up" → 垂直方向（給本檔案的 XPath+捲動定位共用）
+
+    iOS 的 driver.swipe() 走 W3C pointer actions，沒有「這次有沒有真的捲到」的
+    回傳值可用（這正是 iOS 版跟 Android 版的已知落差），呼叫端要自己用前後
+    內容比對判斷。
+    """
+    b = bounds
+    center_x = int(b["x"] + b["width"] / 2)
+    center_y = int(b["y"] + b["height"] / 2)
+    margin_x = max(int(b["width"] * 0.1), 5)
+    margin_y = max(int(b["height"] * 0.1), 5)
+
+    if direction in ("left", "right"):
+        span = max(int((b["width"] - margin_x * 2) * distance_ratio), 1)
+        if direction == "left":
+            start_x = int(b["x"] + b["width"] - margin_x)
+            end_x = start_x - span
+        else:
+            start_x = int(b["x"] + margin_x)
+            end_x = start_x + span
+        driver.swipe(start_x, center_y, end_x, center_y, duration_ms)
+    else:
+        span = max(int((b["height"] - margin_y * 2) * distance_ratio), 1)
+        if direction == "down":
+            start_y = int(b["y"] + b["height"] - margin_y)
+            end_y = start_y - span
+        else:
+            start_y = int(b["y"] + margin_y)
+            end_y = start_y + span
+        driver.swipe(center_x, start_y, center_x, end_y, duration_ms)
+
+
+def parse_candidates_raw(xml_source: str, screen_width: int, screen_height: int) -> list[dict]:
+    """
+    解析單一快照的 Accessibility Tree，取出所有畫面上真實可見的節點，並附上
+    計算 fingerprint 所需的上下文資訊（sibling_index, nearby_text）。
+
+    不再用 class 白名單篩選「值不值得收錄」——只要節點目前可視、座標合法，
+    一律收錄，clickable/checkable 這類概念 iOS 沒有對應屬性，但 enabled/
+    accessible 會照實記錄，交給 viewer 篩選介面決定要看哪些，掃描端
+    不預先幫使用者決定（背景見 TROUBLESHOOTING.md 問題26/29：Android版
+    掃描端過早過濾曾造成真實資料遺漏，iOS版比照同一個設計方向調整）。
+    """
+    root = ET.fromstring(xml_source)
+    parent_map = {child: parent for parent in root.iter() for child in parent}
+
+    candidates = []
+
+    for node in root.iter():
+        attrib = node.attrib
+        class_name = node.tag
+        visible = attrib.get("visible", "false") == "true"
+
+        # visible=false 代表這個節點當下真的沒有被畫出來，這一項仍然排除
+        # （技術上沒有東西可以疊框/裁切，不是「篩選掉」的判斷）
+        if not visible:
+            continue
+
+        name = attrib.get("name", "").strip()
+        label = attrib.get("label", "").strip()
+        value = attrib.get("value", "").strip()
+
+        try:
+            x = float(attrib.get("x", 0))
+            y = float(attrib.get("y", 0))
+            width = float(attrib.get("width", 0))
+            height = float(attrib.get("height", 0))
+            # 直接讀原始 index 屬性當 sibling_index——實測跟自己重新遍歷兄弟節點
+            # 算出來的結果一致（2026-09-21 用真實掃描資料查證過），不用重複計算
+            sibling_index = int(attrib.get("index", 0))
+        except ValueError:
+            continue
+
+        # 找出同層的兄弟節點，計算 nearby_text
+        parent = parent_map.get(node)
+        nearby_text = []
+        if parent is not None:
+            siblings = list(parent)
+            for sib in siblings:
+                if sib is node:
+                    continue
+                sib_label = sib.attrib.get("label", "").strip()
+                sib_name = sib.attrib.get("name", "").strip()
+                text = sib_label or sib_name
+                if text:
+                    nearby_text.append(text)
+
+        # name 跟 label 完全相同時，很可能不是開發者刻意設定的 accessibilityIdentifier，
+        # 只是系統把顯示文字回填進 name 欄位（文案一改這個「id」就會跟著變，不穩定），
+        # 視為沒有真正的 native id，改走 fingerprint 那條路
+        is_real_native_id = bool(name) and name != label
+
+        candidates.append({
+            "class": class_name,
+            "native_id": name if is_real_native_id else None,
+            "label": label,
+            "value": value,
+            "bounds": {"x": x, "y": y, "width": width, "height": height},
+            "sibling_index": sibling_index,
+            "nearby_text": nearby_text[:5],  # 最多留5個，避免過長
+            "position_bucket": position_bucket(x, y, width, height, screen_width, screen_height),
+            # 原始屬性照實記錄，不在這裡用來篩選，留給 viewer.html 篩選介面用
+            "enabled": attrib.get("enabled", "true") == "true",
+            "accessible": attrib.get("accessible", "false") == "true",
+        })
+
+    return candidates
+
+
+def collect_horizontal_region(platform, driver, region: dict, screen_width: int, screen_height: int,
+                               merged: dict, round_screenshots: list,
+                               max_rounds: int = 10) -> bool:
+    """
+    針對畫面上一個巢狀的橫向捲動容器（例如首頁「看盤金剛區」／「推薦專區」橫向
+    卡片列）原地左右捲動、反覆讀取合併，邏輯跟 collect_candidates_with_scroll
+    對整個畫面做的事一樣，差別只在捲動範圍限定在容器 bounds、方向是 left/right。
+
+    跟 Android 版（platforms/android.py 的同名函式）的關鍵差異：
+    Android 靠 `mobile: scrollGesture` 的布林回傳值判斷「這是不是真的橫向容器 /
+    有沒有捲到底」；iOS 沒有這個回傳值，改用內容比對：
+      - 「是不是真的橫向容器」：先往左滑一次，看容器範圍內露出的元件有沒有
+        「換一批」（有舊的離開、也有新的進來）。如果只是多了東西、沒有東西
+        離開，很可能是誤觸了 iOS 的 cell 滑動操作（例如叫出某張卡片的功能鈕），
+        不是橫向捲動 → 往右滑回去嘗試復原、回傳 False。
+      - 「有沒有捲到底」：連續兩輪容器範圍內內容完全一致就停。這個判斷的已知
+        弱點跟垂直版一樣（見 collect_candidates_with_scroll 說明）：如果容器裡
+        剛好有一張比整個容器還寬的超大卡片，可能誤判到底。
+
+    回傳 True 代表確認是橫向容器且已收集完成；False 代表不是（或無法判斷）。
+    這個判斷比 Android 版脆弱，是目前 iOS 版的已知落差，實機驗證時要重點觀察。
+    """
+    b = region["bounds"]
+
+    *_, raw_before = read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
+    keys_before = identity_keys_in_region(raw_before, b)
+
+    swipe_within_region(driver, b, "left")
+    time.sleep(0.5)
+    raw_after = parse_candidates_raw(driver.page_source, screen_width, screen_height)
+    keys_after = identity_keys_in_region(raw_after, b)
+
+    entered = keys_after - keys_before
+    departed = keys_before - keys_after
+    if not (entered and departed):
+        # 沒有「換一批」的跡象：不是橫向捲動容器，或誤觸了 iOS 的 cell 滑動操作。
+        # 往右滑一次嘗試復原任何被叫出來的東西，然後放棄。
+        swipe_within_region(driver, b, "right")
+        time.sleep(0.3)
+        return False
+
+    print(f"  [橫向捲動收集] 確認為橫向容器（{region['class']}），開始邊捲邊抓...")
+    previous_region_keys = None
+    for round_index in range(1, max_rounds):
+        new_count, _, _, _, raw = read_and_merge_round(
+            platform, driver, screen_width, screen_height, merged, round_screenshots
+        )
+        region_keys = frozenset(identity_keys_in_region(raw, b))
+        print(f"  [橫向捲動收集] 第{round_index}輪：這輪容器內{len(region_keys)}個，"
+              f"新增{new_count}個，累積合併{len(merged)}個不重複元件")
+        if region_keys == previous_region_keys:
+            print(f"  [橫向捲動收集] 連續兩輪容器內內容一致，判定已捲到最右邊，停止")
+            break
+        previous_region_keys = region_keys
+        swipe_within_region(driver, b, "left")
+        time.sleep(0.5)
+    else:
+        print(f"  [警告] 橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
+              f"這個容器可能還有內容沒收集完整，建議人工複核")
+
+    # 捲回最左邊，避免影響後續的垂直捲動或其他操作
+    previous_source = None
+    for _ in range(max_rounds):
+        current_source = driver.page_source
+        if current_source == previous_source:
+            break
+        previous_source = current_source
+        swipe_within_region(driver, b, "right")
+        time.sleep(0.3)
+
+    return True
+
+
+
+# ---------------------------------------------------------------------------
+# 執行測案（run_test_case.py）用
+# ---------------------------------------------------------------------------
 
 @contextmanager
 def skip_visible_in_page_source(driver):
@@ -317,6 +566,37 @@ class IOSPlatform:
     def make_options(self):
         return XCUITestOptions().load_capabilities(DESIRED_CAPS)
 
+    # --- 掃描（capture_screen_map.py）---
+    display_name = "iOS"
+    # iOS 的 `mobile: scroll` 沒有「有沒有真的捲動」的回傳值，要靠內容比對判斷到底
+    scroll_reports_movement = False
+
+    def parse_candidates_raw(self, xml_source: str, screen_width: int, screen_height: int) -> list[dict]:
+        return parse_candidates_raw(xml_source, screen_width, screen_height)
+
+    def has_scrollable_content(self, xml_source: str) -> bool:
+        return has_scrollable_content(xml_source)
+
+    def horizontal_scroll_candidates(self, xml_source: str) -> list[dict]:
+        return find_scrollable_regions(xml_source, HORIZONTAL_SCROLL_CANDIDATE_CLASSES)
+
+    def collect_horizontal_region(self, driver, region: dict, screen_width: int, screen_height: int,
+                                  merged: dict, round_screenshots: list) -> bool:
+        return collect_horizontal_region(self, driver, region, screen_width, screen_height,
+                                         merged, round_screenshots)
+
+    def scroll_screen(self, driver, screen_width: int, screen_height: int, direction: str):
+        """整個畫面捲一頁；沒有回傳值可判斷有沒有捲動，成功回傳 None，指令失敗回傳 False"""
+        try:
+            driver.execute_script("mobile: scroll", {"direction": direction})
+        except Exception:
+            return False
+        return None
+
+    def element_flags(self, el: dict) -> dict:
+        """原始屬性照實寫進 element_map，留給 viewer 篩選用"""
+        return {"enabled": el["enabled"], "accessible": el["accessible"]}
+
     def page_source_context(self, driver):
         return skip_visible_in_page_source(driver)
 
@@ -370,6 +650,3 @@ class IOSPlatform:
             "label": m.get_attribute("label"),
             "value": m.get_attribute("value"),
         }
-
-    def scan(self, driver, screen_name: str, describe: bool, scroll: bool) -> dict:
-        return ios_scan_screen(driver, screen_name, describe=describe, scroll=scroll, wait_stable=True)

@@ -18,14 +18,11 @@
 
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
 
-**iOS 核心程式**
-- `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述
-- `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
+**iOS 專用**
+- `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖（Android 還不支援）
 
-**Android 核心程式**
-- `capture_screen_map_android.py` — Android版掃描
-
-**共用程式**
+**iOS / Android 共用（用 `--platform` 切換）**
+- `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述，`--platform ios|android`
 - `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
 - `platforms/` — iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
 - `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
@@ -266,7 +263,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   - 安裝：把 APK 拖進模擬器視窗，或 `adb install 檔案.apk`
 - `test_config.py` 的 `ANDROID_DESIRED_CAPS["udid"]` 換成你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
-- 對應的程式：`capture_screen_map_android.py`／`run_test_case.py --platform android`／
+- 對應的程式：`capture_screen_map.py --platform android`／`run_test_case.py --platform android`／
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
   iOS 一樣用 `app_map_viewer.html`。`crawl_app_tree.py` 目前只有 iOS 版，
   Android 的地圖要用「手動建樹」建立（建立主節點 → 對目前畫面掃描 → 點元件
@@ -322,16 +319,15 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 | 檔案 | 用途 |
 |---|---|
-| `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯） |
+| `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py` |
 | `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner` 跟 `/scan_screen` 目前只有 iOS。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 
-| 檔案 | 用途 |
-|---|---|
-| `capture_screen_map_android.py` | `capture_screen_map.py` 的 Android 移植，跟 iOS 版共用同一份 `element_map.json`/schema，只多一個 `platform` 欄位 |
+沒有獨立的 Android 程式了：掃描、執行測案、橋接伺服器都跟 iOS 共用（見 4.3），
+用 `--platform android` 切換，平台差異集中在 `platforms/android.py`。
 
 ### 4.3 共用程式
 
@@ -365,7 +361,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 | 路徑 | 用途 |
 |---|---|
 | `app_map_tree.json` | `crawl_app_tree.py` 最新一次爬蟲產出的樹狀地圖（全名欄位格式：`screen_uid`/`screen_name`/`elements[]`/`unique_id`...），`app_map_viewer.html` 主要吃這個檔案 |
-| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py`/`capture_screen_map_android.py`共用格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
+| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
 | `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示 |
 | `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用（4085個檔案，體積較大） |
 | `test_cases/` | 幾份範例測試案例 JSON（`generate_test_case.py`/LLM對話產生的格式），給 `run_test_case.py` 執行 |

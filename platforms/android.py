@@ -5,12 +5,12 @@ Android（UiAutomator2）平台：執行測案、橋接伺服器用到的 Androi
 差異只在 Appium 定位元件、下點擊指令的方式：
 
   - native 元件（有 resource-id）：用 AppiumBy.ID，UiAutomator2 底層會用
-    resource-id 去查。因為 capture_screen_map_android.py 已經先把「同畫面
+    resource-id 去查。因為掃描時已經先把「同畫面
     共用同一個 resource-id」的元件降級成 generated（見 TROUBLESHOOTING #26），
     這裡查到的 native 元件保證在畫面上唯一。
   - generated 元件（沒有 native id）：Android 的 accessibility tree 沒有 label
-    屬性，改用 @text 或 @content-desc（label 欄位在 capture_screen_map_android.py
-    裡就是 content_desc 優先、沒有才用 text，所以查詢時兩個屬性都要試，用 or 一起查）。
+    屬性，改用 @text 或 @content-desc（label 欄位在掃描時（本檔案的 parse_candidates_raw）
+    就是 content_desc 優先、沒有才用 text，所以查詢時兩個屬性都要試，用 or 一起查）。
   - 座標點擊備援：UiAutomator2 沒有 `mobile: tap`（那是 XCUITest 專用），
     要換成 `mobile: clickGesture`。
   - 畫面外的元件：iOS 元件即使捲出畫面外，Accessibility Tree 依然找得到，
@@ -21,17 +21,210 @@ Android（UiAutomator2）平台：執行測案、橋接伺服器用到的 Androi
 無 native id 元件的定位順序見 locate_generated_element()。
 """
 
+import re
+import time
+import xml.etree.ElementTree as ET
 from contextlib import nullcontext
 
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import NoSuchElementException
 
-from capture_screen_map_android import find_scrollable_regions, parse_bounds, scroll_step
-from capture_screen_map_android import scan_screen as android_scan_screen
+from capture_screen_map import position_bucket, read_and_merge_round
 from run_test_case import raise_if_stopped, xpath_literal
 from test_config import ANDROID_DESIRED_CAPS
 
+
+# ---------------------------------------------------------------------------
+# 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
+#
+#   這裡不依 class/clickable/checkable 篩選「值不值得收錄」——只要是真實
+#   節點、有可解析的座標，一律收錄，把「要不要看這個元件」的決定權交給
+#   viewer 的篩選介面，掃描端不預先幫使用者決定。clickable/checkable/
+#   enabled 這些原始屬性會原封不動存進結果，供 viewer 篩選用。
+#   （這個決定的背景見 TROUBLESHOOTING.md 問題26/29：掃描端過早過濾已經
+#   造成過真實資料遺漏，改成「先收下來，篩選交給檢視工具」更不容易漏資料）
+# ---------------------------------------------------------------------------
+
+def parse_bounds(bounds_str: str) -> dict | None:
+    """把 "[x1,y1][x2,y2]" 解析成 {x, y, width, height}"""
+    match = re.match(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", bounds_str or "")
+    if not match:
+        return None
+    x1, y1, x2, y2 = (int(v) for v in match.groups())
+    return {"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}
+
+
+def has_scrollable_content(xml_source: str) -> bool:
+    """畫面上有沒有 scrollable="true" 的容器，決定要不要走「邊捲邊抓」流程"""
+    root = ET.fromstring(xml_source)
+    return any(node.attrib.get("scrollable") == "true" for node in root.iter())
+
+
+def find_scrollable_regions(xml_source: str) -> list[dict]:
+    """
+    找出畫面上所有標記 scrollable="true" 的節點（class+bounds），包含外層的
+    垂直捲動容器、也包含巢狀在裡面的橫向卡片列表（例如「推薦專區」）在內，
+    不在這裡猜測方向——Android accessibility tree 沒有可靠的方向屬性可讀，
+    交給呼叫端用實際捲動手勢測試「往右捲會不會動」來判斷（見問題34修正）。
+    """
+    root = ET.fromstring(xml_source)
+    regions = []
+    for node in root.iter():
+        if node.attrib.get("scrollable") != "true":
+            continue
+        bounds = parse_bounds(node.attrib.get("bounds", ""))
+        if bounds is None:
+            continue
+        regions.append({"class": node.attrib.get("class", ""), "bounds": bounds})
+    return regions
+
+
+def parse_candidates_raw(xml_source: str, screen_width: int, screen_height: int) -> list[dict]:
+    """解析單一快照的候選元件，不做同畫面 resource-id 重複降級（那一步要等
+    「邊捲邊抓」的所有輪次合併完才能做一次，見 capture_screen_map.downgrade_duplicate_native_ids）。"""
+    root = ET.fromstring(xml_source)
+    parent_map = {child: parent for parent in root.iter() for child in parent}
+
+    candidates = []
+
+    # Appium 的 uiautomator2 page_source 是用 class 名稱本身當 XML tag
+    # （例如 <android.widget.FrameLayout>），不是固定的 <node> tag，
+    # 所以要遍歷所有節點，用 class 屬性判斷，不能只篩特定 tag 名稱
+    for node in root.iter():
+        attrib = node.attrib
+        if "class" not in attrib:  # 跳過 <hierarchy> 這個根節點本身，它不是真的UI元件
+            continue
+
+        # displayed=false 代表這個節點當下真的沒有被畫出來（不是「篩選掉」，
+        # 是技術上沒有東西可以記錄座標/截圖裁切），這一項仍然排除
+        if attrib.get("displayed", "true") == "false":
+            continue
+
+        bounds = parse_bounds(attrib.get("bounds", ""))
+        if bounds is None:  # 沒有合法座標，沒辦法定位/裁切，技術上無法收錄
+            continue
+
+        resource_id = attrib.get("resource-id", "").strip()
+        text = attrib.get("text", "").strip()
+        content_desc = attrib.get("content-desc", "").strip()
+        class_name = attrib.get("class", "")
+
+        # label 優先用 content-desc（開發者刻意給無障礙工具看的描述），
+        # 沒有的話退回用畫面顯示文字 text，呼應 iOS 版 label 的角色
+        label = content_desc or text
+
+        # resource-id 存在、且不是文字回填（原理跟 iOS 的 name!=label 判斷一樣：
+        # 如果 resource-id 剛好等於顯示文字，很可能不是真正刻意設定的識別碼）
+        is_real_native_id = bool(resource_id) and resource_id != text and resource_id != content_desc
+
+        parent = parent_map.get(node)
+        sibling_index = 0
+        nearby_text = []
+        if parent is not None:
+            siblings = list(parent)
+            sibling_index = siblings.index(node)
+            for sib in siblings:
+                if sib is node:
+                    continue
+                sib_text = (sib.attrib.get("content-desc") or sib.attrib.get("text") or "").strip()
+                if sib_text:
+                    nearby_text.append(sib_text)
+
+        candidates.append({
+            "class": class_name,
+            # 這裡先暫存「候選」native_id，是否真的當作 native 要等下面統計
+            # 同一個 (class, resource_id) 在這個畫面上出現幾次之後才能定案
+            "native_id": resource_id if is_real_native_id else None,
+            "label": label,
+            "value": text,
+            "bounds": bounds,
+            "sibling_index": sibling_index,
+            "nearby_text": nearby_text[:5],
+            "position_bucket": position_bucket(
+                bounds["x"], bounds["y"], bounds["width"], bounds["height"], screen_width, screen_height
+            ),
+            # 原始屬性照實記錄，不在這裡用來篩選，留給 viewer 篩選介面用
+            "clickable": attrib.get("clickable") == "true",
+            "checkable": attrib.get("checkable") == "true",
+            "enabled": attrib.get("enabled") == "true",
+        })
+
+    return candidates
+
+
+def scroll_step(driver, scroll_area: dict, direction: str, percent: float) -> bool:
+    """
+    執行一次捲動手勢，回傳這次是否真的造成畫面位移。
+
+    `mobile: scrollGesture` 本身就會回傳布林值——這是 UiAutomator2 系統層級的
+    判斷（這次手勢有沒有讓內容真的移動），不是靠比對前後兩次畫面內容去推論，
+    比較權威可靠：不會被「捲不動但畫面剛好有動畫元素導致比對誤判成還在變化」
+    騙到，也不會被「單一超大元件讓前後兩輪內容看起來一樣，但其實還沒捲到底」
+    騙到（這是實際討論過的風險，見 TROUBLESHOOTING.md）。
+    """
+    return bool(driver.execute_script("mobile: scrollGesture", {
+        **scroll_area, "direction": direction, "percent": percent,
+    }))
+
+
+def collect_horizontal_region(platform, driver, region: dict, screen_width: int, screen_height: int,
+                               merged: dict, round_screenshots: list[bytes],
+                               max_rounds: int = 10, scroll_percent: float = 0.75) -> bool:
+    """
+    針對畫面上一個巢狀的橫向捲動容器（例如「推薦專區」橫向卡片列表）原地左右
+    捲動、反覆讀取合併，邏輯跟 collect_candidates_with_scroll 對整個畫面做的
+    事一樣，差別只在捲動範圍限定在這個容器自己的 bounds、方向是 left/right。
+
+    第一次往右捲動如果系統回報「沒有位移」，代表這個容器其實不能橫向捲動
+    （很可能是外層那個垂直容器本身也被 scrollable="true" 標記，不是真的橫向
+    清單），直接放棄、回傳 False，不繼續也不影響 merged（那一輪讀到的元件已經
+    在垂直收集迴圈裡讀過，重複合併不會有副作用）。
+
+    回傳 True 代表這確實是個橫向容器且已收集完成。
+    """
+    b = region["bounds"]
+    # 捲動手勢的操作範圍略縮在容器邊界內，避免手勢起點/終點剛好落在邊界外
+    margin_x = max(int(b["width"] * 0.05), 1)
+    margin_y = max(int(b["height"] * 0.2), 1)
+    scroll_area = {
+        "left": b["x"] + margin_x,
+        "top": b["y"] + margin_y,
+        "width": max(b["width"] - margin_x * 2, 1),
+        "height": max(b["height"] - margin_y * 2, 1),
+    }
+
+    read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
+    if not scroll_step(driver, scroll_area, "right", scroll_percent):
+        return False  # 捲不動，這不是一個真的橫向清單
+
+    print(f"  [橫向捲動收集] 偵測到巢狀橫向容器（{region['class']}），開始邊捲邊抓...")
+    time.sleep(0.5)
+    for round_index in range(1, max_rounds):
+        new_count, *_ = read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
+        print(f"  [橫向捲動收集] 第{round_index + 1}輪：新增{new_count}個，"
+              f"累積合併{len(merged)}個不重複元件")
+        if not scroll_step(driver, scroll_area, "right", scroll_percent):
+            print(f"  [橫向捲動收集] 系統回報已經無法再往右捲，判定已捲到底，停止")
+            break
+        time.sleep(0.5)
+    else:
+        print(f"  [警告] 橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
+              f"這個容器可能還有內容沒收集完整，建議人工複核")
+
+    # 捲回最左邊，避免影響後續的垂直捲動或其他操作
+    for _ in range(max_rounds):
+        if not scroll_step(driver, scroll_area, "left", scroll_percent):
+            break
+        time.sleep(0.3)
+
+    return True
+
+
+
+# ---------------------------------------------------------------------------
+# 執行測案（run_test_case.py）用
+# ---------------------------------------------------------------------------
 
 def uiautomator_string_literal(value: str) -> str:
     """把字串安全地嵌入 UiSelector 的 Java 字面值語法（跳脫反斜線與雙引號）"""
@@ -285,6 +478,43 @@ class AndroidPlatform:
     def make_options(self):
         return UiAutomator2Options().load_capabilities(ANDROID_DESIRED_CAPS)
 
+    # --- 掃描（capture_screen_map.py）---
+    display_name = "Android"
+    # `mobile: scrollGesture` 會回報這次有沒有真的捲動，捲不動就是到底了
+    scroll_reports_movement = True
+    # 每次捲動畫面高度的75%，刻意設在 1.0 以下讓相鄰兩輪之間有重疊區域，
+    # 提高跨輪次去重比對的可靠度
+    scroll_percent = 0.75
+
+    def parse_candidates_raw(self, xml_source: str, screen_width: int, screen_height: int) -> list[dict]:
+        return parse_candidates_raw(xml_source, screen_width, screen_height)
+
+    def has_scrollable_content(self, xml_source: str) -> bool:
+        return has_scrollable_content(xml_source)
+
+    def horizontal_scroll_candidates(self, xml_source: str) -> list[dict]:
+        # Android 沒有可靠的方向屬性，每個 scrollable 容器都試著往右捲看看（見 collect_horizontal_region）
+        return find_scrollable_regions(xml_source)
+
+    def collect_horizontal_region(self, driver, region: dict, screen_width: int, screen_height: int,
+                                  merged: dict, round_screenshots: list) -> bool:
+        return collect_horizontal_region(self, driver, region, screen_width, screen_height,
+                                         merged, round_screenshots)
+
+    def scroll_screen(self, driver, screen_width: int, screen_height: int, direction: str) -> bool:
+        """整個畫面捲一段，回傳系統回報的「這次有沒有真的捲動」"""
+        scroll_area = {
+            "left": int(screen_width * 0.1),
+            "top": int(screen_height * 0.15),
+            "width": int(screen_width * 0.8),
+            "height": int(screen_height * 0.7),
+        }
+        return scroll_step(driver, scroll_area, direction, self.scroll_percent)
+
+    def element_flags(self, el: dict) -> dict:
+        """原始屬性照實寫進 element_map，留給 viewer 篩選用"""
+        return {"clickable": el["clickable"], "checkable": el["checkable"], "enabled": el["enabled"]}
+
     def page_source_context(self, driver):
         return nullcontext()
 
@@ -343,6 +573,3 @@ class AndroidPlatform:
             "text": m.get_attribute("text"),
             "content_desc": m.get_attribute("content-desc"),
         }
-
-    def scan(self, driver, screen_name: str, describe: bool, scroll: bool) -> dict:
-        return android_scan_screen(driver, screen_name, describe=describe, scroll=scroll, wait_stable=True)

@@ -277,7 +277,7 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 | `crawl_app.py` | 舊的扁平爬蟲，保留當參考，沒動 |
 | `capture_screen_map.py` | iOS 掃描主程式，本 session 加了橫向捲動、截圖保護、scan_screen 三參數 |
 | `run_test_case.py` | iOS 測案執行器，本 session port 了 `_locate_by_xpath_with_scroll` |
-| `capture_screen_map_android.py` / `run_test_case_android.py` | Android 版，是這次 iOS port 的來源參考，沒動 |
+| `platforms/android.py` | Android 版（原本的 `capture_screen_map_android.py` / `run_test_case_android.py`，已併入共用程式），是這次 iOS port 的來源參考 |
 | `test_config.py` | `DESIRED_CAPS`（iOS）/ `ANDROID_DESIRED_CAPS`，換 App 改 `bundleId` |
 | `IOS_FULL_SCAN_HANDOFF.md` | 更早的交接筆記（iOS 全功能驗證，另一條線） |
 | `TROUBLESHOOTING.md` | 所有踩坑記錄（問題 5/6/7 = WDA 環境；31/34/42 = 捲動；41 = iOS 移植） |

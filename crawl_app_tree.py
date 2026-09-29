@@ -51,10 +51,12 @@ from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
-from platforms.ios import _predicate_literal, ios_label_predicate
+from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
 
 OUTPUT_PATH = Path("app_map_tree.json")
+# 爬蟲目前只支援 iOS（骨架簽章、返回、彈窗處理都是照 iOS 寫的），掃描用 iOS 平台
+IOS = IOSPlatform()
 
 # 爬蟲會嘗試點擊的 class（其他一律不點）
 CRAWL_CLASSES = {
@@ -656,7 +658,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
 
     print(f"\n[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
           f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
-    screen_data = scan_screen(driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
+    screen_data = scan_screen(IOS, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
                                page_source=src)
 
     record = {

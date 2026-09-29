@@ -52,6 +52,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
+from capture_screen_map import scan_screen
 from platforms import PLATFORMS, get_platform
 from run_test_case import (
     StopRequested,
@@ -640,7 +641,7 @@ def stop_test_script() -> dict:
 # ---------------------------------------------------------------------------
 # /scan_screen：給 app_map_viewer.html 的「手動建樹」功能用——使用者手動點擊
 # 一個元件把手機導到新畫面後，對「目前畫面」執行一次真正的掃描，直接沿用
-# capture_screen_map.py／capture_screen_map_android.py 的 scan_screen()，不是另外寫一套解析邏輯。
+# capture_screen_map.py 的 scan_screen()，不是另外寫一套解析邏輯。
 #
 # describe 預設 False（跳過 LLM 描述，理由跟 crawl_app_tree.py 一樣：手動
 # 建樹本來就是一個節點一個節點慢慢加，先求有結構、之後要不要對這個畫面
@@ -654,9 +655,10 @@ def do_scan_screen(payload: dict) -> dict:
     screen_name = (payload.get("screen_name") or "").strip()
     if not screen_name:
         return {"error": "screen_name 不可為空"}
-    screen_data = PLATFORM.scan(get_driver(), screen_name,
-                                describe=bool(payload.get("describe", False)),
-                                scroll=bool(payload.get("scroll", True)))
+    screen_data = scan_screen(PLATFORM, get_driver(), screen_name,
+                              describe=bool(payload.get("describe", False)),
+                              scroll=bool(payload.get("scroll", True)),
+                              wait_stable=True)
     return {"screen_data": screen_data}
 
 
