@@ -73,6 +73,7 @@ from run_test_case import (
     load_test_case,
     match_screen_in_source,
     raise_if_stopped,
+    retry_assert,
     save_result_screenshot,
     xpath_literal,
 )
@@ -479,9 +480,10 @@ def run_test_case(driver, test_case: dict, element_lookup: dict):
         elif action == "tap":
             outcome = run_tap(driver, el)
         elif action == "assert_visible":
-            outcome = run_assert_visible(driver, el)
+            outcome = retry_assert(lambda: run_assert_visible(driver, el), step.get("timeout"))
         elif action == "assert_text_contains":
-            outcome = run_assert_text_contains(driver, el, step.get("value", ""))
+            outcome = retry_assert(lambda: run_assert_text_contains(driver, el, step.get("value", "")),
+                                   step.get("timeout"))
         else:
             outcome = f"FAIL（未知的 action: {action}）"
 

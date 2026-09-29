@@ -103,6 +103,38 @@ def raise_if_stopped() -> None:
         raise StopRequested()
 
 
+def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
+    """
+    assert_visible / assert_text_contains 的步驟有寫 timeout（秒）時，在期限內反覆
+    執行 check()，一出現 PASS 就回報，時間到才回報最後一次的 FAIL。用在「操作後
+    畫面要隔幾秒才自己刷新」的情境，例如取消委託後 3~5 秒委託狀態才變成「委託取消」
+    ——wait_after_action() 只等畫面「不再變動」，刷新前畫面早就穩定了，擋不住這種延遲。
+
+    沒寫 timeout 就只檢查一次，跟原本行為完全一樣。SKIP 代表這個元件本來就驗證
+    不了，重試也沒用，直接回傳。iOS / Android 共用（check 各自帶平台的 run_assert_*）。
+    """
+    if not timeout:
+        return check()
+
+    deadline = time.time() + float(timeout)
+    attempts = 0
+    while True:
+        raise_if_stopped()
+        attempts += 1
+        try:
+            outcome = check()
+        except StopRequested:
+            raise
+        except Exception as e:
+            # 畫面刷新中元件剛好被換掉（stale）之類的，下一輪再查
+            outcome = f"FAIL（檢查時發生錯誤：{type(e).__name__}）"
+        if not outcome.startswith("FAIL"):
+            return outcome if attempts == 1 else f"{outcome}（重試第 {attempts} 次才通過）"
+        if time.time() >= deadline:
+            return f"{outcome}（已等待 {float(timeout):g} 秒）"
+        time.sleep(poll_interval)
+
+
 def xpath_literal(value: str) -> str:
     """把字串安全地組成 XPath 字面值，處理內含雙引號的情況"""
     if '"' not in value:
@@ -380,6 +412,49 @@ def run_assert_visible(driver, el: dict) -> str:
     return "SKIP（無 native id 且 XPath 查無唯一結果，座標無法驗證「是否可見」）"
 
 
+def _read_text_by_position(driver, el: dict, y_tolerance: float = 10.0):
+    """
+    用掃描時存的座標，讀「目前畫面同一格」的文字，不管那一格現在顯示什麼字。
+    給 assert_text_contains 驗證「會變的文字」用（委託狀態、成交數量、價格），
+    例如清單每列都是同一檔股票、沒有唯一文字可當錨點時，「第一列的狀態欄」只能靠位置認。
+
+    條件：同類型元件、垂直中心差在 y_tolerance 以內、水平範圍跟掃描時有重疊
+    （文字變長變短時寬度會變，只比中心點會誤判），多個符合時挑中心最近的。
+    整份 page_source 只抓一次在電腦端比對，不用逐個元件問手機。
+    前提是畫面停在跟掃描時一樣的捲動位置；找不到回傳 None。
+    """
+    bounds = el.get("bounds") or {}
+    if not bounds.get("width") or not bounds.get("height"):
+        return None
+    try:
+        root = ET.fromstring(driver.page_source)
+    except Exception:
+        return None
+
+    left, right = bounds["x"], bounds["x"] + bounds["width"]
+    center_x, center_y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+
+    best, best_distance = None, None
+    for node in root.iter(el["class"]):
+        try:
+            x, y = float(node.attrib["x"]), float(node.attrib["y"])
+            w, h = float(node.attrib["width"]), float(node.attrib["height"])
+        except (KeyError, ValueError):
+            continue
+        if abs(y + h / 2 - center_y) > y_tolerance or x > right or x + w < left:
+            continue
+        distance = abs(x + w / 2 - center_x) + abs(y + h / 2 - center_y)
+        if best is None or distance < best_distance:
+            best, best_distance = node, distance
+
+    if best is None:
+        return None
+    text = (best.attrib.get("label") or best.attrib.get("value") or "").strip()
+    print(f"    [位置定位] 掃描時座標 ({bounds['x']:g}, {bounds['y']:g}) 附近的 {el['class']}，"
+          f"目前文字：「{text}」")
+    return text
+
+
 def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
     """
     Android 版（run_test_case_android.py）的對應函式，這裡是 iOS 版：驗證元件
@@ -399,6 +474,15 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
             except NoSuchElementException:
                 return "FAIL（找不到元件）"
         else:
+            # 沒有 native id 的元件，自動定位是靠「掃描時的文字」找，但這個 action 要驗證的
+            # 正是文字有沒有變——變了就找不到，或找到別列剛好還是舊文字的元件。所以先用
+            # 掃描時的座標讀同一格；位置附近沒有同類型元件才退回原本的定位（它找不到時會
+            # 捲動清單，一捲動位置就不準了，所以不能放在前面）
+            position_text = _read_text_by_position(driver, el)
+            if position_text is not None:
+                if expected_text in position_text:
+                    return f"PASS（位置定位，實際文字：「{position_text}」）"
+                return f"FAIL（位置定位，預期文字包含「{expected_text}」，實際文字：「{position_text}」）"
             target_el = locate_generated_element(driver, el)
             label = "XPath 定位"
 
@@ -575,9 +659,10 @@ def run_test_case(driver, test_case: dict, element_lookup: dict):
         elif action == "tap":
             outcome = run_tap(driver, el)
         elif action == "assert_visible":
-            outcome = run_assert_visible(driver, el)
+            outcome = retry_assert(lambda: run_assert_visible(driver, el), step.get("timeout"))
         elif action == "assert_text_contains":
-            outcome = run_assert_text_contains(driver, el, step.get("value", ""))
+            outcome = retry_assert(lambda: run_assert_text_contains(driver, el, step.get("value", "")),
+                                   step.get("timeout"))
         else:
             outcome = f"FAIL（未知的 action: {action}）"
 

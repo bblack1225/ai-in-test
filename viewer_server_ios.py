@@ -49,7 +49,7 @@ from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
 from capture_screen_map import scan_screen
-from run_test_case import StopRequested, set_stop_checker
+from run_test_case import StopRequested, retry_assert, set_stop_checker
 from run_test_case import (
     check_current_screen,
     locate_generated_element,
@@ -359,7 +359,7 @@ unique_id/id_source/class/label/description 這幾個欄位）：
        {{"action": "tap", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "<這步在做什麼，給人看的>"}},
        {{"action": "input_text", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<要輸入的文字>", "note": "..."}},
        {{"action": "assert_visible", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "..."}},
-       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "note": "..."}},
+       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "timeout": <選填，秒數>, "note": "..."}},
        {{"action": "assert_banner", "screen_name": "<畫面名稱>", "value": ["<跑馬燈上要出現的文字>", "..."], "note": "..."}}
      ]
    }}
@@ -375,6 +375,13 @@ unique_id/id_source/class/label/description 這幾個欄位）：
      上方的「委託回報」）。不需要 target；value 是跑馬燈上要出現的文字陣列，
      例如 ["委託回報", "2882 國泰金"]。這一步必須**緊接在觸發它的 tap 後面**
      （例如送出委託的按鈕），中間不要插入其他步驟，否則跑馬燈會先消失
+   - assert_visible 和 assert_text_contains 可以加選填的 "timeout"（秒數，
+     數字），代表「在這麼多秒內反覆檢查，一通過就算 PASS，時間到還沒通過
+     才算 FAIL」。用在操作後畫面要隔一段時間才會自己更新的情境，例如
+     「取消委託後 3~5 秒委託狀態才會變成委託取消」：在取消的 tap 後面接
+     {{"action": "assert_text_contains", ..., "value": "委託取消", "timeout": 8}}。
+     timeout 抓使用者說的最長等待時間再多留幾秒緩衝；使用者沒提到要等、
+     畫面也是立刻更新的情境就不要加。不要另外編一個「等待」步驟，沒有這種 action
 3. target（assert_banner 以外）的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
    自己編造，也不可以用畫面上的文字、猜測的id、或憑印象記得的id代替。
    如果找不到能達成使用者需求的元件，要在說明文字裡老實講清楚缺少什麼、
@@ -602,9 +609,10 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
             elif action == "input_text":
                 outcome = run_input_text(d, el, step.get("value", ""))
             elif action == "assert_visible":
-                outcome = run_assert_visible(d, el)
+                outcome = retry_assert(lambda: run_assert_visible(d, el), step.get("timeout"))
             elif action == "assert_text_contains":
-                outcome = run_assert_text_contains(d, el, step.get("value", ""))
+                outcome = retry_assert(lambda: run_assert_text_contains(d, el, step.get("value", "")),
+                                       step.get("timeout"))
             else:
                 outcome = f"FAIL（未知的 action: {action}）"
         except StopRequested:
