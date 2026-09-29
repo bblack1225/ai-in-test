@@ -389,6 +389,58 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
     return f"FAIL（{label}，預期文字包含「{expected_text}」，實際文字：「{actual_text}」）"
 
 
+def _predicate_literal(text: str) -> str:
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: float = 0.1) -> str:
+    """
+    驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後上方的「委託回報」）。
+
+    expected 可以是字串或字串陣列，每個字串都要出現在畫面上某個 StaticText 裡才算 PASS，
+    例如 ["委託回報", "2882 國泰金"]。不需要 element_map 裡的元件。
+
+    跟 run_assert_visible 刻意不同的三點（都是實測跑馬燈抓不到的原因）：
+      - 用 iOS predicate 查，查詢在手機上完成；XPath 要先把整份 page source
+        傳回電腦，一次 1~3 秒，跑馬燈早就消失了
+      - 暫時把 waitForIdleTimeout 設 0：跑馬燈是動畫，預設會等 App 靜止才查詢
+      - 不看 is_displayed()：實測跑馬燈上的文字 visible 都是 false（XCUITest
+        對重疊/動畫中元素的誤判），只要查得到就算出現
+    所以這一步必須緊接在觸發它的 tap 之後，中間不能先跑 wait_after_action()
+    （它也是一直抓 page source，會把跑馬燈的時間耗掉），執行端已經處理。
+    """
+    texts = [expected] if isinstance(expected, str) else list(expected or [])
+    texts = [t for t in texts if t]
+    if not texts:
+        return "FAIL（assert_banner 的 value 沒有指定要等的文字）"
+
+    predicate = "type == 'XCUIElementTypeStaticText' AND (" + " OR ".join(
+        f"label CONTAINS {_predicate_literal(t)}" for t in texts) + ")"
+
+    original_idle = driver.get_settings().get("waitForIdleTimeout")
+    driver.update_settings({"waitForIdleTimeout": 0})
+    try:
+        seen_labels = set()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                labels = [e.get_attribute("label") or "" for e in
+                          driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)]
+            except Exception:
+                # 元素剛好在讀屬性時消失（stale），下一輪再查
+                labels = []
+            seen_labels.update(labels)
+            if all(any(t in label for label in seen_labels) for t in texts):
+                return f"PASS（跑馬燈出現，抓到的文字：{'、'.join(sorted(seen_labels))}）"
+            time.sleep(poll_interval)
+    finally:
+        if original_idle is not None:
+            driver.update_settings({"waitForIdleTimeout": original_idle})
+
+    missing = [t for t in texts if not any(t in label for label in seen_labels)]
+    return f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}）"
+
+
 def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> bool:
     """
     執行測試步驟前的安全檢查：確認手機目前畫面看起來就是測試案例鎖定的畫面，
@@ -429,11 +481,25 @@ def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4)
         elapsed += poll_interval
 
 
+def next_is_banner_check(steps: list, current_index: int) -> bool:
+    """current_index 是從1起算的步驟編號；下一步是 assert_banner 時，這一步做完不能先
+    wait_after_action()，否則跑馬燈會在等畫面穩定的那幾秒內消失（見 run_assert_banner）。"""
+    return current_index < len(steps) and steps[current_index].get("action") == "assert_banner"
+
+
 def run_test_case(driver, test_case: dict, element_lookup: dict):
     results = []
-    for i, step in enumerate(test_case["steps"], 1):
+    steps = test_case["steps"]
+    for i, step in enumerate(steps, 1):
         action = step["action"]
-        target = step["target"]
+        target = step.get("target")
+
+        if action == "assert_banner":
+            outcome = run_assert_banner(driver, step.get("value"), step.get("timeout", 10))
+            results.append((i, step, outcome))
+            print(f"  {i}. [{action}] {step.get('value')} -> {outcome}")
+            continue
+
         el = element_lookup.get(target)
 
         if el is None:
@@ -454,7 +520,7 @@ def run_test_case(driver, test_case: dict, element_lookup: dict):
         results.append((i, step, outcome))
         print(f"  {i}. [{action}] {target} -> {outcome}")
 
-        if action in ("tap", "input_text"):
+        if action in ("tap", "input_text") and not next_is_banner_check(steps, i):
             wait_after_action(driver)
 
     return results

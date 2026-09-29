@@ -49,6 +49,8 @@ from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementE
 from capture_screen_map import scan_screen
 from run_test_case import (
     locate_generated_element,
+    next_is_banner_check,
+    run_assert_banner,
     run_assert_text_contains,
     run_assert_visible,
     run_input_text,
@@ -341,10 +343,11 @@ unique_id/id_source/class/label/description 這幾個欄位）：
        {{"action": "tap", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "<這步在做什麼，給人看的>"}},
        {{"action": "input_text", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<要輸入的文字>", "note": "..."}},
        {{"action": "assert_visible", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "..."}},
-       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "note": "..."}}
+       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "note": "..."}},
+       {{"action": "assert_banner", "screen_name": "<畫面名稱>", "value": ["<跑馬燈上要出現的文字>", "..."], "note": "..."}}
      ]
    }}
-2. action 只能是這4種：
+2. action 只能是這5種：
    - tap：點擊
    - input_text：輸入文字，只對有 accessibility id 的 native 元件有效
      （沒有native id的輸入框無法可靠定位，不要對這種元件用input_text）
@@ -352,7 +355,11 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    - assert_text_contains：驗證元件「目前顯示的文字內容（label）」有包含
      指定字串，用在「這個畫面的文字內容因為別的畫面的操作而改變」這種
      跨畫面情境，assert_visible 驗證不到文字內容，只能驗證「有沒有顯示」
-3. target 的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
+   - assert_banner：驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後
+     上方的「委託回報」）。不需要 target；value 是跑馬燈上要出現的文字陣列，
+     例如 ["委託回報", "2882 國泰金"]。這一步必須**緊接在觸發它的 tap 後面**
+     （例如送出委託的按鈕），中間不要插入其他步驟，否則跑馬燈會先消失
+3. target（assert_banner 以外）的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
    自己編造，也不可以用畫面上的文字、猜測的id、或憑印象記得的id代替。
    如果找不到能達成使用者需求的元件，要在說明文字裡老實講清楚缺少什麼、
    建議使用者重新掃描或補充哪個畫面的資料，不要硬湊一個不存在的unique_id
@@ -518,7 +525,10 @@ def run_test_script(payload: dict) -> dict:
         if screen is not None:
             el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
 
-        if el is None:
+        if action == "assert_banner":
+            # 跑馬燈不在 element_map 裡，不需要 target
+            outcome = run_assert_banner(d, step.get("value"), step.get("timeout", 10))
+        elif el is None:
             outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
         elif action == "tap":
             outcome = run_tap(d, el)
@@ -537,7 +547,7 @@ def run_test_script(payload: dict) -> dict:
             "outcome": outcome,
         })
 
-        if action in ("tap", "input_text"):
+        if action in ("tap", "input_text") and not next_is_banner_check(steps, i):
             wait_after_action(d)
 
     return {"results": results}

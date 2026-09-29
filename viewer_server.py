@@ -456,7 +456,9 @@ def run_test_script(payload: dict) -> dict:
         if screen is not None:
             el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
 
-        if el is None:
+        if action == "assert_banner":
+            outcome = "SKIP（assert_banner 目前只有 iOS 版，Android 還沒實作）"
+        elif el is None:
             outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
         elif action == "tap":
             outcome = run_tap(d, el)

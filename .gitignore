@@ -15,3 +15,7 @@ screenshots/
 app_map_tree.json
 app_map_tree_export_*.json
 element_map.json
+element_map_android*.json
+
+# capture_transient.py 抓到的截圖 / page source（同樣含 App 畫面資料）
+transient_captures/

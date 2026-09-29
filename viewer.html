@@ -2638,7 +2638,7 @@
       "系統提示詞由 viewer_server 依你勾選的畫面資料組出（每次送出訊息都會帶最新的勾選結果），重點規則：\n\n" +
       "1. 輸出必須是 ```json 包起來的測試案例，格式為\n" +
       "   {test_name, steps:[{action, screen_name, target, value?, note?}]}\n" +
-      "2. action 只能是 tap／input_text／assert_visible／assert_text_contains\n" +
+      "2. action 只能是 tap／input_text／assert_visible／assert_text_contains／assert_banner（iOS，驗證短暫出現的跑馬燈）\n" +
       "3. target 必須是你勾選畫面裡真實存在的 unique_id，不可以憑空編造\n" +
       "4. 測試案例可以橫跨多個畫面，每個 step 自帶 screen_name\n\n" +
       "完整提示詞內容可參考 viewer_server.py 的 _build_llm_testgen_system_prompt()。"
@@ -2774,7 +2774,9 @@
       const outcome = result ? result.outcome : null;
       const outcomeClass = outcome ? (outcome.startsWith("PASS") ? "pass" : outcome.startsWith("FAIL") ? "fail" : "skip") : "";
       const el = runscriptElementMap ? findElementInMap(runscriptElementMap, step.screen_name, step.target) : null;
-      const resolvedLabel = el ? (el.description || el.label || "（無描述）") : "⚠️ 在目前上傳的 element_map.json 裡找不到這個元件";
+      const resolvedLabel = step.action === "assert_banner"
+        ? "等待跑馬燈出現（不需要 element_map 元件）"
+        : el ? (el.description || el.label || "（無描述）") : "⚠️ 在目前上傳的 element_map.json 裡找不到這個元件";
       const hasValue = step.value !== undefined && step.value !== null;
 
       html += `<div class="script-step-card ${outcomeClass}">
