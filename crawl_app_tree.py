@@ -51,7 +51,7 @@ from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
-from run_test_case import xpath_literal
+from run_test_case import _predicate_literal, ios_label_predicate
 from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
 
 OUTPUT_PATH = Path("app_map_tree.json")
@@ -354,21 +354,21 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -
     效能（兩層）：
       1. 傳 page_source 進來時，先用字串快篩，沒有任何 modal 線索就直接 return，
          不做任何 WDA 呼叫
-      2. 就算快篩沒篩掉，找按鈕也是**一條 XPath 把整批候選文字 OR 起來查一次**
-         （`//XCUIElementTypeButton[@label=X or @label=Y or …]`），不是列舉畫面上
+      2. 就算快篩沒篩掉，找按鈕也是**一條 predicate 把整批候選文字用 IN 查一次**
+         （`type == 'XCUIElementTypeButton' AND label IN {X, Y, …}`），不是列舉畫面上
          所有 Button 再逐一 get_attribute("label")——元件數大的畫面後者可能要
          上百次 WDA 往返，前者固定 1-2 次
     """
     if page_source is not None and not any(m in page_source for m in _MODAL_HINT_MARKERS):
         return []
 
-    dismiss_xpath = "//XCUIElementTypeButton[" + " or ".join(
-        f"@label={xpath_literal(l)}" for l in MODAL_DISMISS_LABELS) + "]"
+    dismiss_predicate = "type == 'XCUIElementTypeButton' AND label IN {" + ", ".join(
+        _predicate_literal(l) for l in MODAL_DISMISS_LABELS) + "}"
 
     dismissed: list[str] = []
     for _ in range(max_rounds):
         try:
-            matches = driver.find_elements(AppiumBy.XPATH, dismiss_xpath)
+            matches = driver.find_elements(AppiumBy.IOS_PREDICATE, dismiss_predicate)
         except Exception:
             matches = []
         element, target = (matches[0], None) if matches else (None, None)
@@ -386,10 +386,10 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -
             except Exception:
                 has_alert = False
             if has_alert:
-                ack_xpath = "//XCUIElementTypeButton[" + " or ".join(
-                    f"@label={xpath_literal(l)}" for l in MODAL_ACK_ONLY_LABELS) + "]"
+                ack_predicate = "type == 'XCUIElementTypeButton' AND label IN {" + ", ".join(
+                    _predicate_literal(l) for l in MODAL_ACK_ONLY_LABELS) + "}"
                 try:
-                    ack_matches = driver.find_elements(AppiumBy.XPATH, ack_xpath)
+                    ack_matches = driver.find_elements(AppiumBy.IOS_PREDICATE, ack_predicate)
                 except Exception:
                     ack_matches = []
                 if ack_matches:
@@ -447,9 +447,7 @@ def tap_candidate(driver, el: dict, screen_height: float) -> bool:
     label = el.get("label", "")
     if label:
         try:
-            matches = driver.find_elements(
-                AppiumBy.XPATH, f'//{el["class"]}[@label={xpath_literal(label)}]'
-            )
+            matches = driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(el["class"], label))
             if len(matches) == 1:
                 matches[0].click()
                 return True

@@ -145,6 +145,18 @@ def xpath_literal(value: str) -> str:
     return "concat(" + ', \'"\', '.join(f'"{p}"' for p in parts) + ")"
 
 
+def _predicate_literal(text: str) -> str:
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def ios_label_predicate(class_name: str, label: str) -> str:
+    """自動定位用的 iOS predicate，跟 `//{class}[@label=...]` 這條 XPath 意思一樣。
+    XPath 在 iOS 上每查一次都要先把整份畫面結構序列化傳回來（一次 1~3 秒），
+    predicate 直接在手機上比對，所以自動定位一律用這個；使用者存的 custom_xpath
+    需要表達結構關係（第幾個 Cell 裡的第幾個元件），predicate 做不到，維持 XPath。"""
+    return f"type == {_predicate_literal(class_name)} AND label == {_predicate_literal(label)}"
+
+
 def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8):
     """
     用 class + label 查精確 XPath，查不到就自己捲動可捲動容器、每輪重新查同一條
@@ -175,17 +187,17 @@ def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8):
     if not label:
         return None
 
-    xpath = f'//{el["class"]}[@label={xpath_literal(label)}]'
+    predicate = ios_label_predicate(el["class"], label)
 
     def _query():
         try:
-            return driver.find_elements(AppiumBy.XPATH, xpath)
+            return driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
         except Exception as e:
-            print(f"    [XPath+捲動] 查詢失敗: {xpath}  ({e})")
+            print(f"    [XPath+捲動] 查詢失敗: {predicate}  ({e})")
             return []
 
     matches = _query()
-    print(f"    [XPath+捲動] 第0輪（不捲）: {xpath} -> 查到 {len(matches)} 個")
+    print(f"    [XPath+捲動] 第0輪（不捲）: {predicate} -> 查到 {len(matches)} 個")
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
@@ -252,9 +264,9 @@ def _locate_by_anchor(driver, el: dict):
     if not nearby_text_list or not label:
         return None
 
-    anchor_literal = xpath_literal(nearby_text_list[0])
     try:
-        anchors = driver.find_elements(AppiumBy.XPATH, f'//*[@label={anchor_literal}]')
+        anchors = driver.find_elements(AppiumBy.IOS_PREDICATE,
+                                       f"label == {_predicate_literal(nearby_text_list[0])}")
     except Exception as e:
         print(f"    [錨點消歧義] 錨點查詢失敗: {e}")
         return None
@@ -262,9 +274,8 @@ def _locate_by_anchor(driver, el: dict):
         return None
     anchor_y = anchors[0].location["y"]
 
-    xpath = f'//{el["class"]}[@label={xpath_literal(label)}]'
     try:
-        candidates = driver.find_elements(AppiumBy.XPATH, xpath)
+        candidates = driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(el["class"], label))
     except Exception:
         return None
     if not candidates:
@@ -496,10 +507,6 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
     return f"FAIL（{label}，預期文字包含「{expected_text}」，實際文字：「{actual_text}」）"
 
 
-def _predicate_literal(text: str) -> str:
-    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
 def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: float = 0.1) -> str:
     """
     驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後上方的「委託回報」）。
@@ -607,26 +614,50 @@ def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> boo
     return status != "fail"
 
 
+def _layout_signature(page_source: str):
+    """
+    畫面「版面」的指紋，給 wait_after_action 判斷畫面穩定用：只看元件類型跟位置，
+    不看文字。報價畫面的價格、漲跌一直在跳，用整份 page_source 比對永遠不會一致，
+    每次 tap 都會等到上限；轉場、載入、彈窗這些才是要等的，它們會改變版面。
+    文字元件只看 y 跟高度：數字變長變短時寬度跟 x（靠右對齊）會跟著變。
+    文字延遲更新（例如取消委託後狀態才變）不在這裡等，由 assert 步驟的 timeout 處理。
+    """
+    try:
+        root = ET.fromstring(page_source)
+    except ET.ParseError:
+        return page_source
+    signature = []
+    for node in root.iter():
+        a = node.attrib
+        if node.tag == "XCUIElementTypeStaticText":
+            signature.append((node.tag, a.get("y"), a.get("height")))
+        else:
+            signature.append((node.tag, a.get("x"), a.get("y"), a.get("width"), a.get("height")))
+    return signature
+
+
 def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:
     """
     Android 版（run_test_case_android.py）的對應函式，這裡是 iOS 版：
-    tap/input_text 之後改成輪詢 page_source 直到內容連續兩次一致或到時間
+    tap/input_text 之後改成輪詢 page_source 直到版面連續兩次一致或到時間
     上限為止，取代原本寫死的 `time.sleep(1)`——原本固定1秒的等待，遇到
     App本身有較長轉場/非同步載入（例如測試App的轉場畫面刻意設計2秒
     loading）時可能不夠，下一步容易在畫面還沒更新完就執行。
+
+    max_wait 是實際經過的秒數。iOS 讀一次 page_source 要 1~3 秒，原本只累加
+    poll_interval，畫面一直在變時（報價跳動）實際會等到 8 次讀取、十幾二十秒。
     """
     previous = None
-    elapsed = 0.0
-    while elapsed < max_wait:
+    deadline = time.time() + max_wait
+    while True:
         try:
-            current = driver.page_source
+            current = _layout_signature(driver.page_source)
         except Exception:
             return
-        if current == previous:
+        if current == previous or time.time() >= deadline:
             return
         previous = current
         time.sleep(poll_interval)
-        elapsed += poll_interval
 
 
 def next_is_banner_check(steps: list, current_index: int) -> bool:
