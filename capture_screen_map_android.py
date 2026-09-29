@@ -630,8 +630,11 @@ def scan_screen(driver, screen_name: str) -> dict:
 
     # 這張存檔用的截圖固定用「捲動前、最頂部」的畫面，當作這個畫面在 viewer.html
     # 裡的代表截圖（跟捲動收集過程中每一輪各自的截圖是分開的用途）
+    # 檔名加上掃描時間：每份 map 的根畫面都叫 root_screen，只用畫面名稱當檔名的話，
+    # 任何一次掃描都會蓋掉別份 map 的截圖，匯入舊 map 會看到最新那次掃描的圖
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    screenshot_path = SCREENSHOTS_DIR / f"{screen_name}.png"
+    scanned_at = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
+    screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
     screenshot_img.save(screenshot_path)
 
     scroll_collected = has_scrollable_content(page_source)
