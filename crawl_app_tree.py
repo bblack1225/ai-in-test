@@ -25,13 +25,20 @@
   7. 預設不啟用風險關鍵字黑名單（--safe_keywords 開啟）。除了第 1 項的 App 外
      功能，其他元件全點。
 
+iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊界、回復機制）只有
+一份；「哪些算可點、是不是同一個畫面、怎麼關對話框、怎麼返回」這些判斷方式
+兩個平台差很多，分別在 IOSCrawlRules / AndroidCrawlRules（見「Android 版的判斷」
+那一段的說明），用 --platform 切換。
+
 輸出：app_map_tree.json（獨立檔，不動 element_map.json）。每掃完一個畫面就
 立刻整份重寫一次，中途中止也不會遺失已爬到的部分。
 
 使用方式：
   1. 手動把 App 導航到子樹根畫面（例如某個 tab 的 landing），保持登入、螢幕解鎖
   2. python crawl_app_tree.py --root_name cathaysec_accounting --max_depth 3 --max_screens 40
+     Android 加 --platform android（App 會用啟動當下前景的那一支）
      先 dry-run 看會點什麼：加 --dry_run（只掃根畫面、列候選、不點）
+  3. 爬蟲期間不要開著 viewer_server.py，同一台裝置同時只能有一條 Appium 連線
 
 注意：預設 scan 時關閉「邊捲邊抓」（scroll=False），只掃每個畫面最頂部一屏，
 因為爬完要立刻用 bounds 去點，捲動收集到的畫面外元件座標點不到。捲動內容的
@@ -47,16 +54,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from appium import webdriver
-from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
+from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
 from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
+from run_test_case import xpath_literal
 from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
 
 OUTPUT_PATH = Path("app_map_tree.json")
-# 爬蟲目前只支援 iOS（骨架簽章、返回、彈窗處理都是照 iOS 寫的），掃描用 iOS 平台
-IOS = IOSPlatform()
 
 # 爬蟲會嘗試點擊的 class（其他一律不點）
 CRAWL_CLASSES = {
@@ -438,10 +444,12 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 
 def tap_candidate(driver, el: dict, screen_height: float) -> bool:
     """重新定位再點（避免用 scan 當下的舊座標）；定位不到才退回座標，且僅當
-    座標落在畫面內。回傳是否真的點了。"""
+    座標落在畫面內。回傳是否真的點了。不捲動找元件（跟 run_test_case 不同）：
+    爬蟲是剛掃完就點，元件就在畫面上，捲動反而會讓之後的座標全部失準。"""
+    platform = RULES.platform
     if el.get("native_id"):
         try:
-            driver.find_element(AppiumBy.ACCESSIBILITY_ID, el["native_id"]).click()
+            driver.find_element(platform.native_by, el["native_id"]).click()
             return True
         except Exception:
             pass
@@ -449,7 +457,7 @@ def tap_candidate(driver, el: dict, screen_height: float) -> bool:
     label = el.get("label", "")
     if label:
         try:
-            matches = driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(el["class"], label))
+            matches = RULES.find_by_class_and_text(driver, el["class"], label)
             if len(matches) == 1:
                 matches[0].click()
                 return True
@@ -459,15 +467,14 @@ def tap_candidate(driver, el: dict, screen_height: float) -> bool:
     b = el["bounds"]
     center_y = b["y"] + b["height"] / 2
     if 0 <= center_y <= screen_height:
-        driver.execute_script(
-            "mobile: tap", {"x": b["x"] + b["width"] / 2, "y": center_y}
-        )
+        platform.tap_by_coordinates(driver, b)
         return True
     return False
 
 
 def go_back(driver) -> None:
-    """依序試：導覽列返回鍵 → 左上角按鈕 → 原生 back → 從左緣往右滑。"""
+    """iOS：依序試：導覽列返回鍵 → 左上角按鈕 → 原生 back → 從左緣往右滑。
+    （iOS 沒有系統返回鍵，只能猜；Android 直接用系統返回鍵，見 AndroidCrawlRules）"""
     try:
         for nav_bar in driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeNavigationBar"):
             buttons = nav_bar.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeButton")
@@ -539,14 +546,14 @@ def reset_and_replay(driver, path: list, state: dict, root_uid: str) -> bool:
     screen_h = driver.get_window_size()["height"]
 
     src = driver.page_source
-    _, current = skeleton_signature(src)
+    _, current = RULES.skeleton(driver, src)
     if current != root_uid:
         print("    [重放路徑] 目前不在根畫面，試著用根畫面的『自我循環』候選當錨點拉回去")
         for anchor in _find_root_noop_anchors(state, root_uid):
             tap_candidate(driver, anchor, screen_h)
             wait_stable(driver, max_wait=1.5)
             src = driver.page_source
-            _, current = skeleton_signature(src)
+            _, current = RULES.skeleton(driver, src)
             if current == root_uid:
                 print(f"    [重放路徑] 用錨點「{anchor.get('label') or anchor.get('native_id')}」成功拉回根畫面")
                 break
@@ -574,14 +581,14 @@ def recover_to(driver, target_uid: str, tries: int = 3,
     最後手段，沒傳就維持原本「猜到底」的行為）。"""
     for i in range(tries):
         src = driver.page_source
-        dismiss_modal(driver, page_source=src)
-        _, current = skeleton_signature(src)
+        RULES.dismiss_modal(driver, page_source=src)
+        _, current = RULES.skeleton(driver, src)
         if current == target_uid:
             return True
-        go_back(driver)
+        RULES.go_back(driver)
         wait_stable(driver, max_wait=1.5)
     src = driver.page_source
-    _, current = skeleton_signature(src)
+    _, current = RULES.skeleton(driver, src)
     if current == target_uid:
         return True
     if path and state is not None:
@@ -589,7 +596,7 @@ def recover_to(driver, target_uid: str, tries: int = 3,
         root_uid = path[0]["screen_uid"]
         if reset_and_replay(driver, path, state, root_uid):
             src = driver.page_source
-            _, current = skeleton_signature(src)
+            _, current = RULES.skeleton(driver, src)
             return current == target_uid
     return False
 
@@ -619,13 +626,334 @@ def _screen_name(skeleton: dict, suggested: str, existing_names: set[str]) -> st
 
 
 # ---------------------------------------------------------------------------
+# Android 版的判斷
+#
+#   跟 iOS 最大的差別：
+#     - 可不可以點直接看 clickable 屬性（系統回報），不用像 iOS 用 class 白名單猜
+#     - 有系統返回鍵，go_back 不用猜導覽列按鈕
+#     - 骨架多一個 current_activity（不同 Activity 一定是不同畫面；但很多 App 整支
+#       只有一個 Activity、靠 Fragment 切畫面，所以只是其中一個特徵，不單獨用）
+#     - 可點的常常是容器（LinearLayout 包一個 TextView），文字在子元件上
+#     - 清單每一列共用同一個 resource-id（掃描時會被降級成沒有 native id），
+#       同模板取樣要改用「畫面上重複出現的 resource-id」當 pattern
+# ---------------------------------------------------------------------------
+
+_ANDROID_TAB_HINTS = ("TabLayout", "BottomNavigationView", "NavigationBarView", "TabWidget")
+_ANDROID_TOOLBAR_HINTS = ("Toolbar", "ActionBar")
+# 系統 AlertDialog 會有的 id（自訂對話框沒有，另外看視窗有沒有蓋滿畫面）
+_ANDROID_DIALOG_IDS = ("android:id/alertTitle", "android:id/message", "android:id/button1", "android:id/button2")
+
+
+def _android_text(a: dict) -> str:
+    """跟掃描時的 label 一樣：content-desc 優先，沒有才用 text"""
+    return (a.get("content-desc") or a.get("text") or "").strip()
+
+
+def _android_native_id(a: dict) -> str:
+    """跟掃描時判斷 native id 一樣：resource-id 等於顯示文字的不算（文字回填，不穩定）"""
+    rid = (a.get("resource-id") or "").strip()
+    if rid and rid != (a.get("text") or "").strip() and rid != (a.get("content-desc") or "").strip():
+        return rid
+    return ""
+
+
+def _android_ui_nodes(root) -> list:
+    """真正的 UI 節點：跳過 <hierarchy> 根節點、displayed=false 的節點"""
+    return [n for n in root.iter()
+            if n.attrib.get("class") not in (None, "", "hierarchy") and n.attrib.get("displayed") != "false"]
+
+
+def _has_ancestor_class(node, parent_map: dict, hints: tuple) -> bool:
+    """node 自己或祖先的 class 名稱含有 hints 其中之一"""
+    while node is not None:
+        if any(h in node.attrib.get("class", "") for h in hints):
+            return True
+        node = parent_map.get(node)
+    return False
+
+
+def _first_text(node) -> str:
+    return next((t for t in (_android_text(n.attrib) for n in node.iter()) if t), "")
+
+
+def android_skeleton_signature(page_source: str, activity: str | None) -> tuple[dict, str]:
+    """
+    iOS 版 skeleton_signature 的 Android 對應：一樣只取穩定資訊、忽略資料，
+    多一個 activity。
+      - native_ids：真正的 resource-id（不是文字回填、不像資料）；清單每列共用的
+        同一個 id 在集合裡只算一次，資料筆數不同不會變成不同畫面
+      - class_histogram：同 iOS 的分桶
+      - selected_tab：分頁容器（TabLayout / BottomNavigationView…）裡 selected=true
+        的項目文字；沒有標準分頁容器的 App（自訂 view）退回用任何 selected=true 的項目
+      - nav_title：Toolbar / ActionBar 裡的標題文字；沒有的話退回用畫面上方
+        resource-id 含 title 的 TextView
+    """
+    root = ET.fromstring(page_source)
+    parent_map = {c: p for p in root.iter() for c in p}
+    try:
+        screen_height = float(root.attrib.get("height", 0))
+    except ValueError:
+        screen_height = 0
+
+    native_ids: set[str] = set()
+    class_counts: dict[str, int] = {}
+    nav_title = title_fallback = None
+    selected_tab = selected_fallback = None
+
+    for node in _android_ui_nodes(root):
+        a = node.attrib
+        cls = a["class"]
+        class_counts[cls] = class_counts.get(cls, 0) + 1
+
+        rid = _android_native_id(a)
+        if rid and not _looks_like_data(rid):
+            native_ids.add(rid)
+
+        text = _android_text(a)
+        if cls.endswith("TextView") and text and not _looks_like_data(text):
+            if nav_title is None and _has_ancestor_class(node, parent_map, _ANDROID_TOOLBAR_HINTS):
+                nav_title = text
+            if title_fallback is None and "title" in (a.get("resource-id") or "").lower():
+                b = parse_bounds(a.get("bounds", ""))
+                if b and (not screen_height or b["y"] < screen_height * 0.2):
+                    title_fallback = text
+
+        if a.get("selected") == "true":
+            label = _first_text(node)
+            if label and not _looks_like_data(label):
+                if selected_tab is None and _has_ancestor_class(node, parent_map, _ANDROID_TAB_HINTS):
+                    selected_tab = label
+                if selected_fallback is None:
+                    selected_fallback = label
+
+    skeleton = {
+        "activity": activity,
+        "native_ids": sorted(native_ids),
+        "class_histogram": {k: _histogram_bucket(v) for k, v in sorted(class_counts.items())},
+        "selected_tab": selected_tab or selected_fallback,
+        "nav_title": nav_title or title_fallback,
+    }
+    canonical = json.dumps(skeleton, sort_keys=True, ensure_ascii=False)
+    screen_uid = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
+    return skeleton, screen_uid
+
+
+def android_chrome_keys(page_source: str, screen_height: float) -> set[tuple[str, str]]:
+    """iOS 版 persistent_chrome_keys 的 Android 對應：分頁容器（TabLayout /
+    BottomNavigationView…）裡的元件，加上畫面最上緣 / 最下緣的可點元件。
+    key 是 (class, native id 或自己的文字)，跟 crawl_screen 裡 el_ident 的算法一致。"""
+    root = ET.fromstring(page_source)
+    parent_map = {c: p for p in root.iter() for c in p}
+    keys: set[tuple[str, str]] = set()
+    for node in _android_ui_nodes(root):
+        a = node.attrib
+        ident = _android_native_id(a) or _android_text(a)
+        if not ident:
+            continue
+        if _has_ancestor_class(node, parent_map, _ANDROID_TAB_HINTS):
+            keys.add((a["class"], ident))
+            continue
+        if a.get("clickable") != "true":
+            continue
+        b = parse_bounds(a.get("bounds", ""))
+        if b is None:
+            continue
+        cy = b["y"] + b["height"] / 2
+        if cy <= screen_height * CHROME_TOP_FRACTION or cy >= screen_height * CHROME_BOTTOM_FRACTION:
+            keys.add((a["class"], ident))
+    return keys
+
+
+def _android_is_dialog(page_source: str) -> bool:
+    """畫面上是不是對話框：系統 AlertDialog 的 id，或最上層視窗沒有蓋滿畫面
+    （自訂對話框，例如「主機無法連線」那種置中的框）"""
+    if any(i in page_source for i in _ANDROID_DIALOG_IDS):
+        return True
+    try:
+        root = ET.fromstring(page_source)
+        screen_area = float(root.attrib["width"]) * float(root.attrib["height"])
+    except (ET.ParseError, KeyError, ValueError):
+        return False
+    window = next((n for n in root if n.attrib.get("class") not in (None, "", "hierarchy")), None)
+    b = parse_bounds(window.attrib.get("bounds", "")) if window is not None else None
+    return bool(b and screen_area and b["width"] * b["height"] < screen_area * 0.85)
+
+
+def _android_find_by_texts(driver, texts: list[str]) -> list:
+    conds = " or ".join(f"@text={xpath_literal(t)} or @content-desc={xpath_literal(t)}" for t in texts)
+    try:
+        return driver.find_elements(AppiumBy.XPATH, f"//*[{conds}]")
+    except Exception:
+        return []
+
+
+def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+    """iOS 版 dismiss_modal 的 Android 對應：先找「純關閉」語意的按鈕；找不到、
+    且畫面確定是對話框時，才點「確定 / OK」這類確認語意的。永遠不點 NEVER_TAP_LABELS。
+    快篩：沒有任何 modal 線索、也不是對話框，就不做任何裝置查詢。"""
+    if (page_source is not None and not any(m in page_source for m in _MODAL_HINT_MARKERS)
+            and not _android_is_dialog(page_source)):
+        return []
+
+    dismissed: list[str] = []
+    for _ in range(max_rounds):
+        matches = _android_find_by_texts(driver, MODAL_DISMISS_LABELS)
+        if not matches:
+            try:
+                is_dialog = _android_is_dialog(driver.page_source)
+            except Exception:
+                is_dialog = False
+            if is_dialog:
+                matches = _android_find_by_texts(driver, MODAL_ACK_ONLY_LABELS)
+        if not matches:
+            break
+        element = matches[0]
+        try:
+            target = ((element.get_attribute("text") or element.get_attribute("content-desc")) or "").strip()
+            if target in NEVER_TAP_LABELS:
+                break
+            element.click()
+            dismissed.append(target or "?")
+            wait_stable(driver)
+        except Exception:
+            break
+    return dismissed
+
+
+class _AndroidScreenAnalysis:
+    """一個畫面的 page_source 解析一次，給 crawl_screen 判斷每個元件用"""
+
+    def __init__(self, page_source: str):
+        root = ET.fromstring(page_source)
+        self._by_bounds: dict[tuple, object] = {}
+        self._rid_counts: dict[tuple, int] = {}
+        for node in _android_ui_nodes(root):
+            a = node.attrib
+            b = parse_bounds(a.get("bounds", ""))
+            if b is None:
+                continue
+            self._by_bounds.setdefault((a["class"], b["x"], b["y"], b["width"], b["height"]), node)
+            rid = a.get("resource-id")
+            if rid:
+                self._rid_counts[(a["class"], rid)] = self._rid_counts.get((a["class"], rid), 0) + 1
+
+    def _node(self, el: dict):
+        b = el["bounds"]
+        return self._by_bounds.get((el["class"], b["x"], b["y"], b["width"], b["height"]))
+
+    def is_candidate(self, el: dict) -> bool:
+        return bool(el.get("clickable"))
+
+    def text(self, el: dict) -> str:
+        """元件自己沒有文字時（可點的容器），用子孫的文字代表它"""
+        if el.get("label"):
+            return el["label"]
+        node = self._node(el)
+        if node is None:
+            return ""
+        texts = [t for t in (_android_text(n.attrib) for n in node.iter()) if t]
+        return " ".join(dict.fromkeys(texts))[:60]
+
+    def pattern(self, el: dict) -> str:
+        """有編號的 native id 照 iOS 的方式去掉編號；清單每列共用的 resource-id
+        （掃描時已降級成沒有 native id）就用那個 id 本身當 pattern"""
+        pat = _candidate_pattern(el)
+        if pat or el.get("native_id"):
+            return pat
+        node = self._node(el)
+        rid = node.attrib.get("resource-id") if node is not None else ""
+        if rid and self._rid_counts.get((el["class"], rid), 0) > 1:
+            return rid
+        return ""
+
+
+class _IOSScreenAnalysis:
+    def __init__(self, page_source: str):
+        # 「看起來可點的 StaticText」（分頁列 / 選單項目常見，見 interactive_statictext_keys）
+        self._interactive_st = interactive_statictext_keys(page_source)
+
+    def is_candidate(self, el: dict) -> bool:
+        el_ident = el.get("native_id") or el.get("label", "")
+        return el["class"] in CRAWL_CLASSES or (el["class"], el_ident) in self._interactive_st
+
+    def text(self, el: dict) -> str:
+        return el.get("label", "")
+
+    def pattern(self, el: dict) -> str:
+        return _candidate_pattern(el)
+
+
+class IOSCrawlRules:
+    """iOS 的爬蟲判斷：就是本檔案原本的那些函式"""
+    platform_class = IOSPlatform
+
+    def __init__(self):
+        self.platform = self.platform_class()
+
+    def default_app_id(self, driver) -> str | None:
+        return DESIRED_CAPS.get("bundleId")
+
+    def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
+        return skeleton_signature(page_source)
+
+    def analyze(self, page_source: str):
+        return _IOSScreenAnalysis(page_source)
+
+    def chrome_keys(self, page_source: str, screen_height: float) -> set:
+        return persistent_chrome_keys(page_source, screen_height)
+
+    def dismiss_modal(self, driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+        return dismiss_modal(driver, max_rounds, page_source)
+
+    def go_back(self, driver) -> None:
+        go_back(driver)
+
+    def find_by_class_and_text(self, driver, class_name: str, label: str) -> list:
+        return driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(class_name, label))
+
+
+class AndroidCrawlRules(IOSCrawlRules):
+    platform_class = AndroidPlatform
+
+    def default_app_id(self, driver) -> str | None:
+        # ANDROID_DESIRED_CAPS 沒有指定 App，爬蟲是接手目前畫面，所以用啟動當下前景的 App
+        return driver.current_package
+
+    def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
+        try:
+            activity = driver.current_activity
+        except Exception:
+            activity = None
+        return android_skeleton_signature(page_source, activity)
+
+    def analyze(self, page_source: str):
+        return _AndroidScreenAnalysis(page_source)
+
+    def chrome_keys(self, page_source: str, screen_height: float) -> set:
+        return android_chrome_keys(page_source, screen_height)
+
+    def dismiss_modal(self, driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+        return android_dismiss_modal(driver, max_rounds, page_source)
+
+    def go_back(self, driver) -> None:
+        driver.back()
+
+    def find_by_class_and_text(self, driver, class_name: str, label: str) -> list:
+        return driver.find_elements(AppiumBy.XPATH, _text_xpath(class_name, label))
+
+
+CRAWL_RULES = {"ios": IOSCrawlRules, "android": AndroidCrawlRules}
+RULES = IOSCrawlRules()  # main() 依 --platform 換掉
+
+
+# ---------------------------------------------------------------------------
 # 遞迴爬
 # ---------------------------------------------------------------------------
 
 def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: dict | None,
                   path: list, depth: int, cfg: dict, state: dict) -> str:
     src = driver.page_source
-    dismissed = dismiss_modal(driver, page_source=src)
+    dismissed = RULES.dismiss_modal(driver, page_source=src)
     if dismissed:
         print(f"  [關掉對話框] {dismissed}")
         state["skipped"].append({"screen_uid": None, "reason": "dismissed_modal", "buttons": dismissed})
@@ -635,7 +963,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
     if logout:
         raise CrawlAborted(f"深度 {depth}：page_source 出現「{logout}」，判定已被登出")
 
-    skeleton, uid = skeleton_signature(src)
+    skeleton, uid = RULES.skeleton(driver, src)
 
     via_uid = entry_el["unique_id"] if entry_el else None
     via_label = (entry_el or {}).get("label", "")
@@ -658,7 +986,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
 
     print(f"\n[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
           f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
-    screen_data = scan_screen(IOS, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
+    screen_data = scan_screen(RULES.platform, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
                                page_source=src)
 
     record = {
@@ -693,22 +1021,19 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
     # 常駐框架（頂部導覽列 / 底部 tab bar）預設在所有深度都排除；
     # --include_nav 且 depth==0 時保留，讓底部導覽當 level-1 子節點（整支 App 爬）
     exclude_chrome = not (cfg["include_nav"] and depth == 0)
-    chrome_keys = persistent_chrome_keys(src, screen_h) if exclude_chrome else set()
+    chrome_keys = RULES.chrome_keys(src, screen_h) if exclude_chrome else set()
 
-    # class 是 Button/Cell/SegmentedControl，或是「看起來可點的 StaticText」（分頁列 /
-    # 選單項目常見，見 interactive_statictext_keys）
-    interactive_st = interactive_statictext_keys(src)
+    # 哪些元件算可點、元件的顯示文字、同模板 pattern：平台判斷方式不同（見
+    # IOSCrawlRules / AndroidCrawlRules 的 analyze）
+    analysis = RULES.analyze(src)
 
     seen_candidate_keys: set = set()
     candidates = []
     for el in screen_data["elements"]:
         el_ident = el.get("native_id") or el.get("label", "")
-        if el["class"] in CRAWL_CLASSES:
-            pass
-        elif (el["class"], el_ident) in interactive_st:
-            pass
-        else:
+        if not analysis.is_candidate(el):
             continue
+        el_text = analysis.text(el)
         b = el["bounds"]
         cy = b["y"] + b["height"] / 2
         # 常駐框架排除：先看位置（畫面最上/最下緣，抓得到沒有 identifier 的
@@ -723,10 +1048,10 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
                 "label": el_ident,
             })
             continue
-        if el.get("label", "").strip() in NEVER_TAP_LABELS or (el.get("native_id") or "").strip() in NEVER_TAP_LABELS:
+        if el_text.strip() in NEVER_TAP_LABELS or (el.get("native_id") or "").strip() in NEVER_TAP_LABELS:
             state["skipped"].append({
                 "screen_uid": uid, "element_uid": el["unique_id"], "reason": "never_tap",
-                "label": el.get("label", ""),
+                "label": el_text,
             })
             continue
         # 去重：XCUITest tree 偶爾把同一個元件回報兩次（同 class+label+座標）
@@ -735,26 +1060,29 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
         if dedup_key in seen_candidate_keys:
             continue
         seen_candidate_keys.add(dedup_key)
-        if looks_external(el):
+        # el_text：iOS 就是元件自己的 label；Android 可點的常常是容器，文字在子元件上，
+        # 要把子孫文字一起算進來，不然「登出」「撥打客服」這種包在容器裡的會漏判
+        text_el = {**el, "label": el_text}
+        if looks_external(text_el):
             state["skipped"].append({
                 "screen_uid": uid, "element_uid": el["unique_id"], "reason": "external_hint",
-                "label": el.get("label", ""),
+                "label": el_text,
             })
             continue
-        if cfg["safe_keywords"] and _hits_risky_keyword(el):
+        if cfg["safe_keywords"] and _hits_risky_keyword(text_el):
             state["skipped"].append({
                 "screen_uid": uid, "element_uid": el["unique_id"], "reason": "risky_keyword",
-                "label": el.get("label", ""),
+                "label": el_text,
             })
             continue
         center_y = el["bounds"]["y"] + el["bounds"]["height"] / 2
         if not (0 <= center_y <= screen_h):
             state["skipped"].append({
                 "screen_uid": uid, "element_uid": el["unique_id"], "reason": "offscreen",
-                "label": el.get("label", ""),
+                "label": el_text,
             })
             continue
-        candidates.append(el)
+        candidates.append(text_el)
 
     print(f"  {len(candidates)} 個候選可點"
           + ("（dry-run：只列不點）" if cfg["dry_run"] else ""))
@@ -776,7 +1104,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
 
         # 同模板取樣：連續 N 個同 pattern（如 QuoteDataCell_0_0/_1_0/…）都導到同一個
         # 畫面，剩下的就不逐一點了（帳號被登出/風控前，也少戳幾下）
-        pat = _candidate_pattern(el)
+        pat = analysis.pattern(el)
         if pat and pattern_tries.get(pat, 0) >= cfg["sample_per_pattern"] and len(pattern_children.get(pat, set())) <= 1:
             state["skipped"].append({
                 "screen_uid": uid, "element_uid": el["unique_id"], "reason": "pattern_sampled",
@@ -795,7 +1123,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
         wait_stable(driver, max_wait=1.5)
 
         after_src = driver.page_source
-        modal_after = dismiss_modal(driver, page_source=after_src)
+        modal_after = RULES.dismiss_modal(driver, page_source=after_src)
         if modal_after:
             print(f"    [點擊後關掉對話框] {modal_after}")
             after_src = driver.page_source
@@ -825,7 +1153,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
         if logout:
             raise CrawlAborted(f"點擊「{label}」後 page_source 出現「{logout}」，判定已被登出")
 
-        _, child_uid = skeleton_signature(after_src)
+        _, child_uid = RULES.skeleton(driver, after_src)
         pattern_tries[pat] = pattern_tries.get(pat, 0) + 1 if pat else 0
         if pat:
             pattern_children.setdefault(pat, set()).add(child_uid)
@@ -853,7 +1181,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
 
 # 舊 crawl_app.py 的風險關鍵字（--safe_keywords 才啟用）
 _RISKY_KEYWORDS = [
-    "登出", "退出", "刪除", "確認", "送出", "付款", "繳費", "驗證", "提交",
+    "登出", "退出", "離開", "刪除", "確認", "送出", "付款", "繳費", "驗證", "提交",
     "清除", "解除", "停用", "取消", "解約", "重設", "重置", "匯款", "轉帳",
     "投保", "申請", "購買", "下單", "簽署", "同意", "買進", "賣出", "改價",
     "刪單", "圈存", "生物辨識", "指紋", "Face",
@@ -899,8 +1227,17 @@ def main():
     parser.add_argument("--sample_per_pattern", type=int, default=3,
                          help="同 name pattern（如 QuoteDataCell_*）點過 N 個都導到同一畫面，"
                               "就跳過其餘同 pattern 的候選（預設 3；設 0 關閉取樣）")
-    parser.add_argument("--bundle_id", default=DESIRED_CAPS.get("bundleId"))
+    parser.add_argument("--platform", choices=sorted(CRAWL_RULES), default="ios", help="裝置平台（預設 ios）")
+    parser.add_argument("--bundle_id", default=None,
+                         help="App 的 bundle id（iOS）／package（Android），用來判斷有沒有跑出 App；"
+                              "預設 iOS 讀 test_config，Android 用啟動當下前景的 App")
     args = parser.parse_args()
+
+    global RULES
+    RULES = CRAWL_RULES[args.platform]()
+    driver = webdriver.Remote(APPIUM_SERVER_URL, options=RULES.platform.make_options())
+    bundle_id = args.bundle_id or RULES.default_app_id(driver)
+    print(f"[爬蟲] 平台：{RULES.platform.name}，App：{bundle_id}")
 
     cfg = {
         "root_name": args.root_name,
@@ -911,9 +1248,11 @@ def main():
         "dry_run": args.dry_run,
         "include_nav": args.include_nav,
         "sample_per_pattern": args.sample_per_pattern if args.sample_per_pattern > 0 else 10 ** 9,
-        "bundle_id": args.bundle_id,
+        "bundle_id": bundle_id,
         "meta": {
-            "bundle_id": args.bundle_id,
+            # app_map_viewer.html 讀這個欄位判斷地圖是哪個平台
+            "platform": RULES.platform.name,
+            "bundle_id": bundle_id,
             "crawled_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "root_name": args.root_name,
             "max_depth": args.max_depth,
@@ -925,8 +1264,6 @@ def main():
         },
     }
 
-    options = XCUITestOptions().load_capabilities(DESIRED_CAPS)
-    driver = webdriver.Remote(APPIUM_SERVER_URL, options=options)
     try:
         crawl(driver, cfg)
     finally:

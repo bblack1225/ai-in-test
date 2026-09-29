@@ -18,10 +18,8 @@
 
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
 
-**iOS 專用**
-- `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖（Android 還不支援）
-
 **iOS / Android 共用（用 `--platform` 切換）**
+- `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
 - `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述，`--platform ios|android`
 - `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
 - `platforms/` — iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
@@ -265,9 +263,10 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
 - 對應的程式：`capture_screen_map.py --platform android`／`run_test_case.py --platform android`／
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
-  iOS 一樣用 `app_map_viewer.html`。`crawl_app_tree.py` 目前只有 iOS 版，
-  Android 的地圖要用「手動建樹」建立（建立主節點 → 對目前畫面掃描 → 點元件
-  新增子節點）
+  iOS 一樣用 `app_map_viewer.html`。地圖可以用
+  `crawl_app_tree.py --platform android` 自動爬（先加 `--dry_run --safe_keywords`
+  看會點哪些），或用「手動建樹」建立。Android 爬蟲目前只做過離線驗證
+  （用真實畫面 XML），還沒有在能正常使用的 App 上實際爬過
 
 ---
 
