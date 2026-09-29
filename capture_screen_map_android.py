@@ -611,13 +611,19 @@ def describe_generated_elements(screen_name: str, screenshot_png: bytes, screens
 # 6. 主流程：掃描一個畫面，產生完整元件地圖資料
 # ---------------------------------------------------------------------------
 
-def scan_screen(driver, screen_name: str) -> dict:
+def scan_screen(driver, screen_name: str, describe: bool = True, scroll: bool = True,
+                wait_stable: bool = True) -> dict:
+    """
+    掃描目前畫面，產出完整元件地圖資料。describe/scroll/wait_stable 的意義跟
+    iOS 版（capture_screen_map.scan_screen）相同，預設都是 True（維持原本行為）；
+    viewer_server 的 /scan_screen 會依使用者勾選傳 False 跳過 LLM 描述或捲動收集。
+    """
     print(f"開始掃描畫面: {screen_name}")
 
     window_size = driver.get_window_size()
     screen_width, screen_height = window_size["width"], window_size["height"]
 
-    is_stable = wait_for_screen_stable(driver, screen_width, screen_height)
+    is_stable = wait_for_screen_stable(driver, screen_width, screen_height) if wait_stable else None
 
     page_source, screenshot_png = capture_screen(driver)
     screenshot_img = Image.open(io.BytesIO(screenshot_png))
@@ -637,7 +643,7 @@ def scan_screen(driver, screen_name: str) -> dict:
     screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
     screenshot_img.save(screenshot_path)
 
-    scroll_collected = has_scrollable_content(page_source)
+    scroll_collected = has_scrollable_content(page_source) and scroll
     if scroll_collected:
         print("  [偵測到可捲動內容] 開始邊捲邊抓，收集完整清單...")
         raw_candidates, round_screenshots = collect_candidates_with_scroll(driver, screen_width, screen_height)
@@ -652,7 +658,8 @@ def scan_screen(driver, screen_name: str) -> dict:
     generated_elements = [el for el in candidates if not el["native_id"]]
     print(f"  有native id: {len(native_elements)} 個 / 無id: {len(generated_elements)} 個")
 
-    native_descriptions = describe_native_elements(screen_name, native_elements)
+    description_source = "llm_generated" if describe else "skipped"
+    native_descriptions = describe_native_elements(screen_name, native_elements) if describe else {}
 
     result_elements = []
     for el in native_elements:
@@ -670,7 +677,7 @@ def scan_screen(driver, screen_name: str) -> dict:
             "checkable": el["checkable"],
             "enabled": el["enabled"],
             "description": native_descriptions.get(description_key, ""),
-            "description_source": "llm_generated",
+            "description_source": description_source,
             "status": "active",
         })
 
@@ -687,7 +694,7 @@ def scan_screen(driver, screen_name: str) -> dict:
         temp_ids = [f"e{round_index}_{i}" for i in range(len(round_elements))]
         generated_descriptions = describe_generated_elements(
             screen_name, round_screenshot_png, not screenshot_blocked, round_elements, temp_ids
-        )
+        ) if describe else {}
 
         for tid, el in zip(temp_ids, round_elements):
             description = generated_descriptions.get(tid, "")
@@ -729,7 +736,7 @@ def scan_screen(driver, screen_name: str) -> dict:
                 "enabled": el["enabled"],
                 "fingerprint": fingerprint,
                 "description": description,
-                "description_source": "llm_generated",
+                "description_source": description_source,
                 "screenshot_crop": str(crop_path) if crop_path else None,
                 "status": "active",
             })

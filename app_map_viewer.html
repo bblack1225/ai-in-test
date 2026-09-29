@@ -369,7 +369,8 @@
       <h1>樹精靈Demo 畫面地圖</h1>
       <div class="meta-line">
         <span class="mono" id="bundleId"></span> · 掃描時間 <span class="mono" id="crawledAt"></span> ·
-        根畫面 <span class="mono" id="rootName"></span> · max_depth <span class="mono" id="maxDepth"></span>
+        根畫面 <span class="mono" id="rootName"></span> · max_depth <span class="mono" id="maxDepth"></span> ·
+        平台 <span class="mono" id="mapPlatform"></span>
       </div>
     </div>
     <div class="stat-row">
@@ -615,6 +616,76 @@
     if (currentMapFileName) return currentMapFileName + " " + count;
     return screens.length ? "頁面內嵌的地圖 " + count : "（地圖檢視還沒載入地圖）";
   }
+  // ---------------------------------------------------------------
+  // 平台（iOS／Android）：地圖自己記錄是哪個平台掃出來的（app.platform），
+  // 舊地圖沒有這個欄位就從元件 class 推斷——iOS 是 XCUIElementTypeXxx，
+  // Android 是 android.widget.Xxx 這種完整路徑
+  // ---------------------------------------------------------------
+  function inferPlatformFromClasses(classes) {
+    for (var i = 0; i < classes.length; i++) {
+      var c = classes[i] || "";
+      if (c.indexOf("XCUIElementType") === 0) return "ios";
+      if (c.indexOf(".") !== -1) return "android";
+    }
+    return null;
+  }
+  function mapPlatform() {
+    if (app && app.platform) return app.platform;
+    var classes = [];
+    screens.forEach(function (s) { (s.els || []).forEach(function (el) { classes.push(el.c); }); });
+    return inferPlatformFromClasses(classes);
+  }
+  // 上傳的 element_map.json（全名欄位）：Android 掃描會帶 platform，iOS 舊資料沒有就看 class
+  function elementMapPlatform(elementMap) {
+    var classes = [];
+    var list = (elementMap && elementMap.screens) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].platform) return list[i].platform;
+      (list[i].elements || []).forEach(function (el) { classes.push(el.class); });
+    }
+    return inferPlatformFromClasses(classes);
+  }
+  function platformName(p) { return p === "android" ? "Android" : p === "ios" ? "iOS" : "未知"; }
+  function shortClass(c) {
+    c = c || "";
+    return c.indexOf("XCUIElementType") === 0 ? c.slice("XCUIElementType".length) : c.split(".").pop();
+  }
+  // /ping 回傳伺服器目前接的平台（viewer_server.py --platform），舊版伺服器沒有這個欄位就是 null
+  async function fetchServerPlatform(base) {
+    var res = await fetch(base + "/ping");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return (await res.json()).platform || null;
+  }
+  // 操作手機前先確認資料的平台跟伺服器接的手機一致：兩邊定位規則完全不同，
+  // 硬送過去不只會找不到元件，座標備援還可能在錯的手機上亂點
+  async function assertPlatformMatches(base, dataPlatform) {
+    var serverPlatform = await fetchServerPlatform(base);
+    if (dataPlatform && serverPlatform && dataPlatform !== serverPlatform) {
+      var err = new Error("資料是 " + platformName(dataPlatform) + "，但 viewer_server 目前接的是 " +
+        platformName(serverPlatform) + "，請改用 --platform " + dataPlatform + " 重新啟動伺服器");
+      err.platformMismatch = true;
+      throw err;
+    }
+    return serverPlatform;
+  }
+  // 失敗訊息：平台不符不是連線問題，不要套「伺服器有啟動嗎？」這種提示誤導
+  function failText(prefix, err, hint) {
+    return err.platformMismatch ? "⚠️ " + err.message : prefix + "：" + err.message + hint;
+  }
+  async function renderServerStatus(base, statusEl, dataPlatform) {
+    statusEl.textContent = "檢查中…"; statusEl.className = "conn-status unknown";
+    try {
+      var serverPlatform = await fetchServerPlatform(base);
+      var mismatch = dataPlatform && serverPlatform && dataPlatform !== serverPlatform;
+      statusEl.textContent = mismatch
+        ? "已連線，但伺服器接的是 " + platformName(serverPlatform) + "，資料是 " + platformName(dataPlatform)
+        : "已連線（" + platformName(serverPlatform) + "）";
+      statusEl.className = "conn-status " + (mismatch ? "offline" : "online");
+    } catch (err) {
+      statusEl.textContent = "連不上"; statusEl.className = "conn-status offline";
+    }
+  }
+
   var svg = document.getElementById("tree");
 
   function key(su, eu) { return su + "\x01" + eu; }
@@ -634,6 +705,7 @@
     document.getElementById("bundleId").textContent = app.bundle_id;
     document.getElementById("crawledAt").textContent = app.crawled_at;
     document.getElementById("rootName").textContent = app.root_name;
+    document.getElementById("mapPlatform").textContent = platformName(mapPlatform());
     document.getElementById("maxDepth").textContent = app.max_depth;
     document.getElementById("statScreens").textContent = screens.length;
     document.getElementById("statTree").textContent = edges.filter(function (e) { return e.kind === "tree"; }).length;
@@ -955,7 +1027,7 @@
       }
       html += "<tr>" +
         '<td class="cls"><span class="status-dot ' + dotClass + '"></span>' + tag + "</td>" +
-        '<td class="cls">' + escapeHtml((el.c || "").replace("XCUIElementType", "")) + "</td>" +
+        '<td class="cls">' + escapeHtml(shortClass(el.c)) + "</td>" +
         '<td class="lbl">' + escapeHtml(describeElement(el)) +
         (el.n && el.l ? '<span class="native">' + escapeHtml(el.l) + "</span>" : "") + "</td>" +
         '<td class="lbl">' + (el.d ? escapeHtml(el.d) : '<span style="color:var(--ink-soft);font-style:italic;">（沒有描述）</span>') + "</td>" +
@@ -1041,6 +1113,7 @@
     document.getElementById("createRootBtn").addEventListener("click", function () {
       var name = (document.getElementById("rootNodeName").value || "").trim() || "root_screen";
       if (screens.length !== 0) { alert("地圖已經有節點了，不需要再建立主節點。"); return; }
+      delete app.platform;
       var newUid = "root_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       var newScreen = {
         uid: newUid, name: name, parent: null, entry: null, depth: 0, path: [],
@@ -1060,10 +1133,15 @@
   }
 
   function toShortEl(el) {
-    return { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible, d: el.description || "", src: el.id_source, b: el.bounds };
+    return { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds };
+  }
+
+  function rememberMapPlatform(screenData) {
+    if (!app.platform && screenData.platform) app.platform = screenData.platform;
   }
 
   function applyScanResultToBlankScreen(s, screenData) {
+    rememberMapPlatform(screenData);
     s.els = (screenData.elements || []).map(toShortEl);
     s.screenshot = screenData.screenshot || null;
     s.w = screenData.screen_width || null;
@@ -1082,6 +1160,7 @@
     resultEl.className = "tap-result pending";
     resultEl.textContent = "掃描中，元件多或畫面有可捲動內容時可能要等一段時間…";
     try {
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/scan_screen", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll })
@@ -1092,7 +1171,7 @@
       rebuildAll();
       selectScreen(s.uid);
     } catch (err) {
-      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server.py 有啟動嗎？手機是否已經停在這個新畫面？）";
+      resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個新畫面？）");
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1157,7 +1236,7 @@
     html += '<div><span class="section-label">元件明細（' + s.els.length + '，可搜尋）</span>';
     html += '<input class="search-box" type="text" placeholder="搜尋 class / native_id / label…" id="elSearch">';
     html += '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);margin-top:6px;">' +
-      '<input type="checkbox" id="elClickableOnly"> 只顯示可點擊元件（accessible=true，跟畫面上實際可互動的元件大致相符，但不是100%精準）</label>';
+      '<input type="checkbox" id="elClickableOnly"> 只顯示可點擊元件（iOS accessible／Android clickable=true，跟畫面上實際可互動的元件大致相符，但不是100%精準）</label>';
     html += '<div id="elTableHost" style="margin-top:6px;">' + renderElementTable(s, "", false) + "</div>";
     html += "</div>";
 
@@ -1190,6 +1269,7 @@
     resultEl.className = "tap-result pending";
     resultEl.textContent = "掃描中，元件多或畫面有可捲動內容時可能要等一段時間…";
     try {
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/scan_screen", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll })
@@ -1219,6 +1299,7 @@
         return;
       }
 
+      rememberMapPlatform(data.screen_data);
       s.els = newEls;
       s.screenshot = data.screen_data.screenshot || null;
       s.w = data.screen_data.screen_width || null;
@@ -1228,7 +1309,7 @@
       rebuildAll();
       selectScreen(s.uid);
     } catch (err) {
-      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server.py 有啟動嗎？手機是否已經停在這個畫面？）";
+      resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個畫面？）");
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1309,7 +1390,7 @@
       row.className = "modal-list-row" + (el.u === modalPickedUid ? " picked" : "");
       row.innerHTML =
         '<div class="row-top">' +
-        '<span>' + escapeHtml((el.c || "").replace("XCUIElementType", "")) + "</span>" +
+        '<span>' + escapeHtml(shortClass(el.c)) + "</span>" +
         (el.n ? "<span>· " + escapeHtml(el.n) + "</span>" : "") +
         "</div>" +
         '<div class="row-desc">' + escapeHtml(el.d || el.l || "（無描述）") + "</div>";
@@ -1341,16 +1422,23 @@
     if (el.custom_xpath) out.custom_xpath = el.custom_xpath;
     return out;
   }
+  // 比照 run_test_case.py／run_test_case_android.py 實際執行時組的查詢：
+  // iOS 查 @label；Android 沒有 label 屬性，text 跟 content-desc 都要試
+  function textCondition(label) {
+    var literal = xpathLiteral(label);
+    return mapPlatform() === "android" ? "@text=" + literal + " or @content-desc=" + literal : "@label=" + literal;
+  }
   function computeLocatorShort(el) {
     if (el.custom_xpath) return { type: "xpath", custom: true, text: el.custom_xpath, rawXPath: el.custom_xpath };
-    if (el.src === "native") return { type: "id", text: "accessibility id: " + el.n };
+    if (el.src === "native") return { type: "id", text: (mapPlatform() === "android" ? "resource-id: " : "accessibility id: ") + el.n };
     var label = el.l || "";
     if (!label) return { type: "coordinate", text: "label為空，無法組出XPath，執行時會直接退回座標點擊備援" };
-    var xpath = "//" + el.c + "[@label=" + xpathLiteral(label) + "]";
+    var xpath = "//" + el.c + "[" + textCondition(label) + "]";
     return { type: "xpath", text: xpath, rawXPath: xpath };
   }
   function buildAncestorTemplateShort(el, ancestor) {
-    var targetCond = "@label=" + xpathLiteral(el.l || "");
+    var targetCond = textCondition(el.l || "");
+    if (ancestor.resource_id) return '//*[@resource-id="' + ancestor.resource_id + '"]//' + el.c + "[" + targetCond + "]";
     if (ancestor.name) return '//*[@name="' + ancestor.name + '"]//' + el.c + "[" + targetCond + "]";
     return "//" + ancestor.class + "//" + el.c + "[" + targetCond + "]";
   }
@@ -1358,6 +1446,7 @@
     resultEl.textContent = "讀取中..."; resultEl.className = "xpath-editor-result";
     try {
       var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -1370,14 +1459,18 @@
       data.ancestors.forEach(function (a) {
         var opt = document.createElement("option");
         opt.value = JSON.stringify(a);
-        var idPart = a.name ? (" name=" + a.name) : (a.label ? (' label="' + a.label + '"') : "");
-        opt.textContent = "第" + a.level + "層 " + a.class + idPart;
+        // iOS 回傳 name/label，Android 回傳 resource_id/text/content_desc
+        var text = a.label || a.text || a.content_desc;
+        var idPart = a.resource_id ? (" resource-id=" + a.resource_id)
+          : a.name ? (" name=" + a.name)
+          : text ? (' text="' + text + '"') : "";
+        opt.textContent = "第" + a.level + "層 " + shortClass(a.class) + idPart;
         selectEl.appendChild(opt);
       });
       resultEl.textContent = "已載入 " + data.ancestors.length + " 層上層元素，選一層會自動帶入建議查詢";
       resultEl.className = "xpath-editor-result";
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
+      resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
       resultEl.className = "xpath-editor-result error";
     }
   }
@@ -1386,6 +1479,7 @@
     resultEl.textContent = "測試中..."; resultEl.className = "xpath-editor-result";
     try {
       var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/test_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ xpath: xpath }) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -1394,7 +1488,7 @@
       resultEl.textContent = "查到 " + data.count + " 個結果" + suffix;
       resultEl.className = "xpath-editor-result " + (data.count === 1 ? "pass" : "fail");
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
+      resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
       resultEl.className = "xpath-editor-result error";
     }
   }
@@ -1402,6 +1496,7 @@
     resultEl.textContent = "AI生成中，可能需要幾次嘗試，請稍候..."; resultEl.className = "xpath-editor-result";
     try {
       var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/agent_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -1416,17 +1511,17 @@
         resultEl.className = "xpath-editor-result error";
       }
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（GEMINI_API_KEY 有設定嗎？）";
+      resultEl.textContent = failText("連線失敗", err, "（GEMINI_API_KEY 有設定嗎？）");
       resultEl.className = "xpath-editor-result error";
     }
   }
 
   function renderModalPickedAddNode(el, host) {
-    var suggestedName = (modalScreen.name + "_" + (el.n || el.l || el.c.replace("XCUIElementType", "") || "child"))
+    var suggestedName = (modalScreen.name + "_" + (el.n || el.l || shortClass(el.c) || "child"))
       .replace(/[^\w一-鿿]+/g, "_").slice(0, 40);
     host.innerHTML =
       '<div class="picked-panel">' +
-      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml((el.c || "").replace("XCUIElementType", "")) + "</span></div>" +
+      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml(shortClass(el.c)) + "</span></div>" +
       '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(el.n || "—") + "</span></div>" +
       '<div class="pk-row"><b>描述</b><span>' + escapeHtml(el.d || "—") + "</span></div>" +
       '<div class="field-row" style="margin-top:8px;flex-direction:column;align-items:stretch;">' +
@@ -1457,6 +1552,7 @@
     var payload = { unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c, label: el.l, value: el.v, bounds: el.b };
     if (el.custom_xpath) payload.custom_xpath = el.custom_xpath;
     try {
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/tap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -1483,7 +1579,7 @@
       closeModal();
       selectScreen(newUid);
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
+      resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1496,7 +1592,7 @@
     var locatorTypeLabel = locator.custom ? "XPath(自訂)" : { id: "id", xpath: "XPath", coordinate: "座標" }[locator.type];
     host.innerHTML =
       '<div class="picked-panel">' +
-      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml((el.c || "").replace("XCUIElementType", "")) + "</span></div>" +
+      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml(shortClass(el.c)) + "</span></div>" +
       '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(el.n || "—") + "</span></div>" +
       '<div class="pk-row"><b>描述</b><span>' + escapeHtml(el.d || "—") + "</span></div>" +
       '<div class="el-locator' + (locator.custom ? " custom" : "") + '"><span class="locator-type">' + locatorTypeLabel + "</span>" + escapeHtml(locator.text) + "</div>" +
@@ -1554,13 +1650,14 @@
     var payload = { unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c, label: el.l, value: el.v, bounds: el.b };
     if (el.custom_xpath) payload.custom_xpath = el.custom_xpath;
     try {
+      await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/tap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
       resultEl.textContent = data.result;
       resultEl.className = "tap-result " + (String(data.result).indexOf("PASS") === 0 ? "pass" : "fail");
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
+      resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
       resultEl.className = "tap-result fail";
     } finally {
       btn.disabled = false;
@@ -1568,16 +1665,8 @@
   }
 
   document.getElementById("modalServerCheckBtn").addEventListener("click", async function () {
-    var statusEl = document.getElementById("modalServerStatus");
-    statusEl.textContent = "檢查中…"; statusEl.className = "conn-status unknown";
-    try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
-      var res = await fetch(base + "/ping");
-      if (!res.ok) throw new Error("bad status");
-      statusEl.textContent = "已連線"; statusEl.className = "conn-status online";
-    } catch (err) {
-      statusEl.textContent = "連不上"; statusEl.className = "conn-status offline";
-    }
+    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    await renderServerStatus(base, document.getElementById("modalServerStatus"), mapPlatform());
   });
 
   // ================= 分頁切換 =================
@@ -2131,7 +2220,7 @@
       }
     } catch (err) {
       thinkingMsg.remove();
-      appendChatMessage("system-note", "連線失敗：" + err.message + "（請確認 viewer_server.py 已啟動、上方連線網址正確）");
+      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動、上方連線網址正確）"));
       llmgenChatHistory.pop();
     } finally {
       llmgenInput.disabled = false;
@@ -2302,15 +2391,11 @@
     runscriptBody.innerHTML = html;
     runscriptRunBtn.disabled = false;
   }
+  function runscriptDataPlatform() {
+    return runscriptElementMap ? elementMapPlatform(runscriptElementMap) : mapPlatform();
+  }
   async function checkRunscriptServer() {
-    runscriptServerStatus.textContent = "檢查中..."; runscriptServerStatus.className = "conn-status unknown";
-    try {
-      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/ping", { method: "GET" });
-      if (!res.ok) throw new Error("bad status");
-      runscriptServerStatus.textContent = "已連線"; runscriptServerStatus.className = "conn-status online";
-    } catch (err) {
-      runscriptServerStatus.textContent = "連不上"; runscriptServerStatus.className = "conn-status offline";
-    }
+    await renderServerStatus(runscriptServerUrl.value.replace(/\/$/, ""), runscriptServerStatus, runscriptDataPlatform());
   }
   runscriptServerCheckBtn.addEventListener("click", checkRunscriptServer);
   runscriptRunBtn.addEventListener("click", async function () {
@@ -2324,6 +2409,7 @@
     runscriptStopBtn.disabled = false;
     runscriptStopBtn.textContent = "⏹ 停止";
     try {
+      await assertPlatformMatches(runscriptServerUrl.value.replace(/\/$/, ""), runscriptDataPlatform());
       var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked }),
@@ -2332,7 +2418,7 @@
       if (data.error) alert("執行失敗：" + data.error);
       else renderRunscriptPreview(data.results, data.stopped, data.precheck);
     } catch (err) {
-      alert("連線失敗：" + err.message + "（請確認 viewer_server.py 已啟動）");
+      alert(failText("連線失敗", err, "（請確認 viewer_server.py 已啟動）"));
     } finally {
       runscriptRunBtn.disabled = false;
       runscriptRunBtn.textContent = "▶ 執行測試";

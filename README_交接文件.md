@@ -267,8 +267,10 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 - `test_config.py` 的 `ANDROID_DESIRED_CAPS["udid"]` 換成你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
 - 對應的程式：`capture_screen_map_android.py`／`run_test_case_android.py`／
-  `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具用
-  `viewer.html`（不是 `app_map_viewer.html`）
+  `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
+  iOS 一樣用 `app_map_viewer.html`。`crawl_app_tree.py` 目前只有 iOS 版，
+  Android 的地圖要用「手動建樹」建立（建立主節點 → 對目前畫面掃描 → 點元件
+  新增子節點）
 
 ---
 
@@ -343,8 +345,8 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 | 檔案 | 用途 |
 |---|---|
-| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。**這個頁面本身沒有寫檔案的權限**，靠「⬇️匯出／📂載入」JSON 檔案的方式手動存檔，重新整理頁面不會保留手動編輯的內容 |
-| `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，這支目前主要是 Android 那邊還在用（`viewer_server.py` 只服務這支，不是 `app_map_viewer.html`） |
+| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。**這個頁面本身沒有寫檔案的權限**，靠「⬇️匯出／📂載入」JSON 檔案的方式手動存檔，重新整理頁面不會保留手動編輯的內容 |
+| `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，Android 現在也能用 `app_map_viewer.html`，這支之後會退役 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
 > 元件、手動加節點/邊，不用連裝置）——已從交接包移除，因為

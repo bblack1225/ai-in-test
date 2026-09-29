@@ -925,6 +925,7 @@ def scan_screen(driver, screen_name: str, describe: bool = True, scroll: bool = 
     screen_data = {
         "screen_name": screen_name,
         "screen_id_source": "manual",
+        "platform": "ios",
         "last_scanned": time.strftime("%Y-%m-%d %H:%M:%S"),
         "screen_width": screen_width,
         "screen_height": screen_height,

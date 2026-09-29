@@ -21,7 +21,7 @@ Android 二選一）。前端打 /ping 會拿到 {"platform": "ios"|"android"}�
     "[x1,y1][x2,y2]" 字串。iOS 沒有 resource-id，/inspect 回傳的上層元素
     資訊改用 name（accessibilityIdentifier）/label
   - /agent_xpath 的 prompt：iOS 用 @label 查文字，Android 用 @text/@content-desc
-  - assert_banner、/scan_screen 目前只有 iOS 版實作
+  - assert_banner 目前只有 iOS 版實作
 
 API：
   - /tap、/assert_visible：單次點擊/驗證可見
@@ -66,6 +66,7 @@ import run_test_case as ios_runner
 import run_test_case_android as android_runner
 from capture_screen_map import scan_screen as ios_scan_screen
 from capture_screen_map_android import parse_bounds
+from capture_screen_map_android import scan_screen as android_scan_screen
 from run_test_case import StopRequested, next_is_banner_check, retry_assert, set_stop_checker
 from test_config import (
     ANDROID_DESIRED_CAPS,
@@ -90,7 +91,6 @@ class IOSPlatform:
     native_id_name = "accessibility id"
     runner = ios_runner
     supports_banner = True
-    supports_scan = True
 
     # /agent_xpath prompt 裡的平台用語
     xpath_intro = ("你是 iOS UI 自動化測試專家。以下是透過 Appium XCUITest 取得的\n"
@@ -146,7 +146,6 @@ class AndroidPlatform:
     native_id_name = "resource-id"
     runner = android_runner
     supports_banner = False
-    supports_scan = False
 
     xpath_intro = ("你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的\n"
                    "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。")
@@ -189,7 +188,12 @@ class AndroidPlatform:
         return contextlib.nullcontext()
 
     def scan(self, d, screen_name: str, payload: dict) -> dict:
-        raise NotImplementedError
+        return android_scan_screen(
+            d, screen_name,
+            describe=bool(payload.get("describe", False)),
+            scroll=bool(payload.get("scroll", True)),
+            wait_stable=True,
+        )
 
 
 PLATFORMS = {"ios": IOSPlatform, "android": AndroidPlatform}
@@ -790,7 +794,7 @@ def stop_test_script() -> dict:
 # ---------------------------------------------------------------------------
 # /scan_screen：給 app_map_viewer.html 的「手動建樹」功能用——使用者手動點擊
 # 一個元件把手機導到新畫面後，對「目前畫面」執行一次真正的掃描，直接沿用
-# capture_screen_map.py 的 scan_screen()，不是另外寫一套解析邏輯。
+# capture_screen_map.py／capture_screen_map_android.py 的 scan_screen()，不是另外寫一套解析邏輯。
 #
 # describe 預設 False（跳過 LLM 描述，理由跟 crawl_app_tree.py 一樣：手動
 # 建樹本來就是一個節點一個節點慢慢加，先求有結構、之後要不要對這個畫面
@@ -801,8 +805,6 @@ def stop_test_script() -> dict:
 # ---------------------------------------------------------------------------
 
 def do_scan_screen(payload: dict) -> dict:
-    if not PLATFORM.supports_scan:
-        return {"error": f"/scan_screen 目前只有 iOS 版，{PLATFORM.name} 還沒整合"}
     screen_name = (payload.get("screen_name") or "").strip()
     if not screen_name:
         return {"error": "screen_name 不可為空"}
