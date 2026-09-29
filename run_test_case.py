@@ -50,6 +50,7 @@ POC: iOS App 元件地圖產生器（第三步）
 import argparse
 import json
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from appium import webdriver
@@ -80,6 +81,26 @@ def load_element_lookup(screen_name: str) -> dict:
         if screen["screen_name"] == screen_name:
             return {el["unique_id"]: el for el in screen["elements"]}
     raise SystemExit(f"element_map.json 裡找不到畫面「{screen_name}」")
+
+
+class StopRequested(Exception):
+    """執行端（viewer_server 的「⏹ 停止」）要求中斷時，從捲動搜尋這類長迴圈裡丟出來，
+    一路往上跳出 run_tap 等函式，不會再退回座標點擊。"""
+
+
+_stop_checker = None
+
+
+def set_stop_checker(checker) -> None:
+    """viewer_server 啟動時把自己的停止旗標註冊進來；命令列執行不註冊，行為不變。
+    Android 版（run_test_case_android.py）也是呼叫這裡的 raise_if_stopped，共用同一個旗標。"""
+    global _stop_checker
+    _stop_checker = checker
+
+
+def raise_if_stopped() -> None:
+    if _stop_checker is not None and _stop_checker():
+        raise StopRequested()
 
 
 def xpath_literal(value: str) -> str:
@@ -141,6 +162,7 @@ def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8):
     def _scroll_search(region_bounds, region_label):
         previous_source = None
         for round_index in range(1, max_rounds + 1):
+            raise_if_stopped()
             swipe_within_region(driver, region_bounds, "down")
             time.sleep(0.5)
             current_source = driver.page_source
@@ -331,6 +353,7 @@ def run_tap(driver, el: dict) -> str:
         matched.click()
         return "PASS（XPath 定位）"
 
+    raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
     tap_by_coordinates(driver, el["bounds"])
     return "PASS（座標點擊，備援方式）"
 
@@ -441,22 +464,63 @@ def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: fl
     return f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}）"
 
 
+def match_screen_in_source(page_source: str, elements: list, screen_name: str,
+                           id_attrs: tuple, label_attrs: tuple) -> tuple[str, str]:
+    """
+    比對目前畫面（page_source）是不是 screen_name 這個畫面，回傳 (status, message)，
+    status 是 "pass" / "fail" / "unchecked"（沒有東西可以比對，放行但提醒）。
+    iOS / Android 共用，差別只在 id / 文字放在哪些屬性（id_attrs / label_attrs）。
+
+    做法：優先用這個畫面已知的 native id 元件當指紋；畫面完全沒有 native id 時，
+    改用元件文字（label）比對，並排除含數字的文字（價格、時間、筆數這類
+    每次都會變的內容，拿來比對只會誤判）。過半數找得到，才視為目前在這個畫面上。
+    整份 page_source 只抓一次再比對，不是每個元件各查一次，元件多時也不會拖很久。
+    """
+    try:
+        root = ET.fromstring(page_source)
+    except ET.ParseError as e:
+        return "unchecked", f"畫面結構解析失敗，無法檢查「{screen_name}」（{e}）"
+
+    present_ids, present_labels = set(), set()
+    for node in root.iter():
+        for attr in id_attrs:
+            if node.attrib.get(attr):
+                present_ids.add(node.attrib[attr])
+        for attr in label_attrs:
+            text = (node.attrib.get(attr) or "").strip()
+            if text:
+                present_labels.add(text)
+
+    native_ids = {el["native_id"] for el in elements if el.get("id_source") == "native" and el.get("native_id")}
+    if native_ids:
+        expected, present, kind = native_ids, present_ids, " native 元件"
+    else:
+        labels = {(el.get("label") or "").strip() for el in elements}
+        labels = {t for t in labels if t and not any(ch.isdigit() for ch in t)}
+        if not labels:
+            return "unchecked", f"「{screen_name}」沒有 native id 也沒有固定文字的元件，無法檢查畫面，請自行確認"
+        expected, present, kind = labels, present_labels, "固定文字（這個畫面沒有 native id）"
+
+    found = len(expected & present)
+    ratio = found / len(expected)
+    message = f"「{screen_name}」的 {len(expected)} 個{kind}中，目前畫面找到 {found} 個（{ratio:.0%}）"
+    return ("pass" if ratio >= 0.5 else "fail"), message
+
+
+def check_current_screen(driver, screen_name: str, elements: list) -> tuple[str, str]:
+    return match_screen_in_source(driver.page_source, elements, screen_name,
+                                  id_attrs=("name",), label_attrs=("label",))
+
+
 def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> bool:
     """
     執行測試步驟前的安全檢查：確認手機目前畫面看起來就是測試案例鎖定的畫面，
     避免在錯誤畫面上，tap 的座標備援機制誤觸別的畫面上的真實元件卻回報 PASS。
-    做法：用這個畫面已知的 native id 元件當指紋比對，檢查目前畫面上找得到幾個。
+    比對方式見 match_screen_in_source。
     """
-    native_ids = [el["native_id"] for el in element_lookup.values() if el["id_source"] == "native"]
-    if not native_ids:
-        print("  [警告] 這個畫面沒有任何 native id 元件可以校驗，跳過畫面比對，風險請自行留意")
-        return True
-
-    found = sum(1 for nid in native_ids if driver.find_elements(AppiumBy.ACCESSIBILITY_ID, nid))
-    ratio = found / len(native_ids)
-    print(f"  [畫面校驗] 「{screen_name}」的 {len(native_ids)} 個 native 元件中，"
-          f"目前畫面找到 {found} 個（{ratio:.0%}）")
-    return ratio >= 0.5  # 過半數 native 元件存在，才視為目前真的在這個畫面上
+    status, message = check_current_screen(driver, screen_name, list(element_lookup.values()))
+    print(f"  [畫面校驗] {message}")
+    return status != "fail"
 
 
 def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:

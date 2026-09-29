@@ -32,8 +32,9 @@ run_test_case.py 的 run_tap()/run_assert_visible()/locate_generated_element()�
      http://127.0.0.1:8767（跟Android版共用同一個輸入框，依畫面平台自動切換）
 
 安全提醒：跟 Android 版相同，只綁定 127.0.0.1，不會對外網開放，但按下按鈕
-會「真的」操作手機畫面，沒有 verify_current_screen() 前置校驗，請自行確認
-手機導航到正確畫面。
+會「真的」操作手機畫面，單次操作（點擊、驗證可見等）沒有 verify_current_screen()
+前置校驗，請自行確認手機導航到正確畫面。「測案執行」（/run_test_script）例外：
+執行前會先做第0步畫面檢查，畫面不符就整份不執行（可從 viewer 取消勾選略過）。
 """
 
 import json
@@ -48,7 +49,9 @@ from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
 from capture_screen_map import scan_screen
+from run_test_case import StopRequested, set_stop_checker
 from run_test_case import (
+    check_current_screen,
     locate_generated_element,
     next_is_banner_check,
     run_assert_banner,
@@ -74,6 +77,8 @@ driver = None
 _device_lock = threading.Lock()
 _test_running = threading.Event()
 _stop_requested = threading.Event()
+# 讓捲動搜尋這類長迴圈也能被停止中斷（見 run_test_case.raise_if_stopped）
+set_stop_checker(_stop_requested.is_set)
 
 
 def get_driver(force_reconnect: bool = False):
@@ -529,10 +534,46 @@ def run_test_script(payload: dict) -> dict:
     _stop_requested.clear()
     _test_running.set()
     try:
-        _run_steps(d, steps, screens_by_name, results)
+        if payload.get("check_screen", True):
+            precheck = _precheck_screen(d, steps, screens_by_name)
+        else:
+            precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
+        print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
+        if precheck["status"] == "fail":
+            results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
+                       for i, step in enumerate(steps, 1)]
+        else:
+            _run_steps(d, steps, screens_by_name, results)
     finally:
         _test_running.clear()
-    return {"results": results, "stopped": _stop_requested.is_set()}
+    return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
+
+
+def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
+    """
+    第0步：確認手機目前停在第一步要操作的畫面上。忘了先把手機導回起始畫面時，
+    每一步都會找不到元件、把畫面上的容器一個一個捲過一輪（很久），最後還會退回
+    用 element_map 的舊座標在錯的畫面上亂點，所以畫面不符就整份不執行。
+    assert_banner 不綁畫面，找第一個真的有畫面的步驟來比對。
+    """
+    first = next((s for s in steps if s.get("action") != "assert_banner"), None)
+    if first is None:
+        return {"status": "unchecked", "screen_name": None, "message": "測案裡沒有綁定畫面的步驟，無法檢查"}
+    screen_name = first.get("screen_name")
+    screen = screens_by_name.get(screen_name)
+    if screen is None:
+        return {"status": "unchecked", "screen_name": screen_name,
+                "message": f"第一步的畫面「{screen_name}」不在地圖資料裡，無法檢查"}
+    status, message = check_current_screen(d, screen_name, screen.get("elements", []))
+    return {"status": status, "screen_name": screen_name, "message": message}
+
+
+def _step_result(i: int, step: dict, outcome: str) -> dict:
+    return {
+        "index": i, "action": step.get("action"), "screen_name": step.get("screen_name"),
+        "target": step.get("target"), "value": step.get("value"), "note": step.get("note"),
+        "outcome": outcome,
+    }
 
 
 def _run_steps(d, steps: list, screens_by_name: dict, results: list):
@@ -542,39 +583,34 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
         target = step.get("target")
 
         if _stop_requested.is_set():
-            results.append({
-                "index": i, "action": action, "screen_name": screen_name,
-                "target": target, "value": step.get("value"), "note": step.get("note"),
-                "outcome": "SKIP（使用者已停止測試）",
-            })
+            results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
             continue
 
-        screen = screens_by_name.get(screen_name)
-        el = None
-        if screen is not None:
-            el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
+        try:
+            screen = screens_by_name.get(screen_name)
+            el = None
+            if screen is not None:
+                el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
 
-        if action == "assert_banner":
-            # 跑馬燈不在 element_map 裡，不需要 target
-            outcome = run_assert_banner(d, step.get("value"), step.get("timeout", 10))
-        elif el is None:
-            outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
-        elif action == "tap":
-            outcome = run_tap(d, el)
-        elif action == "input_text":
-            outcome = run_input_text(d, el, step.get("value", ""))
-        elif action == "assert_visible":
-            outcome = run_assert_visible(d, el)
-        elif action == "assert_text_contains":
-            outcome = run_assert_text_contains(d, el, step.get("value", ""))
-        else:
-            outcome = f"FAIL（未知的 action: {action}）"
+            if action == "assert_banner":
+                # 跑馬燈不在 element_map 裡，不需要 target
+                outcome = run_assert_banner(d, step.get("value"), step.get("timeout", 10))
+            elif el is None:
+                outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
+            elif action == "tap":
+                outcome = run_tap(d, el)
+            elif action == "input_text":
+                outcome = run_input_text(d, el, step.get("value", ""))
+            elif action == "assert_visible":
+                outcome = run_assert_visible(d, el)
+            elif action == "assert_text_contains":
+                outcome = run_assert_text_contains(d, el, step.get("value", ""))
+            else:
+                outcome = f"FAIL（未知的 action: {action}）"
+        except StopRequested:
+            outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
 
-        results.append({
-            "index": i, "action": action, "screen_name": screen_name,
-            "target": target, "value": step.get("value"), "note": step.get("note"),
-            "outcome": outcome,
-        })
+        results.append(_step_result(i, step, outcome))
 
         if action in ("tap", "input_text") and not next_is_banner_check(steps, i) and not _stop_requested.is_set():
             wait_after_action(d)
@@ -584,7 +620,7 @@ def stop_test_script() -> dict:
     if not _test_running.is_set():
         return {"stopped": False, "message": "目前沒有執行中的測試"}
     _stop_requested.set()
-    return {"stopped": True, "message": "已送出停止，目前這一步跑完就會停"}
+    return {"stopped": True, "message": "已送出停止，正在捲動找元件的話會立刻中斷，其他動作做完這一步就停"}
 
 
 # ---------------------------------------------------------------------------

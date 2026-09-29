@@ -71,6 +71,8 @@ from run_test_case import (
     TEST_RESULTS_DIR,
     load_element_lookup,
     load_test_case,
+    match_screen_in_source,
+    raise_if_stopped,
     save_result_screenshot,
     xpath_literal,
 )
@@ -132,6 +134,7 @@ def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8, scroll_p
 
     def _scroll_search(scroll_area, region_label):
         for round_index in range(1, max_rounds + 1):
+            raise_if_stopped()
             if not scroll_step(driver, scroll_area, "down", scroll_percent):
                 print(f"    [XPath+捲動] {region_label} 已經捲不動了，停止")
                 return None
@@ -364,6 +367,7 @@ def run_tap(driver, el: dict) -> str:
         matched.click()
         return "PASS（XPath / UiScrollable 定位）"
 
+    raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
     tap_by_coordinates(driver, el["bounds"])
     return "PASS（座標點擊，備援方式）"
 
@@ -418,18 +422,17 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
     return f"FAIL（{label}，預期文字包含「{expected_text}」，實際文字：「{actual_text}」）"
 
 
-def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> bool:
-    """跟 iOS 版邏輯相同，只是查詢方式換成 AppiumBy.ID（resource-id）。"""
-    native_ids = [el["native_id"] for el in element_lookup.values() if el["id_source"] == "native"]
-    if not native_ids:
-        print("  [警告] 這個畫面沒有任何 native id 元件可以校驗，跳過畫面比對，風險請自行留意")
-        return True
+def check_current_screen(driver, screen_name: str, elements: list) -> tuple[str, str]:
+    """跟 iOS 版邏輯相同（見 run_test_case.match_screen_in_source），id 在 resource-id，
+    文字在 text / content-desc。"""
+    return match_screen_in_source(driver.page_source, elements, screen_name,
+                                  id_attrs=("resource-id",), label_attrs=("text", "content-desc"))
 
-    found = sum(1 for nid in native_ids if driver.find_elements(AppiumBy.ID, nid))
-    ratio = found / len(native_ids)
-    print(f"  [畫面校驗] 「{screen_name}」的 {len(native_ids)} 個 native 元件中，"
-          f"目前畫面找到 {found} 個（{ratio:.0%}）")
-    return ratio >= 0.5
+
+def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> bool:
+    status, message = check_current_screen(driver, screen_name, list(element_lookup.values()))
+    print(f"  [畫面校驗] {message}")
+    return status != "fail"
 
 
 def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:

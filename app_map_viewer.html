@@ -548,6 +548,7 @@
         <div class="btn-row">
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="runscriptCheckScreen" checked> 執行前先檢查手機是否停在第一步的畫面（第0步）</label>
         </div>
         <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
       </div>
@@ -2191,6 +2192,7 @@
   var runscriptServerCheckBtn = document.getElementById("runscriptServerCheckBtn");
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
   var runscriptStopBtn = document.getElementById("runscriptStopBtn");
+  var runscriptCheckScreen = document.getElementById("runscriptCheckScreen");
   var runscriptBody = document.getElementById("runscriptBody");
   var runscriptElementMap = null, runscriptTestCase = null;
   // runscriptElementMap 為 null 時代表用目前地圖（即時抓，地圖換了會跟著變）
@@ -2236,7 +2238,7 @@
     if (!screen) return null;
     return (screen.elements || []).find(function (el) { return el.unique_id === targetId; }) || null;
   }
-  function renderRunscriptPreview(results, stopped) {
+  function renderRunscriptPreview(results, stopped, precheck) {
     renderRunscriptSources();
     if (!runscriptTestCase) {
       runscriptBody.innerHTML = '<div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div>';
@@ -2252,6 +2254,9 @@
     if (stopped) {
       html += '<div class="script-note">⏹ 測試已被手動停止，之後的步驟沒有執行。</div>';
     }
+    if (precheck && precheck.status === "fail") {
+      html += '<div class="script-note">⚠️ 手機目前不在第一步的畫面「' + escapeHtml(precheck.screen_name || "") + '」，整份測案沒有執行。請先把手機導回這個畫面再執行；確定畫面正確只是判斷錯誤的話，可以取消勾選「執行前先檢查」。</div>';
+    }
     if (results) {
       var passCount = results.filter(function (r) { return r.outcome.indexOf("PASS") === 0; }).length;
       var failCount = results.filter(function (r) { return r.outcome.indexOf("FAIL") === 0; }).length;
@@ -2261,6 +2266,17 @@
         '<div class="summary-card missing"><div class="num">' + failCount + '</div><div class="label">FAIL</div></div>' +
         '<div class="summary-card needs_review"><div class="num">' + skipCount + '</div><div class="label">SKIP</div></div>' +
         '</div>';
+    }
+    if (precheck) {
+      var precheckClass = precheck.status === "pass" ? "pass" : precheck.status === "fail" ? "fail" : "skip";
+      var precheckLabel = { pass: "PASS", fail: "FAIL", unchecked: "無法校驗", skipped: "已略過" }[precheck.status] || precheck.status;
+      html += '<div class="script-step-card ' + precheckClass + '">' +
+        '<div class="script-step-index">0</div>' +
+        '<div class="script-step-main">' +
+        '<div class="script-step-top"><span class="script-step-action">檢查目前畫面</span>' +
+        (precheck.screen_name ? '<span class="script-step-screen">' + escapeHtml(precheck.screen_name) + '</span>' : "") + '</div>' +
+        '<div class="script-step-outcome ' + precheckClass + '">' + escapeHtml(precheckLabel + "（" + precheck.message + "）") + '</div>' +
+        '</div></div>';
     }
     steps.forEach(function (step, i) {
       var result = results ? results[i] : null;
@@ -2309,11 +2325,11 @@
     try {
       var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase }),
+        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked }),
       });
       var data = await res.json();
       if (data.error) alert("執行失敗：" + data.error);
-      else renderRunscriptPreview(data.results, data.stopped);
+      else renderRunscriptPreview(data.results, data.stopped, data.precheck);
     } catch (err) {
       alert("連線失敗：" + err.message + "（請確認 viewer_server_ios.py 已啟動）");
     } finally {
