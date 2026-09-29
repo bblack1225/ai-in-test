@@ -536,7 +536,10 @@
           <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
           <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
         </div>
-        <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
+        <div class="btn-row">
+          <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
+          <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
+        </div>
         <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
       </div>
     </section>
@@ -2136,6 +2139,7 @@
   var runscriptServerStatus = document.getElementById("runscriptServerStatus");
   var runscriptServerCheckBtn = document.getElementById("runscriptServerCheckBtn");
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
+  var runscriptStopBtn = document.getElementById("runscriptStopBtn");
   var runscriptBody = document.getElementById("runscriptBody");
   var runscriptElementMap = null, runscriptTestCase = null;
 
@@ -2163,7 +2167,7 @@
     if (!screen) return null;
     return (screen.elements || []).find(function (el) { return el.unique_id === targetId; }) || null;
   }
-  function renderRunscriptPreview(results) {
+  function renderRunscriptPreview(results, stopped) {
     if (!runscriptTestCase) {
       runscriptBody.innerHTML = '<div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div>';
       runscriptRunBtn.disabled = true;
@@ -2174,6 +2178,9 @@
     var html = "";
     if (runscriptTestCase.test_name) {
       html += '<div class="script-note">測試案例：' + escapeHtml(runscriptTestCase.test_name) + "（共 " + steps.length + " 步驟）</div>";
+    }
+    if (stopped) {
+      html += '<div class="script-note">⏹ 測試已被手動停止，之後的步驟沒有執行。</div>';
     }
     if (results) {
       var passCount = results.filter(function (r) { return r.outcome.indexOf("PASS") === 0; }).length;
@@ -2226,6 +2233,9 @@
     if (!confirm('即將依序執行「' + (runscriptTestCase.test_name || "這份測試案例") + '」共 ' + stepCount + ' 個步驟，會實際操作模擬器/裝置，確定要執行嗎？')) return;
     runscriptRunBtn.disabled = true;
     runscriptRunBtn.textContent = "執行中...";
+    runscriptStopBtn.hidden = false;
+    runscriptStopBtn.disabled = false;
+    runscriptStopBtn.textContent = "⏹ 停止";
     try {
       var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -2233,12 +2243,32 @@
       });
       var data = await res.json();
       if (data.error) alert("執行失敗：" + data.error);
-      else renderRunscriptPreview(data.results);
+      else renderRunscriptPreview(data.results, data.stopped);
     } catch (err) {
       alert("連線失敗：" + err.message + "（請確認 viewer_server_ios.py 已啟動）");
     } finally {
       runscriptRunBtn.disabled = false;
       runscriptRunBtn.textContent = "▶ 執行測試";
+      runscriptStopBtn.hidden = true;
+    }
+  });
+  runscriptStopBtn.addEventListener("click", async function () {
+    runscriptStopBtn.disabled = true;
+    runscriptStopBtn.textContent = "停止中（等目前步驟跑完）...";
+    try {
+      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      var data = await res.json();
+      if (data.error || !data.stopped) {
+        alert("停止失敗：" + (data.error || data.message));
+        runscriptStopBtn.disabled = false;
+        runscriptStopBtn.textContent = "⏹ 停止";
+      }
+    } catch (err) {
+      alert("連線失敗：" + err.message);
+      runscriptStopBtn.disabled = false;
+      runscriptStopBtn.textContent = "⏹ 停止";
     }
   });
 

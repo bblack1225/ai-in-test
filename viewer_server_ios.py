@@ -37,8 +37,9 @@ run_test_case.py 的 run_tap()/run_assert_visible()/locate_generated_element()�
 """
 
 import json
+import threading
 import xml.etree.ElementTree as ET
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
@@ -63,6 +64,16 @@ HOST = "127.0.0.1"
 PORT = 8767
 
 driver = None
+
+# 測案執行的停止機制：/run_test_script 跑的時候，viewer 另外送 /stop_test_script
+# 設旗標，run_test_script 每一步開始前檢查，已經送到 Appium 的那一步沒辦法
+# 中途取消，所以是「目前這步跑完才停」。server 因此改成 ThreadingHTTPServer，
+# 不然 /stop_test_script 會排在測案後面，等測案跑完才被處理。
+# 多執行緒後，操作裝置的請求用 _device_lock 排隊；測案執行中則直接擋掉，
+# 避免手動點擊跟測案同時操作手機。
+_device_lock = threading.Lock()
+_test_running = threading.Event()
+_stop_requested = threading.Event()
 
 
 def get_driver(force_reconnect: bool = False):
@@ -515,10 +526,28 @@ def run_test_script(payload: dict) -> dict:
 
     d = get_driver()
     results = []
+    _stop_requested.clear()
+    _test_running.set()
+    try:
+        _run_steps(d, steps, screens_by_name, results)
+    finally:
+        _test_running.clear()
+    return {"results": results, "stopped": _stop_requested.is_set()}
+
+
+def _run_steps(d, steps: list, screens_by_name: dict, results: list):
     for i, step in enumerate(steps, 1):
         action = step.get("action")
         screen_name = step.get("screen_name")
         target = step.get("target")
+
+        if _stop_requested.is_set():
+            results.append({
+                "index": i, "action": action, "screen_name": screen_name,
+                "target": target, "value": step.get("value"), "note": step.get("note"),
+                "outcome": "SKIP（使用者已停止測試）",
+            })
+            continue
 
         screen = screens_by_name.get(screen_name)
         el = None
@@ -547,10 +576,15 @@ def run_test_script(payload: dict) -> dict:
             "outcome": outcome,
         })
 
-        if action in ("tap", "input_text") and not next_is_banner_check(steps, i):
+        if action in ("tap", "input_text") and not next_is_banner_check(steps, i) and not _stop_requested.is_set():
             wait_after_action(d)
 
-    return {"results": results}
+
+def stop_test_script() -> dict:
+    if not _test_running.is_set():
+        return {"stopped": False, "message": "目前沒有執行中的測試"}
+    _stop_requested.set()
+    return {"stopped": True, "message": "已送出停止，目前這一步跑完就會停"}
 
 
 # ---------------------------------------------------------------------------
@@ -608,9 +642,9 @@ class Handler(BaseHTTPRequestHandler):
 
     KNOWN_PATHS = (
         "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
-        "/llm_chat", "/run_test_script", "/scan_screen", "/llm_scenarios",
+        "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
     )
-    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios")
+    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script")
 
     def do_POST(self):
         if self.path not in self.KNOWN_PATHS:
@@ -625,9 +659,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            if self.path not in self.PATHS_NOT_REQUIRING_DRIVER:
-                ensure_session_alive()
-            result = self._dispatch(self.path, payload)
+            if self.path in self.PATHS_NOT_REQUIRING_DRIVER:
+                result = self._dispatch(self.path, payload)
+            elif _test_running.is_set():
+                self._send_json(409, {"error": "測試執行中，請等測試結束或先按停止"})
+                return
+            else:
+                with _device_lock:
+                    ensure_session_alive()
+                    result = self._dispatch(self.path, payload)
         except Exception as e:
             self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
             return
@@ -649,6 +689,8 @@ class Handler(BaseHTTPRequestHandler):
             return run_llm_chat(payload)
         if path == "/run_test_script":
             return run_test_script(payload)
+        if path == "/stop_test_script":
+            return stop_test_script()
         if path == "/scan_screen":
             return do_scan_screen(payload)
         if path == "/llm_scenarios":
@@ -659,7 +701,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = HTTPServer((HOST, PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[viewer_server_ios] 已啟動：http://{HOST}:{PORT}（只接受本機連線）")
     print("[viewer_server_ios] 等待 viewer.html 的按鈕觸發請求，Ctrl+C 結束")
     try:
