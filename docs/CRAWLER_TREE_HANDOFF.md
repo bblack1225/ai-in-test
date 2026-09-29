@@ -84,7 +84,7 @@ source ~/.zshrc && nohup appium --log /tmp/appium_ios_scan.log --log-timestamp -
 ### 4b. `run_test_case.py`（iOS 測案執行器）— 階段一 port
 
 - 移除只看當下快照的 `_locate_by_xpath()`，換成 `_locate_by_xpath_with_scroll()`：
-  精確 XPath 查 0 個 → 自己捲容器邊捲邊重查（比照 Android `run_test_case_android.py`）。
+  精確 XPath 查 0 個 → 自己捲容器邊捲邊重查（比照 Android 版，現在在 `platforms/android.py`）。
   用途：長 Table/CollectionView 因 cell 重用，遠處的 row 會整個從 tree 消失
 - `import` 了 `capture_screen_map` 的 `find_scrollable_regions` / `swipe_within_region`
 

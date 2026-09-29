@@ -1,7 +1,7 @@
 """
 本機小型伺服器：讓 app_map_viewer.html / viewer.html 上的按鈕能透過 HTTP API
-呼叫 run_test_case.py / run_test_case_android.py 現成的定位邏輯，對手機執行
-真正的操作。iOS、Android 共用這一支，啟動時用 --platform 指定這次接哪種裝置。
+呼叫 run_test_case.py 現成的定位邏輯，對手機執行真正的操作。iOS、Android 共用
+這一支，啟動時用 --platform 指定這次接哪種裝置。
 
 背景：瀏覽器沒辦法直接連 Appium（不能對本機的 Appium server 開 socket 連線），
 所以需要這支伺服器當橋樑：伺服器維持一條 Appium 連線，瀏覽器按鈕觸發時打 API
@@ -12,16 +12,9 @@
 Android 二選一）。前端打 /ping 會拿到 {"platform": "ios"|"android"}，
 據此知道目前接的是哪種手機，不用再依平台切換連線網址。
 
-兩個平台的差異集中在 IOSPlatform / AndroidPlatform 兩個類別：
-  - 連線用 XCUITestOptions + DESIRED_CAPS，或 UiAutomator2Options +
-    ANDROID_DESIRED_CAPS
-  - native 元件定位：iOS 用 AppiumBy.ACCESSIBILITY_ID，Android 用 AppiumBy.ID
-  - Accessibility Tree 解析：iOS 的 XML 節點 tag 本身就是 class、座標是
-    x/y/width/height 數值屬性；Android 的 class 要讀屬性、bounds 是
-    "[x1,y1][x2,y2]" 字串。iOS 沒有 resource-id，/inspect 回傳的上層元素
-    資訊改用 name（accessibilityIdentifier）/label
-  - /agent_xpath 的 prompt：iOS 用 @label 查文字，Android 用 @text/@content-desc
-  - assert_banner 目前只有 iOS 版實作
+平台差異（連線設定、native id 定位方式、Accessibility Tree 的解析、/agent_xpath
+prompt 的平台用語）都在 platforms/ios.py、platforms/android.py，這支只透過
+PLATFORM 取用；assert_banner 目前只有 iOS 版實作。
 
 API：
   - /tap、/assert_visible：單次點擊/驗證可見
@@ -49,156 +42,34 @@ API：
 """
 
 import argparse
-import contextlib
 import json
 import threading
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from appium import webdriver
-from appium.options.android import UiAutomator2Options
-from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
-import run_test_case as ios_runner
-import run_test_case_android as android_runner
-from capture_screen_map import scan_screen as ios_scan_screen
-from capture_screen_map_android import parse_bounds
-from capture_screen_map_android import scan_screen as android_scan_screen
-from run_test_case import StopRequested, next_is_banner_check, retry_assert, set_stop_checker
-from test_config import (
-    ANDROID_DESIRED_CAPS,
-    APPIUM_SERVER_URL,
-    DESIRED_CAPS,
-    LLM_MODEL,
-    LLM_MODEL_PRO,
-    generate_content_with_retry,
+from platforms import PLATFORMS, get_platform
+from run_test_case import (
+    StopRequested,
+    check_current_screen,
+    execute_step,
+    run_assert_visible,
+    run_tap,
+    set_stop_checker,
+    should_wait_after,
+    wait_after_action,
 )
+from test_config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8767
 
 
-# ---------------------------------------------------------------------------
-# 平台差異：伺服器其他部分只透過 PLATFORM 取用這裡的東西，不直接判斷平台
-# ---------------------------------------------------------------------------
-
-class IOSPlatform:
-    name = "ios"
-    native_by = AppiumBy.ACCESSIBILITY_ID
-    native_id_name = "accessibility id"
-    runner = ios_runner
-    supports_banner = True
-
-    # /agent_xpath prompt 裡的平台用語
-    xpath_intro = ("你是 iOS UI 自動化測試專家。以下是透過 Appium XCUITest 取得的\n"
-                   "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢；注意 iOS 這裡 XML 的\n"
-                   "tag 名稱本身就是元件的 class，例如 <XCUIElementTypeButton>，不是像網頁那樣\n"
-                   "用固定的 tag 加 class 屬性）。")
-    xpath_class_field = "class（同時也是XML tag名稱）"
-    xpath_text_field = "文字內容（label）"
-    xpath_nearby_desc = "同層兄弟節點的 label"
-    xpath_attr_rule = ("iOS 的元件屬性用 @label 查文字內容（不是 @text 或 @content-desc，\n"
-                       "   那是 Android 的屬性名稱）")
-    xpath_bad_example = "//{class}[.//@label=X]"
-
-    def make_options(self):
-        return XCUITestOptions().load_capabilities(DESIRED_CAPS)
-
-    def node_position(self, node, class_name: str):
-        """回傳這個 XML 節點的 (x, y)；class 不符或沒有座標時回傳 None"""
-        if node.tag != class_name:
-            return None
-        try:
-            return float(node.attrib.get("x", 0)), float(node.attrib.get("y", 0))
-        except ValueError:
-            return None
-
-    def ancestor_info(self, parent) -> dict | None:
-        pa = parent.attrib
-        return {"class": parent.tag, "name": pa.get("name", ""), "label": pa.get("label", "")}
-
-    def match_preview(self, m) -> dict:
-        return {
-            "name": m.get_attribute("name"),
-            "label": m.get_attribute("label"),
-            "value": m.get_attribute("value"),
-        }
-
-    def page_source_context(self, d):
-        """測案執行期間讀 page_source 跳過 visible 屬性（見 run_test_case.skip_visible_in_page_source）"""
-        return ios_runner.skip_visible_in_page_source(d)
-
-    def scan(self, d, screen_name: str, payload: dict) -> dict:
-        return ios_scan_screen(
-            d, screen_name,
-            describe=bool(payload.get("describe", False)),
-            scroll=bool(payload.get("scroll", True)),
-            wait_stable=True,
-        )
-
-
-class AndroidPlatform:
-    name = "android"
-    native_by = AppiumBy.ID
-    native_id_name = "resource-id"
-    runner = android_runner
-    supports_banner = False
-
-    xpath_intro = ("你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的\n"
-                   "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。")
-    xpath_class_field = "class"
-    xpath_text_field = "文字內容（text/content-desc）"
-    xpath_nearby_desc = "同層兄弟節點的文字"
-    xpath_attr_rule = "Android 的元件屬性用 @text 或 @content-desc 查文字內容"
-    xpath_bad_example = "//{class}[.//text=X]"
-
-    def make_options(self):
-        return UiAutomator2Options().load_capabilities(ANDROID_DESIRED_CAPS)
-
-    def node_position(self, node, class_name: str):
-        if node.attrib.get("class") != class_name:
-            return None
-        bounds = parse_bounds(node.attrib.get("bounds", ""))
-        if bounds is None:
-            return None
-        return bounds["x"], bounds["y"]
-
-    def ancestor_info(self, parent) -> dict | None:
-        pa = parent.attrib
-        if "class" not in pa:
-            return None
-        return {
-            "class": pa.get("class", ""),
-            "resource_id": pa.get("resource-id", ""),
-            "text": pa.get("text", ""),
-            "content_desc": pa.get("content-desc", ""),
-        }
-
-    def match_preview(self, m) -> dict:
-        return {
-            "resource_id": m.get_attribute("resource-id"),
-            "text": m.get_attribute("text"),
-            "content_desc": m.get_attribute("content-desc"),
-        }
-
-    def page_source_context(self, d):
-        return contextlib.nullcontext()
-
-    def scan(self, d, screen_name: str, payload: dict) -> dict:
-        return android_scan_screen(
-            d, screen_name,
-            describe=bool(payload.get("describe", False)),
-            scroll=bool(payload.get("scroll", True)),
-            wait_stable=True,
-        )
-
-
-PLATFORMS = {"ios": IOSPlatform, "android": AndroidPlatform}
-
-PLATFORM = None  # main() 依 --platform 設定
+PLATFORM = None  # main() 依 --platform 設定，平台差異都在 platforms/ 裡
 driver = None
 
 # 測案執行的停止機制：/run_test_script 跑的時候，viewer 另外送 /stop_test_script
@@ -266,7 +137,7 @@ def _locate_best_effort(driver, el: dict):
             return driver.find_element(PLATFORM.native_by, el["native_id"])
         except NoSuchElementException:
             return None
-    return PLATFORM.runner.locate_generated_element(driver, el)
+    return PLATFORM.locate_generated_element(driver, el)
 
 
 def inspect_element(el: dict, max_levels: int = 8) -> dict:
@@ -293,10 +164,12 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
     # 座標最接近的視為同一個）
     best_node, best_distance = None, None
     for node in root.iter():
-        pos = PLATFORM.node_position(node, el.get("class"))
-        if pos is None:
+        if PLATFORM.node_class(node) != el.get("class"):
             continue
-        distance = abs(pos[0] - target_bounds["x"]) + abs(pos[1] - target_bounds["y"])
+        bounds = PLATFORM.node_bounds(node)
+        if bounds is None:
+            continue
+        distance = abs(bounds["x"] - target_bounds["x"]) + abs(bounds["y"] - target_bounds["y"])
         if best_distance is None or distance < best_distance:
             best_distance, best_node = distance, node
 
@@ -725,7 +598,7 @@ def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
     if screen is None:
         return {"status": "unchecked", "screen_name": screen_name,
                 "message": f"第一步的畫面「{screen_name}」不在地圖資料裡，無法檢查"}
-    status, message = PLATFORM.runner.check_current_screen(d, screen_name, screen.get("elements", []))
+    status, message = check_current_screen(PLATFORM, d, screen_name, screen.get("elements", []))
     return {"status": status, "screen_name": screen_name, "message": message}
 
 
@@ -738,50 +611,23 @@ def _step_result(i: int, step: dict, outcome: str) -> dict:
 
 
 def _run_steps(d, steps: list, screens_by_name: dict, results: list):
-    runner = PLATFORM.runner
     for i, step in enumerate(steps, 1):
-        action = step.get("action")
-        screen_name = step.get("screen_name")
-        target = step.get("target")
-
         if _stop_requested.is_set():
             results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
             continue
 
+        screen = screens_by_name.get(step.get("screen_name"))
+        el = None
+        if screen is not None:
+            el = next((e for e in screen.get("elements", []) if e.get("unique_id") == step.get("target")), None)
         try:
-            screen = screens_by_name.get(screen_name)
-            el = None
-            if screen is not None:
-                el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
-
-            if action == "assert_banner":
-                # 跑馬燈不在 element_map 裡，不需要 target
-                if PLATFORM.supports_banner:
-                    outcome = runner.run_assert_banner(d, step.get("value"), step.get("timeout", 10))
-                else:
-                    outcome = f"SKIP（assert_banner 目前只有 iOS 版，{PLATFORM.name} 還沒實作）"
-            elif el is None:
-                outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
-            elif action == "tap":
-                outcome = runner.run_tap(d, el)
-            elif action == "input_text":
-                outcome = runner.run_input_text(d, el, step.get("value", ""))
-            elif action == "assert_visible":
-                outcome = retry_assert(lambda: runner.run_assert_visible(d, el), step.get("timeout"))
-            elif action == "assert_text_contains":
-                outcome = retry_assert(lambda: runner.run_assert_text_contains(d, el, step.get("value", "")),
-                                       step.get("timeout"))
-            else:
-                outcome = f"FAIL（未知的 action: {action}）"
+            outcome = execute_step(PLATFORM, d, step, el)
         except StopRequested:
             outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
-
         results.append(_step_result(i, step, outcome))
 
-        # 下一步是跑馬燈驗證時不等畫面穩定，不然跑馬燈可能在等待期間就消失了
-        banner_next = PLATFORM.supports_banner and next_is_banner_check(steps, i)
-        if action in ("tap", "input_text") and not banner_next and not _stop_requested.is_set():
-            runner.wait_after_action(d)
+        if should_wait_after(PLATFORM, steps, i) and not _stop_requested.is_set():
+            wait_after_action(PLATFORM, d)
 
 
 def stop_test_script() -> dict:
@@ -808,7 +654,10 @@ def do_scan_screen(payload: dict) -> dict:
     screen_name = (payload.get("screen_name") or "").strip()
     if not screen_name:
         return {"error": "screen_name 不可為空"}
-    return {"screen_data": PLATFORM.scan(get_driver(), screen_name, payload)}
+    screen_data = PLATFORM.scan(get_driver(), screen_name,
+                                describe=bool(payload.get("describe", False)),
+                                scroll=bool(payload.get("scroll", True)))
+    return {"screen_data": screen_data}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -874,11 +723,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def _dispatch(self, path: str, payload: dict) -> dict:
-        runner = PLATFORM.runner
         if path == "/tap":
-            return {"result": runner.run_tap(get_driver(), payload)}
+            return {"result": run_tap(PLATFORM, get_driver(), payload)}
         if path == "/assert_visible":
-            return {"result": runner.run_assert_visible(get_driver(), payload)}
+            return {"result": run_assert_visible(PLATFORM, get_driver(), payload)}
         if path == "/inspect":
             return inspect_element(payload)
         if path == "/test_xpath":
@@ -907,7 +755,7 @@ def main():
                         help="這次要接的裝置平台（預設 ios）")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"監聽埠（預設 {DEFAULT_PORT}）")
     args = parser.parse_args()
-    PLATFORM = PLATFORMS[args.platform]()
+    PLATFORM = get_platform(args.platform)
 
     server = ThreadingHTTPServer((HOST, args.port), Handler)
     print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}）：http://{HOST}:{args.port}（只接受本機連線）")

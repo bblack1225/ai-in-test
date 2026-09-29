@@ -1,41 +1,31 @@
 """
-POC: iOS App 元件地圖產生器（第三步）
+POC: App 測試案例執行器（第三步），iOS / Android 共用
 
 功能：
   讀取 generate_test_case.py 產生的測試步驟清單，實際連線手機、透過 Appium 執行，
   並印出每個步驟的執行結果。這一步完全不用 LLM，純粹是把結構化的步驟資料
   轉換成 Appium 操作指令（機械式工作，交給固定的程式邏輯處理）。
 
+  執行流程（讀檔、逐步執行、timeout 重試、停止、畫面檢查、等畫面穩定）兩個平台
+  共用這一份；定位元件、點擊的平台差異在 platforms/ios.py、platforms/android.py，
+  這裡的函式都帶一個 platform 參數取用。
+
 元件定位策略：
   0. 不管 id_source 是什麼，先檢查 el["custom_xpath"]——這是使用者在
-     viewer.html「重新定義 XPath」/「AI定位」功能裡人工測試、或AI生成後
+     viewer「重新定義 XPath」/「AI定位」功能裡人工測試、或AI生成後
      實測驗證過，確認查到唯一結果才存下來的查詢，優先於所有自動推導的
      定位方式使用
-  - native 元件（有 accessibility id）：用 AppiumBy.ACCESSIBILITY_ID 定位，穩定可靠
-  - generated 元件（沒有 native id）：
-    1. 先試精確 XPath（class + label）；查不到就自己捲動、邊捲邊重查
-       （_locate_by_xpath_with_scroll），涵蓋元件因 cell 重用暫時不在 tree
-       上的情況。查到唯一一個才用（比座標更耐用，畫面稍微捲動、版面微調都
-       不受影響）
-    2. 查到多個（真的有歧義）時，改用 nearby_text 當錨點消歧義
-       （_locate_by_anchor）——清單裡常見「每一列都有一個文字相同的
-       操作按鈕」，純靠 class+label 沒辦法唯一定位，要靠同一列裡能唯一
-       辨識該列的鄰近文字才行（見 TROUBLESHOOTING #36，這是先在 Android
-       版發現、修正後才比照加回 iOS 版的邏輯）
-    3. 都找不到、或 label 本身是空的，才退回用 bounds
-       座標算出中心點，透過 `mobile: tap` 直接點擊
-    4. input_text 只支援 native 元件——沒有 native id 的輸入框，代表這個
-       App 本身測試友善度不足，不適合硬用座標點擊+輸入解決，建議回報給開發團隊
-
-  找到元件之後、實際點擊/驗證之前，會先呼叫 ensure_visible()：iOS 元件即使
-  捲出目前可視範圍外，Accessibility Tree 依然找得到（節點真的存在），但不在
-  可視範圍內時直接點擊等同無效觸控，所以先檢查 visible 屬性，不是 true 才用
-  `mobile: scroll` 帶 `toVisible: True` 捲到可互動範圍再繼續（見 TROUBLESHOOTING
-  #28）。這跟 Android 版的情況不同——Android 畫面外的元件常常連節點都還沒被
-  建出來，要用「邊捲邊找」而不是「找到後再捲」，見 run_test_case_android.py。
+  1. native 元件：iOS 用 accessibility id，Android 用 resource-id，穩定可靠
+  2. generated 元件（沒有 native id）：class + 文字查詢、捲動重查、鄰近文字
+     錨點消歧義（見 TROUBLESHOOTING #36），各平台的細節見
+     platforms/*.py 的 locate_generated_element()
+  3. 都找不到、或 label 本身是空的，才退回用 bounds 座標點擊
+  4. input_text 只支援 native 元件——沒有 native id 的輸入框，代表這個
+     App 本身測試友善度不足，不適合硬用座標點擊+輸入解決，建議回報給開發團隊
 
 使用方式：
-  python run_test_case.py --screen_name 我的頁面
+  python run_test_case.py --screen_name 我的頁面               （預設 iOS）
+  python run_test_case.py --platform android --screen_name my_screen
 
 安全提醒：
   這一步會「真的」操作手機、點擊真實 App 畫面。執行前務必先打開
@@ -51,16 +41,13 @@ import argparse
 import json
 import time
 import xml.etree.ElementTree as ET
-from contextlib import contextmanager
 from pathlib import Path
 
 from appium import webdriver
-from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import NoSuchElementException
 
-from capture_screen_map import find_scrollable_regions, swipe_within_region
-from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
+from test_config import APPIUM_SERVER_URL
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")
@@ -93,8 +80,7 @@ _stop_checker = None
 
 
 def set_stop_checker(checker) -> None:
-    """viewer_server 啟動時把自己的停止旗標註冊進來；命令列執行不註冊，行為不變。
-    Android 版（run_test_case_android.py）也是呼叫這裡的 raise_if_stopped，共用同一個旗標。"""
+    """viewer_server 啟動時把自己的停止旗標註冊進來；命令列執行不註冊，行為不變。"""
     global _stop_checker
     _stop_checker = checker
 
@@ -112,7 +98,7 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
     ——wait_after_action() 只等畫面「不再變動」，刷新前畫面早就穩定了，擋不住這種延遲。
 
     沒寫 timeout 就只檢查一次，跟原本行為完全一樣。SKIP 代表這個元件本來就驗證
-    不了，重試也沒用，直接回傳。iOS / Android 共用（check 各自帶平台的 run_assert_*）。
+    不了，重試也沒用，直接回傳。
     """
     if not timeout:
         return check()
@@ -136,36 +122,6 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
         time.sleep(poll_interval)
 
 
-@contextmanager
-def skip_visible_in_page_source(driver):
-    """
-    執行測試期間讓 page_source 不計算 visible 屬性，結束後恢復原本設定。
-
-    visible 不是元件現成的屬性，WDA 要逐個元件算「在不在螢幕內、有沒有被蓋住」，
-    元件多的畫面（報價清單）這是讀一次 page_source 最花時間的部分之一。執行測試時
-    讀 page_source 的地方（等畫面穩定、第0步畫面檢查、位置定位）都只用類型、座標、
-    id、文字，用不到 visible。
-
-    一定要恢復：掃描（capture_screen_map.parse_candidate_elements）跟爬蟲會用
-    visible 決定收錄哪些元件、哪些能點，viewer_server 跟測試共用同一個連線。
-    element.get_attribute("visible")（ensure_visible 用的）不受這個設定影響。
-    """
-    try:
-        original = driver.get_settings().get("pageSourceExcludedAttributes", "")
-        driver.update_settings({"pageSourceExcludedAttributes": "visible"})
-    except Exception as e:
-        print(f"  [提示] 無法設定跳過 visible，照原本方式讀畫面結構（{e}）")
-        yield
-        return
-    try:
-        yield
-    finally:
-        try:
-            driver.update_settings({"pageSourceExcludedAttributes": original})
-        except Exception as e:
-            print(f"  [警告] 恢復 pageSourceExcludedAttributes 失敗，之後掃描前請重新連線（{e}）")
-
-
 def xpath_literal(value: str) -> str:
     """把字串安全地組成 XPath 字面值，處理內含雙引號的情況"""
     if '"' not in value:
@@ -176,155 +132,13 @@ def xpath_literal(value: str) -> str:
     return "concat(" + ', \'"\', '.join(f'"{p}"' for p in parts) + ")"
 
 
-def _predicate_literal(text: str) -> str:
-    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
-def ios_label_predicate(class_name: str, label: str) -> str:
-    """自動定位用的 iOS predicate，跟 `//{class}[@label=...]` 這條 XPath 意思一樣。
-    XPath 在 iOS 上每查一次都要先把整份畫面結構序列化傳回來（一次 1~3 秒），
-    predicate 直接在手機上比對，所以自動定位一律用這個；使用者存的 custom_xpath
-    需要表達結構關係（第幾個 Cell 裡的第幾個元件），predicate 做不到，維持 XPath。"""
-    return f"type == {_predicate_literal(class_name)} AND label == {_predicate_literal(label)}"
-
-
-def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8):
-    """
-    用 class + label 查精確 XPath，查不到就自己捲動可捲動容器、每輪重新查同一條
-    精確 XPath，取代原本只看當下快照、不會捲動的 _locate_by_xpath（已移除）。
-    比照 Android 版 run_test_case_android.py 的同名函式移植。
-
-    為什麼 iOS 也需要這個：iOS 的 Accessibility Tree 對「捲出畫面外」的元件
-    多半還是找得到（節點仍在，見 TROUBLESHOOTING #16/#28），這種情況
-    ensure_visible() 的 `mobile: scroll` `toVisible` 已經能處理。但長的
-    XCUIElementTypeTable / CollectionView 有 cell 重用，離畫面夠遠的 row 會
-    整個從 tree 上消失，這時精確 XPath 查 0 個、ensure_visible 也無從捲起
-    （沒有 element 可以 toVisible），舊流程只能退到用 element_map.json 裡
-    「掃描當下」的舊座標盲點，捲動位置一旦不同就點錯。這個函式補上這一段：
-    自己捲容器、邊捲邊用精確 XPath 重查。
-
-    跟 Android 版的差異：Android 的 scroll_step 有布林回傳值可判斷「捲不動了」；
-    iOS 的 driver.swipe 沒有，改用「捲動前後 page_source 沒變」當「這個容器
-    捲不動 / 已到底」的依據，可靠度略低（同一個已知落差，見
-    capture_screen_map.swipe_within_region 說明）。
-
-    查詢結果處理跟 Android 版一致：
-      - 剛好 1 個 → 直接用
-      - >1 個 → 真的有歧義，捲再多也不會變唯一，直接放棄交給呼叫端的錨點消歧義
-      - 0 個 → 捲動重試（先用涵蓋畫面主要範圍的通用區域，再逐一試畫面上其他
-        可捲動容器）
-    """
-    label = el.get("label", "")
-    if not label:
-        return None
-
-    predicate = ios_label_predicate(el["class"], label)
-
-    def _query():
-        try:
-            return driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
-        except Exception as e:
-            print(f"    [XPath+捲動] 查詢失敗: {predicate}  ({e})")
-            return []
-
-    matches = _query()
-    print(f"    [XPath+捲動] 第0輪（不捲）: {predicate} -> 查到 {len(matches)} 個")
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        return None  # 真的有歧義，交給呼叫端的錨點消歧義處理
-
-    def _scroll_search(region_bounds, region_label):
-        previous_source = None
-        for round_index in range(1, max_rounds + 1):
-            raise_if_stopped()
-            swipe_within_region(driver, region_bounds, "down")
-            time.sleep(0.5)
-            current_source = driver.page_source
-            if current_source == previous_source:
-                print(f"    [XPath+捲動] {region_label} 捲動前後畫面沒變，判定捲不動了，停止")
-                return None
-            previous_source = current_source
-            found = _query()
-            print(f"    [XPath+捲動] {region_label} 第{round_index}輪: 查到 {len(found)} 個")
-            if len(found) == 1:
-                return found[0]
-            if len(found) > 1:
-                return None
-        return None
-
-    size = driver.get_window_size()
-    outer_area = {
-        "x": int(size["width"] * 0.1),
-        "y": int(size["height"] * 0.15),
-        "width": int(size["width"] * 0.8),
-        "height": int(size["height"] * 0.7),
-    }
-    matched = _scroll_search(outer_area, "主要區域")
-    if matched is not None:
-        return matched
-
-    try:
-        regions = find_scrollable_regions(driver.page_source)
-    except Exception:
-        regions = []
-    for region in regions:
-        matched = _scroll_search(region["bounds"], f"容器（{region['class']}）")
-        if matched is not None:
-            return matched
-
-    return None
-
-
-def _locate_by_anchor(driver, el: dict):
-    """
-    跟 Android 版（run_test_case_android.py 的 _locate_by_anchor）同樣的
-    錨點消歧義邏輯，處理「清單裡每一列都有一個文字相同的操作按鈕」這種
-    純 XPath 查不到唯一結果的情境（見 TROUBLESHOOTING #36）。用 fingerprint
-    裡的 nearby_text（同一列裡能唯一辨識這一列的文字）當錨點，在所有符合
-    class+label 的候選裡，挑跟錨點 Y 座標最接近的一個。
-
-    跟 Android 版的關鍵差異：iOS 沒有 UiScrollable.scrollIntoView() 這種
-    「邊捲邊找」的機制可用，但也不需要——iOS 元件即使捲出畫面外，
-    Accessibility Tree 依然找得到（節點真的存在，見已知問題16），所以
-    錨點本身直接用 XPath 查詢就查得到，不用先捲動。找到答案之後，呼叫端
-    仍然會用 ensure_visible() 確保真的可以點擊/驗證。
-    """
-    nearby_text_list = (el.get("fingerprint") or {}).get("nearby_text") or []
-    label = el.get("label", "")
-    if not nearby_text_list or not label:
-        return None
-
-    try:
-        anchors = driver.find_elements(AppiumBy.IOS_PREDICATE,
-                                       f"label == {_predicate_literal(nearby_text_list[0])}")
-    except Exception as e:
-        print(f"    [錨點消歧義] 錨點查詢失敗: {e}")
-        return None
-    if len(anchors) != 1:
-        return None
-    anchor_y = anchors[0].location["y"]
-
-    try:
-        candidates = driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(el["class"], label))
-    except Exception:
-        return None
-    if not candidates:
-        return None
-
-    closest = min(candidates, key=lambda c: abs(c.location["y"] - anchor_y))
-    print(f"    [錨點消歧義] 用鄰近文字「{nearby_text_list[0]}」（y={anchor_y}）"
-          f"從 {len(candidates)} 個同文字候選中挑出最接近的一個")
-    return closest
-
-
 def _locate_by_custom_xpath(driver, el: dict):
     """
-    人工在 viewer.html 上用「重新定義XPath」/「AI定位」存下來的自訂查詢
+    人工在 viewer 上用「重新定義XPath」/「AI定位」存下來的自訂查詢
     （el["custom_xpath"]），優先於所有自動推導的定位方式使用——這是人工
     測試過、或AI生成後經過實測驗證才存的，比自動邏輯更值得信任。查不到
     唯一結果時（例如畫面已經改版）不強行使用，回傳 None 讓呼叫端繼續走
-    原本的自動定位鏈。跟 Android 版（run_test_case_android.py）同樣邏輯。
+    原本的自動定位鏈。
     """
     custom_xpath = el.get("custom_xpath")
     if not custom_xpath:
@@ -340,121 +154,67 @@ def _locate_by_custom_xpath(driver, el: dict):
     return matches[0]
 
 
-def locate_generated_element(driver, el: dict):
-    """
-    無 native id 元件的定位順序：
-      1. 先試精確 XPath（class + label）；查不到就自己捲動可捲動容器、邊捲邊
-         重查（_locate_by_xpath_with_scroll，見其說明），涵蓋「元件因 cell
-         重用而暫時不在 tree 上」的情況；查到唯一一個才用
-      2. 查到多個（真的有歧義）時，改用 nearby_text 當錨點消歧義
-         （_locate_by_anchor，見其說明）
-      3. 都找不到才回傳 None，呼叫端改用座標
-    """
-    label = el.get("label", "")
-    if not label:
-        print(f"    [定位] label 為空，直接改用座標")
-        return None
-
-    matched = _locate_by_xpath_with_scroll(driver, el)
-    source = "XPath（含捲動）"
-    if matched is None:
-        matched = _locate_by_anchor(driver, el)
-        source = "鄰近文字錨點"
-    if matched is None:
-        return None
-
-    print(f"    [命中元件屬性（{source}）] location={matched.location}  size={matched.size}  "
-          f"name={matched.get_attribute('name')!r}  label={matched.get_attribute('label')!r}  "
-          f"value={matched.get_attribute('value')!r}  enabled={matched.get_attribute('enabled')!r}")
-    return matched
-
-
-def ensure_visible(driver, element):
-    """
-    iOS 元件即使不在目前可視範圍內，Accessibility Tree 依然找得到（節點真的
-    存在，這點跟 Android 不同——Android 畫面外的元件常常根本還沒被建出來，
-    見 run_test_case_android.py 的說明）。但找到不代表能點：不在可視範圍內時
-    直接 .click() 在 XCTest 底層等同無效觸控。這裡在點擊/驗證前，先確認
-    visible 屬性，不是 true 才捲動到可視範圍，呼叫端不用管元件原本在不在畫面上。
-    """
-    try:
-        if element.get_attribute("visible") == "true":
-            return element
-        print("    [捲動至可視範圍] 元件目前不在可視範圍內，嘗試捲動...")
-        driver.execute_script("mobile: scroll", {"element": element.id, "toVisible": True})
-    except Exception as e:
-        print(f"    [捲動至可視範圍] 檢查/捲動失敗，照原本流程繼續: {e}")
-    return element
-
-
-def tap_by_coordinates(driver, bounds: dict):
-    center_x = bounds["x"] + bounds["width"] / 2
-    center_y = bounds["y"] + bounds["height"] / 2
-    print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
-    driver.execute_script("mobile: tap", {"x": center_x, "y": center_y})
-
-
-def run_input_text(driver, el: dict, value: str) -> str:
+def run_input_text(platform, driver, el: dict, value: str) -> str:
     if el["id_source"] != "native":
-        return "SKIP（無 native id 的輸入框無法可靠定位，建議回報開發團隊補上 accessibilityIdentifier）"
+        return f"SKIP（無 native id 的輸入框無法可靠定位，建議回報開發團隊補上 {platform.native_id_name}）"
     try:
-        element = driver.find_element(AppiumBy.ACCESSIBILITY_ID, el["native_id"])
+        element = driver.find_element(platform.native_by, el["native_id"])
         element.send_keys(value)
         return "PASS"
     except NoSuchElementException:
         return f"FAIL（找不到元件: {el['native_id']}）"
 
 
-def run_tap(driver, el: dict) -> str:
+def run_tap(platform, driver, el: dict) -> str:
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
-        ensure_visible(driver, custom)
+        platform.ensure_visible(driver, custom)
         custom.click()
         return "PASS（人工自訂XPath定位）"
 
     if el["id_source"] == "native":
         try:
-            element = driver.find_element(AppiumBy.ACCESSIBILITY_ID, el["native_id"])
-            ensure_visible(driver, element)
+            element = driver.find_element(platform.native_by, el["native_id"])
+            platform.ensure_visible(driver, element)
             element.click()
-            return "PASS（accessibility id 定位）"
+            return f"PASS（{platform.native_id_name} 定位）"
         except NoSuchElementException:
             return f"FAIL（找不到元件: {el['native_id']}）"
 
-    matched = locate_generated_element(driver, el)
+    matched = platform.locate_generated_element(driver, el)
     if matched is not None:
-        ensure_visible(driver, matched)
+        platform.ensure_visible(driver, matched)
         matched.click()
-        return "PASS（XPath 定位）"
+        return f"PASS（{platform.generated_locate_label}）"
 
     raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
-    tap_by_coordinates(driver, el["bounds"])
+    platform.tap_by_coordinates(driver, el["bounds"])
     return "PASS（座標點擊，備援方式）"
 
 
-def run_assert_visible(driver, el: dict) -> str:
+def run_assert_visible(platform, driver, el: dict) -> str:
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
-        ensure_visible(driver, custom)
+        platform.ensure_visible(driver, custom)
         return "PASS（人工自訂XPath定位）" if custom.is_displayed() else "FAIL（元件存在但不可見）"
 
     if el["id_source"] == "native":
         try:
-            element = driver.find_element(AppiumBy.ACCESSIBILITY_ID, el["native_id"])
-            ensure_visible(driver, element)
+            element = driver.find_element(platform.native_by, el["native_id"])
+            platform.ensure_visible(driver, element)
             return "PASS" if element.is_displayed() else "FAIL（元件存在但不可見）"
         except NoSuchElementException:
             return "FAIL（找不到元件）"
 
-    matched = locate_generated_element(driver, el)
+    matched = platform.locate_generated_element(driver, el)
     if matched is not None:
-        ensure_visible(driver, matched)
-        return "PASS（XPath 定位）" if matched.is_displayed() else "FAIL（元件存在但不可見）"
+        platform.ensure_visible(driver, matched)
+        return f"PASS（{platform.generated_locate_label}）" if matched.is_displayed() else "FAIL（元件存在但不可見）"
 
-    return "SKIP（無 native id 且 XPath 查無唯一結果，座標無法驗證「是否可見」）"
+    return "SKIP（無 native id 且自動定位查無唯一結果，座標無法驗證「是否可見」）"
 
 
-def _read_text_by_position(driver, el: dict, y_tolerance: float = 10.0):
+def _read_text_by_position(platform, driver, el: dict, y_tolerance: float = 10.0):
     """
     用掃描時存的座標，讀「目前畫面同一格」的文字，不管那一格現在顯示什麼字。
     給 assert_text_contains 驗證「會變的文字」用（委託狀態、成交數量、價格），
@@ -477,12 +237,13 @@ def _read_text_by_position(driver, el: dict, y_tolerance: float = 10.0):
     center_x, center_y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
 
     best, best_distance = None, None
-    for node in root.iter(el["class"]):
-        try:
-            x, y = float(node.attrib["x"]), float(node.attrib["y"])
-            w, h = float(node.attrib["width"]), float(node.attrib["height"])
-        except (KeyError, ValueError):
+    for node in root.iter():
+        if platform.node_class(node) != el["class"]:
             continue
+        b = platform.node_bounds(node)
+        if b is None:
+            continue
+        x, y, w, h = b["x"], b["y"], b["width"], b["height"]
         if abs(y + h / 2 - center_y) > y_tolerance or x > right or x + w < left:
             continue
         distance = abs(x + w / 2 - center_x) + abs(y + h / 2 - center_y)
@@ -491,19 +252,18 @@ def _read_text_by_position(driver, el: dict, y_tolerance: float = 10.0):
 
     if best is None:
         return None
-    text = (best.attrib.get("label") or best.attrib.get("value") or "").strip()
+    text = platform.node_text(best)
     print(f"    [位置定位] 掃描時座標 ({bounds['x']:g}, {bounds['y']:g}) 附近的 {el['class']}，"
           f"目前文字：「{text}」")
     return text
 
 
-def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
+def run_assert_text_contains(platform, driver, el: dict, expected_text: str) -> str:
     """
-    Android 版（run_test_case_android.py）的對應函式，這裡是 iOS 版：驗證元件
-    目前顯示的文字內容有沒有包含指定字串，給 LLM 產生的跨畫面測案用（viewer.html
-    「LLM 測案產生」分頁）。iOS 用 label/value 取代 Android 的 text/content-desc。
-    **這次沒有 iPhone 可實機測試，只通過語法檢查**，比照本檔案其他函式已知的
-    未驗證風險。
+    驗證元件目前顯示的文字內容有沒有包含指定字串，而不是只驗證存不存在/可不可見
+    ——assert_visible 做不到這件事。給 LLM 產生的跨畫面測案用（viewer「LLM
+    測案產生」分頁），例如「設定頁存了名稱後，首頁問候語有沒有真的出現這個名稱」
+    這種需要檢查實際文字內容的情境。
     """
     custom = _locate_by_custom_xpath(driver, el)
     target_el, label = custom, "人工自訂XPath定位"
@@ -511,8 +271,8 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
     if target_el is None:
         if el["id_source"] == "native":
             try:
-                target_el = driver.find_element(AppiumBy.ACCESSIBILITY_ID, el["native_id"])
-                label = "accessibility id 定位"
+                target_el = driver.find_element(platform.native_by, el["native_id"])
+                label = f"{platform.native_id_name} 定位"
             except NoSuchElementException:
                 return "FAIL（找不到元件）"
         else:
@@ -520,70 +280,22 @@ def run_assert_text_contains(driver, el: dict, expected_text: str) -> str:
             # 正是文字有沒有變——變了就找不到，或找到別列剛好還是舊文字的元件。所以先用
             # 掃描時的座標讀同一格；位置附近沒有同類型元件才退回原本的定位（它找不到時會
             # 捲動清單，一捲動位置就不準了，所以不能放在前面）
-            position_text = _read_text_by_position(driver, el)
+            position_text = _read_text_by_position(platform, driver, el)
             if position_text is not None:
                 if expected_text in position_text:
                     return f"PASS（位置定位，實際文字：「{position_text}」）"
                 return f"FAIL（位置定位，預期文字包含「{expected_text}」，實際文字：「{position_text}」）"
-            target_el = locate_generated_element(driver, el)
-            label = "XPath 定位"
+            target_el = platform.locate_generated_element(driver, el)
+            label = platform.generated_locate_label
 
     if target_el is None:
-        return "SKIP（無 native id 且 XPath 查無唯一結果，無法讀取文字內容）"
+        return "SKIP（無 native id 且自動定位查無唯一結果，無法讀取文字內容）"
 
-    ensure_visible(driver, target_el)
-    actual_text = (target_el.get_attribute("label") or target_el.get_attribute("value") or "").strip()
+    platform.ensure_visible(driver, target_el)
+    actual_text = platform.element_text(target_el)
     if expected_text in actual_text:
         return f"PASS（{label}，實際文字：「{actual_text}」）"
     return f"FAIL（{label}，預期文字包含「{expected_text}」，實際文字：「{actual_text}」）"
-
-
-def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: float = 0.1) -> str:
-    """
-    驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後上方的「委託回報」）。
-
-    expected 可以是字串或字串陣列，每個字串都要出現在畫面上某個 StaticText 裡才算 PASS，
-    例如 ["委託回報", "2882 國泰金"]。不需要 element_map 裡的元件。
-
-    跟 run_assert_visible 刻意不同的三點（都是實測跑馬燈抓不到的原因）：
-      - 用 iOS predicate 查，查詢在手機上完成；XPath 要先把整份 page source
-        傳回電腦，一次 1~3 秒，跑馬燈早就消失了
-      - 暫時把 waitForIdleTimeout 設 0：跑馬燈是動畫，預設會等 App 靜止才查詢
-      - 不看 is_displayed()：實測跑馬燈上的文字 visible 都是 false（XCUITest
-        對重疊/動畫中元素的誤判），只要查得到就算出現
-    所以這一步必須緊接在觸發它的 tap 之後，中間不能先跑 wait_after_action()
-    （它也是一直抓 page source，會把跑馬燈的時間耗掉），執行端已經處理。
-    """
-    texts = [expected] if isinstance(expected, str) else list(expected or [])
-    texts = [t for t in texts if t]
-    if not texts:
-        return "FAIL（assert_banner 的 value 沒有指定要等的文字）"
-
-    predicate = "type == 'XCUIElementTypeStaticText' AND (" + " OR ".join(
-        f"label CONTAINS {_predicate_literal(t)}" for t in texts) + ")"
-
-    original_idle = driver.get_settings().get("waitForIdleTimeout")
-    driver.update_settings({"waitForIdleTimeout": 0})
-    try:
-        seen_labels = set()
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                labels = [e.get_attribute("label") or "" for e in
-                          driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)]
-            except Exception:
-                # 元素剛好在讀屬性時消失（stale），下一輪再查
-                labels = []
-            seen_labels.update(labels)
-            if all(any(t in label for label in seen_labels) for t in texts):
-                return f"PASS（跑馬燈出現，抓到的文字：{'、'.join(sorted(seen_labels))}）"
-            time.sleep(poll_interval)
-    finally:
-        if original_idle is not None:
-            driver.update_settings({"waitForIdleTimeout": original_idle})
-
-    missing = [t for t in texts if not any(t in label for label in seen_labels)]
-    return f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}）"
 
 
 def match_screen_in_source(page_source: str, elements: list, screen_name: str,
@@ -591,7 +303,7 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
     """
     比對目前畫面（page_source）是不是 screen_name 這個畫面，回傳 (status, message)，
     status 是 "pass" / "fail" / "unchecked"（沒有東西可以比對，放行但提醒）。
-    iOS / Android 共用，差別只在 id / 文字放在哪些屬性（id_attrs / label_attrs）。
+    平台差別只在 id / 文字放在哪些屬性（id_attrs / label_attrs）。
 
     做法：優先用這個畫面已知的 native id 元件當指紋；畫面完全沒有 native id 時，
     改用元件文字（label）比對，並排除含數字的文字（價格、時間、筆數這類
@@ -629,51 +341,45 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
     return ("pass" if ratio >= 0.5 else "fail"), message
 
 
-def check_current_screen(driver, screen_name: str, elements: list) -> tuple[str, str]:
+def check_current_screen(platform, driver, screen_name: str, elements: list) -> tuple[str, str]:
     return match_screen_in_source(driver.page_source, elements, screen_name,
-                                  id_attrs=("name",), label_attrs=("label",))
+                                  id_attrs=platform.screen_id_attrs, label_attrs=platform.screen_label_attrs)
 
 
-def verify_current_screen(driver, screen_name: str, element_lookup: dict) -> bool:
+def verify_current_screen(platform, driver, screen_name: str, element_lookup: dict) -> bool:
     """
     執行測試步驟前的安全檢查：確認手機目前畫面看起來就是測試案例鎖定的畫面，
     避免在錯誤畫面上，tap 的座標備援機制誤觸別的畫面上的真實元件卻回報 PASS。
     比對方式見 match_screen_in_source。
     """
-    status, message = check_current_screen(driver, screen_name, list(element_lookup.values()))
+    status, message = check_current_screen(platform, driver, screen_name, list(element_lookup.values()))
     print(f"  [畫面校驗] {message}")
     return status != "fail"
 
 
-def _layout_signature(page_source: str):
+def layout_signature(platform, page_source: str):
     """
     畫面「版面」的指紋，給 wait_after_action 判斷畫面穩定用：只看元件類型跟位置，
-    不看文字。報價畫面的價格、漲跌一直在跳，用整份 page_source 比對永遠不會一致，
-    每次 tap 都會等到上限；轉場、載入、彈窗這些才是要等的，它們會改變版面。
-    文字元件只看 y 跟高度：數字變長變短時寬度跟 x（靠右對齊）會跟著變。
+    不看文字（每個節點取什麼見 platforms/*.py 的 layout_key）。報價畫面的價格、
+    漲跌一直在跳，用整份 page_source 比對永遠不會一致，每次 tap 都會等到上限；
+    轉場、載入、彈窗這些才是要等的，它們會改變版面。
     文字延遲更新（例如取消委託後狀態才變）不在這裡等，由 assert 步驟的 timeout 處理。
     """
     try:
         root = ET.fromstring(page_source)
     except ET.ParseError:
         return page_source
-    signature = []
-    for node in root.iter():
-        a = node.attrib
-        if node.tag == "XCUIElementTypeStaticText":
-            signature.append((node.tag, a.get("y"), a.get("height")))
-        else:
-            signature.append((node.tag, a.get("x"), a.get("y"), a.get("width"), a.get("height")))
-    return signature
+    return [platform.layout_key(node) for node in root.iter()]
 
 
-def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:
+def wait_after_action(platform, driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:
     """
-    Android 版（run_test_case_android.py）的對應函式，這裡是 iOS 版：
     tap/input_text 之後改成輪詢 page_source 直到版面連續兩次一致或到時間
     上限為止，取代原本寫死的 `time.sleep(1)`——原本固定1秒的等待，遇到
     App本身有較長轉場/非同步載入（例如測試App的轉場畫面刻意設計2秒
-    loading）時可能不夠，下一步容易在畫面還沒更新完就執行。
+    loading）時可能不夠，下一步容易在畫面還沒更新完就執行。時間上限抓得比
+    掃描的 wait_for_screen_stable（~7.5秒）短很多，避免被本來就不會停止變化的
+    動態內容（跑馬燈、loading動畫）拖慢太多測案執行時間。
 
     max_wait 是實際經過的秒數。iOS 讀一次 page_source 要 1~3 秒，原本只累加
     poll_interval，畫面一直在變時（報價跳動）實際會等到 8 次讀取、十幾二十秒。
@@ -682,7 +388,7 @@ def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4)
     deadline = time.time() + max_wait
     while True:
         try:
-            current = _layout_signature(driver.page_source)
+            current = layout_signature(platform, driver.page_source)
         except Exception:
             return
         if current == previous or time.time() >= deadline:
@@ -693,47 +399,56 @@ def wait_after_action(driver, max_wait: float = 3.0, poll_interval: float = 0.4)
 
 def next_is_banner_check(steps: list, current_index: int) -> bool:
     """current_index 是從1起算的步驟編號；下一步是 assert_banner 時，這一步做完不能先
-    wait_after_action()，否則跑馬燈會在等畫面穩定的那幾秒內消失（見 run_assert_banner）。"""
+    wait_after_action()，否則跑馬燈會在等畫面穩定的那幾秒內消失（見 platforms/ios.run_assert_banner）。"""
     return current_index < len(steps) and steps[current_index].get("action") == "assert_banner"
 
 
-def run_test_case(driver, test_case: dict, element_lookup: dict):
+def execute_step(platform, driver, step: dict, el: dict | None) -> str:
+    """
+    執行一個步驟、回傳結果文字（PASS/FAIL/SKIP 開頭）。命令列（run_test_case）跟
+    viewer_server 的測案執行共用，差別只在呼叫端怎麼找到 el（單一畫面 vs 每步自帶
+    screen_name）。el 是 None 代表 element_map 裡找不到這個 target。
+    """
+    action = step.get("action")
+    if action == "assert_banner":
+        # 跑馬燈不在 element_map 裡，不需要 target
+        if not platform.supports_banner:
+            return f"SKIP（assert_banner 目前只有 iOS 版，{platform.name} 還沒實作）"
+        return platform.assert_banner(driver, step.get("value"), step.get("timeout", 10))
+
+    if el is None:
+        where = f"畫面「{step['screen_name']}」的資料" if step.get("screen_name") else "element_map.json"
+        return f"FAIL（{where}裡找不到 {step.get('target')}，畫面資料可能已過期，建議重新掃描）"
+
+    if action == "tap":
+        return run_tap(platform, driver, el)
+    if action == "input_text":
+        return run_input_text(platform, driver, el, step.get("value", ""))
+    if action == "assert_visible":
+        return retry_assert(lambda: run_assert_visible(platform, driver, el), step.get("timeout"))
+    if action == "assert_text_contains":
+        return retry_assert(lambda: run_assert_text_contains(platform, driver, el, step.get("value", "")),
+                            step.get("timeout"))
+    return f"FAIL（未知的 action: {action}）"
+
+
+def should_wait_after(platform, steps: list, current_index: int) -> bool:
+    """tap/input_text 之後要等畫面穩定，除非下一步是要趁跑馬燈還在時驗證的 assert_banner"""
+    action = steps[current_index - 1].get("action")
+    if action not in ("tap", "input_text"):
+        return False
+    return not (platform.supports_banner and next_is_banner_check(steps, current_index))
+
+
+def run_test_case(platform, driver, test_case: dict, element_lookup: dict):
     results = []
     steps = test_case["steps"]
     for i, step in enumerate(steps, 1):
-        action = step["action"]
-        target = step.get("target")
-
-        if action == "assert_banner":
-            outcome = run_assert_banner(driver, step.get("value"), step.get("timeout", 10))
-            results.append((i, step, outcome))
-            print(f"  {i}. [{action}] {step.get('value')} -> {outcome}")
-            continue
-
-        el = element_lookup.get(target)
-
-        if el is None:
-            results.append((i, step, f"FAIL（element_map.json 裡找不到 {target}，畫面資料可能已過期，建議重新掃描）"))
-            continue
-
-        if action == "input_text":
-            outcome = run_input_text(driver, el, step.get("value", ""))
-        elif action == "tap":
-            outcome = run_tap(driver, el)
-        elif action == "assert_visible":
-            outcome = retry_assert(lambda: run_assert_visible(driver, el), step.get("timeout"))
-        elif action == "assert_text_contains":
-            outcome = retry_assert(lambda: run_assert_text_contains(driver, el, step.get("value", "")),
-                                   step.get("timeout"))
-        else:
-            outcome = f"FAIL（未知的 action: {action}）"
-
+        outcome = execute_step(platform, driver, step, element_lookup.get(step.get("target")))
         results.append((i, step, outcome))
-        print(f"  {i}. [{action}] {target} -> {outcome}")
-
-        if action in ("tap", "input_text") and not next_is_banner_check(steps, i):
-            wait_after_action(driver)
-
+        print(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
+        if should_wait_after(platform, steps, i):
+            wait_after_action(platform, driver)
     return results
 
 
@@ -746,28 +461,33 @@ def save_result_screenshot(driver, screen_name: str):
 
 
 def main():
+    # platforms 裡的模組會 import 這支的共用函式，放在這裡 import 避免循環
+    from platforms import PLATFORMS, get_platform
+
     parser = argparse.ArgumentParser(description="執行 generate_test_case.py 產生的測試案例")
     parser.add_argument("--screen_name", required=True)
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), default="ios", help="裝置平台（預設 ios）")
     args = parser.parse_args()
+    platform = get_platform(args.platform)
 
     test_case = load_test_case(args.screen_name)
     element_lookup = load_element_lookup(args.screen_name)
 
-    print(f"執行畫面「{args.screen_name}」的測試案例，共 {len(test_case['steps'])} 個步驟")
+    print(f"執行畫面「{args.screen_name}」的測試案例（{platform.name}），共 {len(test_case['steps'])} 個步驟")
 
-    options = XCUITestOptions().load_capabilities(DESIRED_CAPS)
-    driver = webdriver.Remote(APPIUM_SERVER_URL, options=options)
+    driver = webdriver.Remote(APPIUM_SERVER_URL, options=platform.make_options())
 
     try:
-        with skip_visible_in_page_source(driver):
-            if not verify_current_screen(driver, args.screen_name, element_lookup):
+        with platform.page_source_context(driver):
+            if not verify_current_screen(platform, driver, args.screen_name, element_lookup):
                 save_result_screenshot(driver, args.screen_name)
                 raise SystemExit(
                     f"手機目前畫面看起來不是「{args.screen_name}」，為避免座標點擊備援機制誤觸其他畫面上的"
                     f"真實元件，中止執行。請手動導航回正確畫面後再重新執行（已存一張當下截圖到 "
-                    f"test_results/{args.screen_name}_after.png 方便你確認目前實際在哪個畫面）。"
+                    f"test_results/{args.screen_name}_after.png 方便你確認目前實際在哪個畫面，"
+                    f"但若這支 App 有 FLAG_SECURE 保護，這張截圖可能是純黑色，無法用來確認畫面）。"
                 )
-            results = run_test_case(driver, test_case, element_lookup)
+            results = run_test_case(platform, driver, test_case, element_lookup)
             save_result_screenshot(driver, args.screen_name)
     finally:
         driver.quit()

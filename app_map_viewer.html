@@ -860,6 +860,7 @@
     return {
       unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c,
       label: el.l, value: el.v, bounds: el.b, enabled: true, accessible: !!el.a,
+      fingerprint: el.fp || null,
       description: el.d || "", description_source: el.d ? "llm_generated" : "skipped",
       status: "active"
     };
@@ -1133,7 +1134,7 @@
   }
 
   function toShortEl(el) {
-    return { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds };
+    return { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds, fp: el.fingerprint };
   }
 
   function rememberMapPlatform(screenData) {
@@ -1419,10 +1420,11 @@
   }
   function toFullEl(el) {
     var out = { unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c, label: el.l, value: el.v, bounds: el.b };
+    if (el.fp) out.fingerprint = el.fp;
     if (el.custom_xpath) out.custom_xpath = el.custom_xpath;
     return out;
   }
-  // 比照 run_test_case.py／run_test_case_android.py 實際執行時組的查詢：
+  // 比照 run_test_case.py（platforms/ios.py、platforms/android.py）實際執行時組的查詢：
   // iOS 查 @label；Android 沒有 label 屬性，text 跟 content-desc 都要試
   function textCondition(label) {
     var literal = xpathLiteral(label);
@@ -1549,8 +1551,7 @@
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行點擊中…";
     var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
-    var payload = { unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c, label: el.l, value: el.v, bounds: el.b };
-    if (el.custom_xpath) payload.custom_xpath = el.custom_xpath;
+    var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/tap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -1647,8 +1648,7 @@
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行中…";
     var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
-    var payload = { unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c, label: el.l, value: el.v, bounds: el.b };
-    if (el.custom_xpath) payload.custom_xpath = el.custom_xpath;
+    var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/tap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -2098,6 +2098,7 @@
             unique_id: el.u, id_source: el.src, native_id: el.n,
             class: el.c, label: el.l, value: el.v, bounds: el.b, description: el.d
           };
+          if (el.fp) out.fingerprint = el.fp;
           if (el.custom_xpath) out.custom_xpath = el.custom_xpath;
           return out;
         }),

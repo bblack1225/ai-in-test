@@ -51,7 +51,7 @@ from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
-from run_test_case import _predicate_literal, ios_label_predicate
+from platforms.ios import _predicate_literal, ios_label_predicate
 from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
 
 OUTPUT_PATH = Path("app_map_tree.json")
