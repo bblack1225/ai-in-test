@@ -1050,8 +1050,8 @@
 
   <div class="header-row header-row-sub">
     <label class="field" id="server-field">
-      模擬器/裝置連線（Android:8766 viewer_server.py／iOS:8767 viewer_server_ios.py）
-      <input type="text" id="server-url" value="http://127.0.0.1:8766" />
+      裝置連線（viewer_server.py，啟動時用 --platform 指定 iOS/Android）
+      <input type="text" id="server-url" value="http://127.0.0.1:8767" />
       <span id="server-status" class="unknown">未檢查</span>
       <button class="btn secondary" id="server-check-btn" type="button">測試連線</button>
     </label>
@@ -1190,8 +1190,8 @@
     </div>
 
     <label class="field">
-      LLM 代理連線（viewer_server 8766／viewer_server_ios 8767，只是代理呼叫，兩個都可）
-      <input type="text" id="llmgen-server-url" value="http://127.0.0.1:8766" />
+      LLM 代理連線（viewer_server.py，只是代理呼叫，不需要接手機）
+      <input type="text" id="llmgen-server-url" value="http://127.0.0.1:8767" />
     </label>
 
     <div class="spacer"></div>
@@ -1243,8 +1243,8 @@
     </label>
 
     <label class="field" id="runscript-server-field">
-      模擬器/裝置連線（Android:8766／iOS:8767）
-      <input type="text" id="runscript-server-url" value="http://127.0.0.1:8766" />
+      裝置連線（viewer_server.py）
+      <input type="text" id="runscript-server-url" value="http://127.0.0.1:8767" />
       <span id="runscript-server-status" class="unknown">未檢查</span>
       <button class="btn secondary" id="runscript-server-check-btn" type="button">測試連線</button>
     </label>
@@ -1298,9 +1298,8 @@
   const serverCheckBtn = document.getElementById("server-check-btn");
 
   // ---------------------------------------------------------------
-  // 模擬器/裝置連線（透過 viewer_server.py / viewer_server_ios.py 橋接，
-  // 兩支伺服器提供一樣的 API 形狀，前端這裡不用分平台寫兩套邏輯，切換
-  // 網址／連接埠就能對應到不同平台）
+  // 裝置連線（透過 viewer_server.py 橋接，iOS/Android 共用同一支伺服器、
+  // 同一個網址，由伺服器啟動時的 --platform 決定這次接哪種裝置）
   // ---------------------------------------------------------------
   async function checkServer() {
     serverStatus.textContent = "檢查中...";
@@ -1487,19 +1486,6 @@
     screenshotWrap.innerHTML = `<div class="empty-state" id="screenshot-empty">
       請上傳「${currentScreen.screen_name}」這個畫面對應的截圖。
     </div>`;
-
-    // Android 用 viewer_server.py（預設8766埠）、iOS 用 viewer_server_ios.py
-    // （預設8767埠），切換畫面時自動帶入對應的預設網址——但只在使用者
-    // 目前填的還是某一邊的預設值時才自動切，如果已經手動改成別的網址
-    // （例如自訂連接埠），就不要覆蓋掉使用者自己的設定
-    const isAndroid = currentScreen.platform === "android";
-    const defaultPort = isAndroid ? "8766" : "8767";
-    const currentUrl = serverUrlInput.value.replace(/\/$/, "");
-    if (/^https?:\/\/127\.0\.0\.1:876[67]$/.test(currentUrl)) {
-      serverUrlInput.value = `http://127.0.0.1:${defaultPort}`;
-      serverStatus.textContent = "未檢查";
-      serverStatus.className = "unknown";
-    }
 
     buildFilterControls();
     renderElementList();
@@ -1733,9 +1719,8 @@
         <span class="locator-type">${locatorTypeLabel}</span>${escapeHtml(locator.text)}
       </div>`;
 
-      // 兩平台都有對應的 viewer_server（Android:8766／iOS:8767），所以按鈕
-      // 一律顯示，不再用 isAndroid 判斷「要不要顯示」，只用它判斷「要用哪種
-      // 查詢語法/連哪個埠」（見 computeLocator/buildAncestorTemplate 等）
+      // 兩平台都由 viewer_server.py 支援，所以按鈕一律顯示，isAndroid 只用來
+      // 判斷「要用哪種查詢語法」（見 computeLocator/buildAncestorTemplate 等）
       const actionsHtml = `<div class="el-actions">
             <button type="button" class="el-action-btn" data-act="tap">▶ 點擊</button>
             <button type="button" class="el-action-btn" data-act="assert_visible">👁 驗證可見</button>
@@ -2450,7 +2435,7 @@
   // 8. LLM 測案產生
   //
   // 瀏覽器不能直接呼叫 Gemini（會把 GEMINI_API_KEY 暴露在前端），所以聊天
-  // 訊息透過 viewer_server.py / viewer_server_ios.py 新增的 /llm_chat 代理
+  // 訊息透過 viewer_server.py 的 /llm_chat 代理
   // 呼叫；系統提示詞（規定輸出格式、target必須是真的存在的unique_id）整份
   // 定義在伺服器端（見 _build_llm_testgen_system_prompt()），前端只送使用者
   // 勾選的畫面資料節錄 + 對話歷史，維持「單一定義來源」不重複維護兩份提示詞。
@@ -2732,18 +2717,6 @@
     return (screen.elements || []).find((el) => el.unique_id === targetId) || null;
   }
 
-  function autoSwitchRunscriptServerUrl() {
-    if (!runscriptElementMap || !runscriptTestCase) return;
-    const firstStep = (runscriptTestCase.steps || [])[0];
-    if (!firstStep) return;
-    const screen = (runscriptElementMap.screens || []).find((s) => s.screen_name === firstStep.screen_name);
-    if (!screen) return;
-    const isDefaultValue = /^https?:\/\/127\.0\.0\.1:876[67]$/.test(runscriptServerUrl.value);
-    if (isDefaultValue) {
-      runscriptServerUrl.value = screen.platform === "ios" ? "http://127.0.0.1:8767" : "http://127.0.0.1:8766";
-    }
-  }
-
   function renderRunscriptPreview(results) {
     if (!runscriptTestCase) {
       runscriptBody.innerHTML = `<div class="empty-state">上傳 element_map.json 跟測試案例 JSON 後，這裡會列出所有步驟預覽。</div>`;
@@ -2751,7 +2724,6 @@
       return;
     }
 
-    autoSwitchRunscriptServerUrl();
 
     const steps = runscriptTestCase.steps || [];
     let html = "";

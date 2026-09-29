@@ -43,7 +43,7 @@ flowchart TD
 
     subgraph L2["② 本機驅動／橋接層"]
         B1["Appium-Python-Client<br/>（把 Python 函式呼叫組成 WebDriver 協定的 HTTP 請求）"]
-        B2["viewer_server_ios.py<br/>（本機 HTTP 小型伺服器 :8767，讓瀏覽器能間接操作手機）"]
+        B2["viewer_server.py<br/>（本機 HTTP 小型伺服器 :8767，讓瀏覽器能間接操作手機）"]
     end
 
     C["③ Appium Server（Node.js，:4723）<br/>接收 WebDriver 指令，依 platformName 分派給對應的 driver"]
@@ -86,7 +86,7 @@ flowchart TD
 | ① 使用者操作層 | Python 腳本 | 直接寫程式呼叫 Appium，適合批次掃描、爬蟲這類不需要人工即時操作的情境 |
 | ① 使用者操作層 | 瀏覽器工具 | 給人工即時互動用（點截圖送點擊、聊天產生測案），但瀏覽器基於安全限制不能直接連 Appium |
 | ② 橋接層 | Appium-Python-Client | 把「點這個元件」「讀取畫面」這類 Python 呼叫，翻譯成 WebDriver 協定規定的 HTTP 請求格式 |
-| ② 橋接層 | viewer_server_ios.py | 本機小型伺服器，讓瀏覽器工具能用一般的 `fetch()` 呼叫，間接借用 Appium-Python-Client 操作手機 |
+| ② 橋接層 | viewer_server.py | 本機小型伺服器，讓瀏覽器工具能用一般的 `fetch()` 呼叫，間接借用 Appium-Python-Client 操作手機 |
 | ③ Appium Server | Appium Server | 標準化的中介層，接收 WebDriver 指令，依連線時宣告的平台（iOS/Android）分派給對應的driver去處理 |
 | ④ Driver層 | XCUITest Driver | iOS 專用，負責在裝置上建置、簽署、啟動 WebDriverAgent，並維持跟它的連線 |
 | ⑤ 裝置層 | WebDriverAgent (WDA) | 這是**裝在手機上、跟目標App一起跑的一支測試用App**，本身是蘋果官方 XCTest 框架的一部分，接收HTTP指令後轉呼叫系統API |
@@ -125,7 +125,7 @@ sequenceDiagram
 | | 直接跑Python腳本 | 透過瀏覽器工具 |
 |---|---|---|
 | 適合情境 | 批次掃描、爬蟲探索（不需要人在旁邊即時決策） | 人工即時操作、逐一檢視/送出點擊、對話式產生測案 |
-| 誰握有Appium連線 | 腳本自己的 Python process | `viewer_server_ios.py` 這支常駐伺服器 |
+| 誰握有Appium連線 | 腳本自己的 Python process | `viewer_server.py` 這支常駐伺服器 |
 | 多開會不會衝突 | 同時間只能有一個腳本連著同一台裝置 | 瀏覽器工具本身不連裝置，但底層一樣共用同一個Appium連線，一樣不能跟其他腳本同時跑 |
 | 資料怎麼進來 | 腳本自己組webdriver指令 | 瀏覽器送一般HTTP請求給橋接伺服器，伺服器再轉成Appium呼叫 |
 

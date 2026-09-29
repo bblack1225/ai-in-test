@@ -147,7 +147,7 @@ def skip_visible_in_page_source(driver):
     id、文字，用不到 visible。
 
     一定要恢復：掃描（capture_screen_map.parse_candidate_elements）跟爬蟲會用
-    visible 決定收錄哪些元件、哪些能點，viewer_server_ios 跟測試共用同一個連線。
+    visible 決定收錄哪些元件、哪些能點，viewer_server 跟測試共用同一個連線。
     element.get_attribute("visible")（ensure_visible 用的）不受這個設定影響。
     """
     try:

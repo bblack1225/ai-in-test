@@ -1,60 +1,55 @@
 """
-本機小型伺服器：讓 viewer.html 上的「點擊」「驗證可見」按鈕能透過 HTTP API
-呼叫 run_test_case_android.py 現成的定位邏輯，對模擬器/裝置執行真正的操作。
+本機小型伺服器：讓 app_map_viewer.html / viewer.html 上的按鈕能透過 HTTP API
+呼叫 run_test_case.py / run_test_case_android.py 現成的定位邏輯，對手機執行
+真正的操作。iOS、Android 共用這一支，啟動時用 --platform 指定這次接哪種裝置。
 
-背景：viewer.html 本身是純前端、沒有後端，瀏覽器沒辦法直接連 Appium（瀏覽器
-不能對本機的 Appium server 開 socket 連線），所以需要這支伺服器當橋樑：
-伺服器維持一條 Appium 連線，瀏覽器按鈕觸發時打 API 給它，伺服器內部沿用
-run_tap()/run_assert_visible() 這兩個現成的函式（native id → XPath →
-UiScrollable.scrollIntoView → 座標備援，完全比照 run_test_case_android.py
-執行測案時的定位順序）真的去操作模擬器，不是另外寫一套新邏輯。
+背景：瀏覽器沒辦法直接連 Appium（不能對本機的 Appium server 開 socket 連線），
+所以需要這支伺服器當橋樑：伺服器維持一條 Appium 連線，瀏覽器按鈕觸發時打 API
+給它，伺服器內部沿用 run_tap()/run_assert_visible() 等現成函式真的去操作手機，
+不是另外寫一套新邏輯。
 
-這支只支援 Android（跟 run_test_case_android.py 對應）。iOS 版是
-viewer_server_ios.py（跟這支提供完全一樣形狀的 API，只是連線方式跟部分
-定位邏輯換成 iOS 版本，預設跑在 8767 埠，兩支可以同時開著，viewer.html
-會依畫面平台自動切換要連哪一個），但因為這次沒有 iPhone 可以實機測試，
-只通過語法檢查，之後有裝置時需要優先驗證。
+一個 Appium session 只綁一台裝置，所以一支伺服器一次只接一台（iOS 或
+Android 二選一）。前端打 /ping 會拿到 {"platform": "ios"|"android"}，
+據此知道目前接的是哪種手機，不用再依平台切換連線網址。
 
-另外提供「重新定義 XPath」用的三個輔助 API：
-  - /inspect：先用現成的定位邏輯（native id / XPath / 錨點消歧義 /
-    scrollIntoView）盡力找出這個元件目前對應的畫面位置，再解析當下的
-    完整 tree，往上層走訪，回傳每一層容器的 class/resource-id/文字，
-    給使用者在 viewer.html 上參考、手動組出更精準的 XPath用
-  - /test_xpath：讓使用者在儲存前先測試自己寫的 XPath 查到幾個結果，
-    不用真的存檔、真的執行測案才知道查詢對不對
-  - /agent_xpath：把當下完整 tree + 目標元件的已知線索丟給 LLM，請它
-    生成一個唯一定位的 XPath，並且**不是單次生成就相信**——每個候選都
-    會實測（查詢是否唯一、位置是否吻合已知的元件位置），不通過就把
-    失敗原因回饋給 LLM 重試，最多重試幾次，全部失敗才回報「無法定位出
-    唯一XPath」
+兩個平台的差異集中在 IOSPlatform / AndroidPlatform 兩個類別：
+  - 連線用 XCUITestOptions + DESIRED_CAPS，或 UiAutomator2Options +
+    ANDROID_DESIRED_CAPS
+  - native 元件定位：iOS 用 AppiumBy.ACCESSIBILITY_ID，Android 用 AppiumBy.ID
+  - Accessibility Tree 解析：iOS 的 XML 節點 tag 本身就是 class、座標是
+    x/y/width/height 數值屬性；Android 的 class 要讀屬性、bounds 是
+    "[x1,y1][x2,y2]" 字串。iOS 沒有 resource-id，/inspect 回傳的上層元素
+    資訊改用 name（accessibilityIdentifier）/label
+  - /agent_xpath 的 prompt：iOS 用 @label 查文字，Android 用 @text/@content-desc
+  - assert_banner、/scan_screen 目前只有 iOS 版實作
 
-另外提供「LLM 測案產生」／「測案執行」兩個分頁用的 API：
-  - /llm_chat：多輪對話代理，把系統提示詞（規定輸出格式：可能橫跨多畫面
-    的JSON測試案例，target必須是真的存在的unique_id）+ 使用者選定的畫面
-    元件精簡資料 + 對話歷史丟給 Gemini，回傳助理回覆。純聊天不操作裝置，
-    不要求Appium session存活。
-  - /run_test_script：執行一份測試案例（可能橫跨多個畫面），每個step自帶
-    screen_name，直接沿用run_tap/run_assert_visible/run_input_text/
-    run_assert_text_contains這幾個現成函式執行，不重寫定位邏輯。
+API：
+  - /tap、/assert_visible：單次點擊/驗證可見
+  - /inspect：先用現成的定位邏輯盡力找出這個元件目前對應的畫面位置，再解析
+    當下的完整 tree，往上層走訪，回傳每一層容器的資訊，給使用者手動組出
+    更精準的 XPath 用
+  - /test_xpath：讓使用者在儲存前先測試自己寫的 XPath 查到幾個結果
+  - /agent_xpath：把當下完整 tree + 目標元件的已知線索丟給 LLM，請它生成
+    唯一定位的 XPath，**不是單次生成就相信**——每個候選都會實測（查詢是否
+    唯一、位置是否吻合），不通過就把失敗原因回饋給 LLM 重試
+  - /llm_chat：「LLM 測案產生」的多輪對話代理，純聊天不操作裝置
+  - /llm_scenarios（+ GET /llm_scenarios_prompt）：「測試情境產生」
+  - /run_test_script、/stop_test_script：執行／停止一份可能橫跨多個畫面的測案
+  - /scan_screen：「手動建樹」對目前畫面執行一次掃描
 
 使用方式：
-  1. 先確認模擬器已開啟、目標畫面已經手動導航好
-  2. 執行：python viewer_server.py
-  3. 瀏覽器打開 viewer.html，上傳 element_map.json、選好畫面後，元件清單
-     每一筆旁邊會出現「▶ 點擊」「👁 驗證可見」「✏️ 重新定義」「🤖 AI定位」
-     按鈕，點擊/驗證可見會真的對模擬器操作，結果顯示在按鈕旁邊；
-     AI定位會呼叫 Gemini（需要環境變數 GEMINI_API_KEY，跟其他腳本共用
-     同一份設定）自動生成並驗證XPath，成功會直接套用，失敗會顯示原因
+  1. 先確認手機已連接、目標畫面已經手動導航好（iOS 另需 WebDriverAgent 簽署有效）
+  2. 執行：python viewer_server.py --platform ios（或 --platform android）
+  3. 瀏覽器打開 app_map_viewer.html，連線網址預設 http://127.0.0.1:8767
 
-安全提醒：這支伺服器只綁定 127.0.0.1（本機），不會對外網開放，但按下按鈕
-會「真的」操作手機/模擬器畫面。這裡沒有像 run_test_case_android.py 執行
-整套測試案例前那樣的 verify_current_screen() 前置校驗（因為每次點擊是
-獨立單次操作，不是一整套測試案例），所以務必自行確認手機目前導航到你要
-核對的那個畫面，避免座標點擊備援機制點到不相關的元件。「測案執行」
-（/run_test_script）例外：執行前會先做第0步畫面檢查，畫面不符就整份不執行
-（可從 viewer 取消勾選略過）。
+安全提醒：只綁定 127.0.0.1，不會對外網開放，但按下按鈕會「真的」操作手機
+畫面，單次操作（點擊、驗證可見等）沒有 verify_current_screen() 前置校驗，
+請自行確認手機導航到正確畫面。「測案執行」（/run_test_script）例外：
+執行前會先做第0步畫面檢查，畫面不符就整份不執行（可從 viewer 取消勾選略過）。
 """
 
+import argparse
+import contextlib
 import json
 import threading
 import xml.etree.ElementTree as ET
@@ -62,26 +57,144 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from appium import webdriver
 from appium.options.android import UiAutomator2Options
+from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
+import run_test_case as ios_runner
+import run_test_case_android as android_runner
+from capture_screen_map import scan_screen as ios_scan_screen
 from capture_screen_map_android import parse_bounds
-from run_test_case import StopRequested, retry_assert, set_stop_checker
-from run_test_case_android import (
-    check_current_screen,
-    locate_generated_element,
-    run_assert_text_contains,
-    run_assert_visible,
-    run_input_text,
-    run_tap,
-    wait_after_action,
+from run_test_case import StopRequested, next_is_banner_check, retry_assert, set_stop_checker
+from test_config import (
+    ANDROID_DESIRED_CAPS,
+    APPIUM_SERVER_URL,
+    DESIRED_CAPS,
+    LLM_MODEL,
+    LLM_MODEL_PRO,
+    generate_content_with_retry,
 )
-from test_config import ANDROID_DESIRED_CAPS, APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
 
 HOST = "127.0.0.1"
-PORT = 8766
+DEFAULT_PORT = 8767
 
+
+# ---------------------------------------------------------------------------
+# 平台差異：伺服器其他部分只透過 PLATFORM 取用這裡的東西，不直接判斷平台
+# ---------------------------------------------------------------------------
+
+class IOSPlatform:
+    name = "ios"
+    native_by = AppiumBy.ACCESSIBILITY_ID
+    native_id_name = "accessibility id"
+    runner = ios_runner
+    supports_banner = True
+    supports_scan = True
+
+    # /agent_xpath prompt 裡的平台用語
+    xpath_intro = ("你是 iOS UI 自動化測試專家。以下是透過 Appium XCUITest 取得的\n"
+                   "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢；注意 iOS 這裡 XML 的\n"
+                   "tag 名稱本身就是元件的 class，例如 <XCUIElementTypeButton>，不是像網頁那樣\n"
+                   "用固定的 tag 加 class 屬性）。")
+    xpath_class_field = "class（同時也是XML tag名稱）"
+    xpath_text_field = "文字內容（label）"
+    xpath_nearby_desc = "同層兄弟節點的 label"
+    xpath_attr_rule = ("iOS 的元件屬性用 @label 查文字內容（不是 @text 或 @content-desc，\n"
+                       "   那是 Android 的屬性名稱）")
+    xpath_bad_example = "//{class}[.//@label=X]"
+
+    def make_options(self):
+        return XCUITestOptions().load_capabilities(DESIRED_CAPS)
+
+    def node_position(self, node, class_name: str):
+        """回傳這個 XML 節點的 (x, y)；class 不符或沒有座標時回傳 None"""
+        if node.tag != class_name:
+            return None
+        try:
+            return float(node.attrib.get("x", 0)), float(node.attrib.get("y", 0))
+        except ValueError:
+            return None
+
+    def ancestor_info(self, parent) -> dict | None:
+        pa = parent.attrib
+        return {"class": parent.tag, "name": pa.get("name", ""), "label": pa.get("label", "")}
+
+    def match_preview(self, m) -> dict:
+        return {
+            "name": m.get_attribute("name"),
+            "label": m.get_attribute("label"),
+            "value": m.get_attribute("value"),
+        }
+
+    def page_source_context(self, d):
+        """測案執行期間讀 page_source 跳過 visible 屬性（見 run_test_case.skip_visible_in_page_source）"""
+        return ios_runner.skip_visible_in_page_source(d)
+
+    def scan(self, d, screen_name: str, payload: dict) -> dict:
+        return ios_scan_screen(
+            d, screen_name,
+            describe=bool(payload.get("describe", False)),
+            scroll=bool(payload.get("scroll", True)),
+            wait_stable=True,
+        )
+
+
+class AndroidPlatform:
+    name = "android"
+    native_by = AppiumBy.ID
+    native_id_name = "resource-id"
+    runner = android_runner
+    supports_banner = False
+    supports_scan = False
+
+    xpath_intro = ("你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的\n"
+                   "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。")
+    xpath_class_field = "class"
+    xpath_text_field = "文字內容（text/content-desc）"
+    xpath_nearby_desc = "同層兄弟節點的文字"
+    xpath_attr_rule = "Android 的元件屬性用 @text 或 @content-desc 查文字內容"
+    xpath_bad_example = "//{class}[.//text=X]"
+
+    def make_options(self):
+        return UiAutomator2Options().load_capabilities(ANDROID_DESIRED_CAPS)
+
+    def node_position(self, node, class_name: str):
+        if node.attrib.get("class") != class_name:
+            return None
+        bounds = parse_bounds(node.attrib.get("bounds", ""))
+        if bounds is None:
+            return None
+        return bounds["x"], bounds["y"]
+
+    def ancestor_info(self, parent) -> dict | None:
+        pa = parent.attrib
+        if "class" not in pa:
+            return None
+        return {
+            "class": pa.get("class", ""),
+            "resource_id": pa.get("resource-id", ""),
+            "text": pa.get("text", ""),
+            "content_desc": pa.get("content-desc", ""),
+        }
+
+    def match_preview(self, m) -> dict:
+        return {
+            "resource_id": m.get_attribute("resource-id"),
+            "text": m.get_attribute("text"),
+            "content_desc": m.get_attribute("content-desc"),
+        }
+
+    def page_source_context(self, d):
+        return contextlib.nullcontext()
+
+    def scan(self, d, screen_name: str, payload: dict) -> dict:
+        raise NotImplementedError
+
+
+PLATFORMS = {"ios": IOSPlatform, "android": AndroidPlatform}
+
+PLATFORM = None  # main() 依 --platform 設定
 driver = None
 
 # 測案執行的停止機制：/run_test_script 跑的時候，viewer 另外送 /stop_test_script
@@ -106,9 +219,8 @@ def get_driver(force_reconnect: bool = False):
             pass
         driver = None
     if driver is None:
-        options = UiAutomator2Options().load_capabilities(ANDROID_DESIRED_CAPS)
-        driver = webdriver.Remote(APPIUM_SERVER_URL, options=options)
-        print("[viewer_server] 已連線 Appium，driver 會保持開啟直到這支伺服器結束")
+        driver = webdriver.Remote(APPIUM_SERVER_URL, options=PLATFORM.make_options())
+        print(f"[viewer_server] 已連線 Appium（{PLATFORM.name}），driver 會保持開啟直到這支伺服器結束")
     return driver
 
 
@@ -117,20 +229,20 @@ def ensure_session_alive():
     在每次請求真正處理前，先用一個很輕量的查詢驗證 session 是不是還活著。
 
     這個檢查存在的原因：inspect_element()/test_xpath() 內部（以及它們呼叫的
-    run_test_case_android.py 定位函式）大多用「try/except Exception 廣泛捕捉、
-    捕到就當作查不到、回傳 None」的寫法——這對「單一定位方式失敗、換下一種」
-    是正確的設計，但也會把 InvalidSessionIdException（session 已失效）跟
-    「真的查不到」混在一起，讓 do_POST() 原本設計的自動重連邏輯永遠等不到
-    這個例外傳上來（實測踩過：session失效時，/inspect 只會回報「找不到這個
-    元件」，完全看不出是連線問題，白白花時間排查）。這裡改成在最前面主動探測，
-    不依賴內層程式碼願不願意把例外往外拋。
+    run_test_case 定位函式）大多用「try/except Exception 廣泛捕捉、捕到就當作
+    查不到、回傳 None」的寫法——這對「單一定位方式失敗、換下一種」是正確的
+    設計，但也會把 InvalidSessionIdException（session 已失效）跟「真的查不到」
+    混在一起，讓 do_POST() 原本設計的自動重連邏輯永遠等不到這個例外傳上來
+    （實測踩過：session失效時，/inspect 只會回報「找不到這個元件」，完全看不出
+    是連線問題，見 TROUBLESHOOTING #39）。這裡改成在最前面主動探測，不依賴
+    內層程式碼願不願意把例外往外拋。
     """
     global driver
     if driver is None:
         get_driver()
         return
     try:
-        driver.find_elements(AppiumBy.ID, "__viewer_server_liveness_check__")
+        driver.find_elements(PLATFORM.native_by, "__viewer_server_liveness_check__")
     except InvalidSessionIdException:
         print("[viewer_server] [警告] Appium session 已失效，重新連線...")
         get_driver(force_reconnect=True)
@@ -147,16 +259,17 @@ def _locate_best_effort(driver, el: dict):
             pass
     if el.get("id_source") == "native" and el.get("native_id"):
         try:
-            return driver.find_element(AppiumBy.ID, el["native_id"])
+            return driver.find_element(PLATFORM.native_by, el["native_id"])
         except NoSuchElementException:
             return None
-    return locate_generated_element(driver, el)
+    return PLATFORM.runner.locate_generated_element(driver, el)
 
 
 def inspect_element(el: dict, max_levels: int = 8) -> dict:
     """
     盡力定位這個元件在畫面上目前對應的位置，再解析當下完整 tree，往上層走訪，
-    回傳每一層容器的 class/resource-id/文字，供使用者手動組出更精準的 XPath。
+    回傳每一層容器的資訊（iOS: class/name/label；Android: class/resource-id/
+    text/content-desc），供使用者手動組出更精準的 XPath。
     找不到起點時回傳 found=False，前端會提示使用者確認手機畫面是否正確。
     """
     d = get_driver()
@@ -173,16 +286,13 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
     parent_map = {child: parent for parent in root.iter() for child in parent}
 
     # 用即時座標比對出這個元件在目前 tree 裡對應的 XML 節點（同 class、
-    # bounds 最接近的視為同一個，跟掃描端解析候選元件用同樣的座標格式）
+    # 座標最接近的視為同一個）
     best_node, best_distance = None, None
     for node in root.iter():
-        attrib = node.attrib
-        if attrib.get("class") != el.get("class"):
+        pos = PLATFORM.node_position(node, el.get("class"))
+        if pos is None:
             continue
-        bounds = parse_bounds(attrib.get("bounds", ""))
-        if bounds is None:
-            continue
-        distance = abs(bounds["x"] - target_bounds["x"]) + abs(bounds["y"] - target_bounds["y"])
+        distance = abs(pos[0] - target_bounds["x"]) + abs(pos[1] - target_bounds["y"])
         if best_distance is None or distance < best_distance:
             best_distance, best_node = distance, node
 
@@ -193,16 +303,12 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
     current = best_node
     for level in range(1, max_levels + 1):
         parent = parent_map.get(current)
-        if parent is None or "class" not in parent.attrib:
+        if parent is None:
             break
-        pa = parent.attrib
-        ancestors.append({
-            "level": level,
-            "class": pa.get("class", ""),
-            "resource_id": pa.get("resource-id", ""),
-            "text": pa.get("text", ""),
-            "content_desc": pa.get("content-desc", ""),
-        })
+        info = PLATFORM.ancestor_info(parent)
+        if info is None:
+            break
+        ancestors.append({"level": level, **info})
         current = parent
 
     return {"found": True, "target_bounds": target_bounds, "ancestors": ancestors}
@@ -216,14 +322,7 @@ def test_xpath(xpath: str) -> dict:
     except Exception as e:
         return {"count": 0, "error": f"{type(e).__name__}: {e}"}
 
-    preview = []
-    for m in matches[:5]:
-        preview.append({
-            "location": m.location, "size": m.size,
-            "resource_id": m.get_attribute("resource-id"),
-            "text": m.get_attribute("text"),
-            "content_desc": m.get_attribute("content-desc"),
-        })
+    preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
     return {"count": len(matches), "preview": preview}
 
 
@@ -241,13 +340,13 @@ def _build_agent_xpath_prompt(target_info: dict, page_source: str, feedback: str
     if feedback:
         feedback_block = f"\n\n上一輪的失敗回饋：{feedback}\n請根據這個回饋修正，不要再犯同樣的錯誤。"
 
-    return f"""你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的
-畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。
+    p = PLATFORM
+    return f"""{p.xpath_intro}
 
 請幫我寫一個 XPath 表達式，唯一定位到以下目標元件：
-- class: {target_info.get('class')}
-- 文字內容（text/content-desc）: {target_info.get('label')!r}
-- 附近文字線索（同層兄弟節點的文字，可能是清單裡能唯一辨識這一列/區塊的線索）: {target_info.get('nearby_text')}
+- {p.xpath_class_field}: {target_info.get('class')}
+- {p.xpath_text_field}: {target_info.get('label')!r}
+- 附近文字線索（{p.xpath_nearby_desc}，可能是清單裡能唯一辨識這一列/區塊的線索）: {target_info.get('nearby_text')}
 - 畫面九宮格粗略位置: {target_info.get('position_bucket')}
 
 完整畫面 Tree（XML）：
@@ -255,14 +354,15 @@ def _build_agent_xpath_prompt(target_info: dict, page_source: str, feedback: str
 
 規則：
 1. 只能用標準 XPath 1.0 語法（底層引擎不保證支援 XPath 2.0 函式）
-2. 這個元件的文字內容在畫面上可能不是唯一的（例如清單裡每一列都有一個
+2. {p.xpath_attr_rule}
+3. 這個元件的文字內容在畫面上可能不是唯一的（例如清單裡每一列都有一個
    文字相同的操作按鈕，直接用文字查詢會查到多個結果）。這種情況要善用
    tree 的階層結構：先用鄰近文字線索定位到唯一的錨點節點，再用
    `ancestor::{{某個容器class}}[1]` 找到該錨點「最近的」共同容器（不要
-   寫成 `//{{class}}[.//text=X]` 這種寫法，那樣會連範圍過大的外層同class
+   寫成 `{p.xpath_bad_example}` 這種寫法，那樣會連範圍過大的外層同class
    容器也一起選中，查詢範圍沒有真的縮小），最後在這個容器範圍內查找
    目標元件，確保最終查詢結果剛好唯一一個
-3. 不要用寫死絕對路徑/index位置的查詢，盡量用屬性條件加結構關係，改版
+4. 不要用寫死絕對路徑/index位置的查詢，盡量用屬性條件加結構關係，改版
    時版面微調也比較不容易整個失效{feedback_block}
 
 請回傳 JSON 格式：{{"xpath": "<你的XPath字串>"}}，只回傳 JSON，不要有其他文字，
@@ -308,6 +408,10 @@ def agent_generate_xpath(el: dict) -> dict:
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json"),
             )
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                log.append(f"第{attempt}次[LLM token用量] prompt={usage.prompt_token_count} "
+                           f"output={usage.candidates_token_count} total={usage.total_token_count}")
             candidate = json.loads((response.text or "").strip()).get("xpath", "").strip()
         except Exception as e:
             log.append(f"第{attempt}次：LLM呼叫或回應解析失敗（{type(e).__name__}: {e}）")
@@ -355,14 +459,29 @@ def agent_generate_xpath(el: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# /llm_chat：viewer.html「LLM 測案產生」分頁的聊天代理。瀏覽器不能直接呼叫
-# Gemini（會把 GEMINI_API_KEY 暴露在前端原始碼/network面板），所以跟
-# /agent_xpath 一樣走伺服器端代理；差別是這裡的系統提示詞規範的是「產生一份
-# 可以透過 Appium 執行、可能橫跨多個畫面的測試案例」，不是單一元件的 XPath。
+# /llm_chat：「LLM 測案產生」分頁的聊天代理。瀏覽器不能直接呼叫 Gemini
+# （會把 GEMINI_API_KEY 暴露在前端原始碼/network面板），所以跟 /agent_xpath
+# 一樣走伺服器端代理；差別是這裡的系統提示詞規範的是「產生一份可以透過
+# Appium 執行、可能橫跨多個畫面的測試案例」，不是單一元件的 XPath。
 # 純聊天不需要操作裝置，不強制要求 Appium session 存活（見 do_POST 的例外名單）。
 # ---------------------------------------------------------------------------
 
 def _build_llm_testgen_system_prompt(screens_context_json: str) -> str:
+    # assert_banner 只有支援的平台才告訴 LLM，不然會產生執行端只能 SKIP 的步驟
+    banner_step = banner_rule = ""
+    action_count = 4
+    target_scope = "target "
+    if PLATFORM.supports_banner:
+        action_count = 5
+        target_scope = "target（assert_banner 以外）"
+        banner_step = (',\n       {"action": "assert_banner", "screen_name": "<畫面名稱>", '
+                       '"value": ["<跑馬燈上要出現的文字>", "..."], "note": "..."}')
+        banner_rule = """
+   - assert_banner：驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後
+     上方的「委託回報」）。不需要 target；value 是跑馬燈上要出現的文字陣列，
+     例如 ["委託回報", "2882 國泰金"]。這一步必須**緊接在觸發它的 tap 後面**
+     （例如送出委託的按鈕），中間不要插入其他步驟，否則跑馬燈會先消失"""
+
     return f"""你是 Android/iOS App 自動化測試專家，協助使用者根據「已經掃描好的畫面
 元件資料」設計、產生可以透過 Appium 執行的自動化測試案例。
 
@@ -381,19 +500,18 @@ unique_id/id_source/class/label/description 這幾個欄位）：
        {{"action": "tap", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "<這步在做什麼，給人看的>"}},
        {{"action": "input_text", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<要輸入的文字>", "note": "..."}},
        {{"action": "assert_visible", "screen_name": "<畫面名稱>", "target": "<unique_id>", "note": "..."}},
-       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "timeout": <選填，秒數>, "note": "..."}}
+       {{"action": "assert_text_contains", "screen_name": "<畫面名稱>", "target": "<unique_id>", "value": "<預期文字要包含的內容>", "timeout": <選填，秒數>, "note": "..."}}{banner_step}
      ]
    }}
-2. action 只能是這4種：
+2. action 只能是這{action_count}種：
    - tap：點擊
-   - input_text：輸入文字，只對有 resource-id/accessibility id 的 native
-     元件有效（沒有native id的輸入框無法可靠定位，不要對這種元件用
-     input_text）
+   - input_text：輸入文字，只對有 {PLATFORM.native_id_name} 的 native 元件有效
+     （沒有native id的輸入框無法可靠定位，不要對這種元件用input_text）
    - assert_visible：驗證元件可見
    - assert_text_contains：驗證元件「目前顯示的文字內容」有包含指定字串，
      用在「這個畫面的文字內容因為別的畫面的操作而改變」這種跨畫面情境
      （例如在設定頁存了一個名稱，回首頁後問候語應該要出現這個名稱），
-     assert_visible 驗證不到文字內容，只能驗證「有沒有顯示」
+     assert_visible 驗證不到文字內容，只能驗證「有沒有顯示」{banner_rule}
    - assert_visible 和 assert_text_contains 可以加選填的 "timeout"（秒數，
      數字），代表「在這麼多秒內反覆檢查，一通過就算 PASS，時間到還沒通過
      才算 FAIL」。用在操作後畫面要隔一段時間才會自己更新的情境，例如
@@ -401,7 +519,7 @@ unique_id/id_source/class/label/description 這幾個欄位）：
      {{"action": "assert_text_contains", ..., "value": "委託取消", "timeout": 8}}。
      timeout 抓使用者說的最長等待時間再多留幾秒緩衝；使用者沒提到要等、
      畫面也是立刻更新的情境就不要加。不要另外編一個「等待」步驟，沒有這種 action
-3. target 的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
+3. {target_scope}的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
    自己編造，也不可以用畫面上的文字、猜測的id、或憑印象記得的id代替。
    如果找不到能達成使用者需求的元件，要在說明文字裡老實講清楚缺少什麼、
    建議使用者重新掃描或補充哪個畫面的資料，不要硬湊一個不存在的unique_id
@@ -420,12 +538,23 @@ unique_id/id_source/class/label/description 這幾個欄位）：
 """
 
 
+def _usage_info(response) -> dict | None:
+    usage = getattr(response, "usage_metadata", None)
+    if not usage:
+        return None
+    return {
+        "prompt_tokens": usage.prompt_token_count,
+        "output_tokens": usage.candidates_token_count,
+        "total_tokens": usage.total_token_count,
+    }
+
+
 def run_llm_chat(payload: dict) -> dict:
     """
     多輪對話代理：把系統提示詞（含使用者選定的畫面元件精簡資料）+ 目前為止的
     對話歷史丟給 Gemini，回傳這一輪的助理回覆文字。每次都是無狀態呼叫（伺服器
-    不保存對話紀錄），完整歷史由前端 viewer.html 保存、每次呼叫都整包送過來，
-    這支伺服器只負責代理呼叫、不碰 API 金鑰以外的狀態。
+    不保存對話紀錄），完整歷史由前端保存、每次呼叫都整包送過來，這支伺服器
+    只負責代理呼叫、不碰 API 金鑰以外的狀態。
     """
     messages = payload.get("messages", [])
     screens_context = payload.get("screens_context", [])
@@ -449,16 +578,104 @@ def run_llm_chat(payload: dict) -> dict:
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
-    return {"reply": (response.text or "").strip()}
+    usage_info = _usage_info(response)
+    if usage_info:
+        print(f"[llm_chat token用量] prompt={usage_info['prompt_tokens']} "
+              f"output={usage_info['output_tokens']} total={usage_info['total_tokens']}"
+              f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料）")
+
+    return {"reply": (response.text or "").strip(), "usage": usage_info}
 
 
 # ---------------------------------------------------------------------------
-# /run_test_script：viewer.html「測案執行」分頁——執行 LLM（或人工）產生、
-# 可能橫跨多個畫面的測試案例。跟 run_test_case_android.py 這支CLI的差異：
-# CLI假設整個測案只在單一畫面內（element_lookup只從一個screen_name建立），
-# 這裡的每個step都自帶screen_name，要能同時從測案引用到的所有畫面裡找元件，
-# 實際執行動作（run_tap/run_assert_visible/...）直接沿用同一批函式，
-# 不重寫定位邏輯，維持「同一套定位規則，不管從哪裡觸發都一樣」。
+# /llm_scenarios：給 app_map_viewer.html「測試情境產生」分頁用——跟 /llm_chat
+# 不是同一種東西，這支是「先看過選定畫面的資料，推論出一批可能值得測試的
+# 情境描述清單」，產出的是情境列表（不是逐步驟的測試案例JSON），使用者從
+# 清單挑一個情境後，才送去 /llm_chat 那條路產生真正的逐步驟測試案例。
+# ---------------------------------------------------------------------------
+
+SCENARIO_PROMPT_MARKER = "<<畫面資料JSON會插入這裡>>"
+
+SCENARIO_PROMPT_TEMPLATE = """你是資深QA工程師。以下是使用者選定、已經掃描好的畫面元件資料
+（JSON，每個畫面下的元件都只精簡保留 unique_id/id_source/class/label/
+description 這幾個欄位）：
+<<畫面資料JSON會插入這裡>>
+
+請根據這些畫面「實際存在」的元件，推論出這批畫面上值得寫成自動化測試的
+「測試情境」清單。
+
+規則：
+1. 每個情境要根基於畫面上真實存在的元件（用它們的 label/description 描述），
+   不可以編造資料以外的功能或畫面
+2. 情境可以橫跨多個畫面（例如在A畫面點某個按鈕，確認能看到B畫面的某個結果），
+   也可以是單一畫面內的驗證（例如確認某些元件存在、內容正確）
+3. 優先挑「操作後有明確可驗證結果」的情境（會導致畫面切換、內容改變、或有
+   清楚的成功/失敗判斷依據），避免太空泛、講了等於沒講的情境（例如「測試
+   App穩定性」這種）
+4. 每個情境的 description 要具體寫清楚「要點什麼、預期看到什麼結果」，
+   寫到讓另一個不知道上下文的LLM可以直接照著這段描述去產生詳細測試步驟
+5. 產出數量不用多，大約 5~10 個，實際依畫面資料豐富度增減；資料太少（例如
+   只有一兩個畫面沒幾個元件）就老實產出比較少個，不要為了湊數硬掰情境
+
+請回傳 JSON 格式：
+{"scenarios": [
+  {"title": "<簡短標題>", "description": "<具體描述，見規則4>", "screens_involved": ["<用到的畫面 screen_name>", "..."]}
+]}
+只回傳這個 JSON，不要有其他文字，不要用 markdown code block 包起來。
+"""
+
+
+def _build_scenario_prompt(screens_context_json: str, custom_template: str | None = None) -> str:
+    """
+    custom_template 是使用者在 app_map_viewer.html「測試情境產生」分頁裡
+    自己編輯過的提示詞（沒編輯過就是 None，直接用預設模板）。不管用哪個
+    模板，都要包含 SCENARIO_PROMPT_MARKER 這個標記，用來把真正的畫面資料
+    換進去——標記被刪掉的話，直接回報錯誤，不要偷偷送出一份沒有畫面資料
+    的提示詞給LLM（那樣LLM只會憑空亂猜，產出的情境完全不可信）。
+    """
+    template = custom_template or SCENARIO_PROMPT_TEMPLATE
+    if SCENARIO_PROMPT_MARKER not in template:
+        raise ValueError(f"提示詞裡找不到「{SCENARIO_PROMPT_MARKER}」這個標記，沒辦法把畫面資料插進去，請保留這段標記")
+    return template.replace(SCENARIO_PROMPT_MARKER, screens_context_json)
+
+
+def llm_generate_scenarios(payload: dict) -> dict:
+    screens_context = payload.get("screens_context", [])
+    try:
+        prompt = _build_scenario_prompt(json.dumps(screens_context, ensure_ascii=False), payload.get("prompt_template"))
+    except ValueError as e:
+        return {"error": str(e)}
+
+    try:
+        response = generate_content_with_retry(
+            model=LLM_MODEL_PRO,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.4, response_mime_type="application/json"),
+        )
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+    usage_info = _usage_info(response)
+    if usage_info:
+        print(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] prompt={usage_info['prompt_tokens']} "
+              f"output={usage_info['output_tokens']} total={usage_info['total_tokens']}"
+              f"（{len(screens_context)} 個畫面的精簡資料）")
+
+    try:
+        parsed = json.loads((response.text or "").strip())
+    except Exception as e:
+        return {"error": f"LLM回應不是合法JSON（{type(e).__name__}: {e}）", "usage": usage_info}
+
+    return {"scenarios": parsed.get("scenarios", []), "usage": usage_info}
+
+
+# ---------------------------------------------------------------------------
+# /run_test_script：「測案執行」分頁——執行 LLM（或人工）產生、可能橫跨多個
+# 畫面的測試案例。跟 run_test_case*.py 這兩支CLI的差異：CLI假設整個測案只在
+# 單一畫面內（element_lookup只從一個screen_name建立），這裡的每個step都自帶
+# screen_name，要能同時從測案引用到的所有畫面裡找元件，實際執行動作
+# （run_tap/run_assert_visible/...）直接沿用同一批函式，不重寫定位邏輯，
+# 維持「同一套定位規則，不管從哪裡觸發都一樣」。
 # ---------------------------------------------------------------------------
 
 def run_test_script(payload: dict) -> dict:
@@ -473,16 +690,17 @@ def run_test_script(payload: dict) -> dict:
     _stop_requested.clear()
     _test_running.set()
     try:
-        if payload.get("check_screen", True):
-            precheck = _precheck_screen(d, steps, screens_by_name)
-        else:
-            precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
-        print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
-        if precheck["status"] == "fail":
-            results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
-                       for i, step in enumerate(steps, 1)]
-        else:
-            _run_steps(d, steps, screens_by_name, results)
+        with PLATFORM.page_source_context(d):
+            if payload.get("check_screen", True):
+                precheck = _precheck_screen(d, steps, screens_by_name)
+            else:
+                precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
+            print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
+            if precheck["status"] == "fail":
+                results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
+                           for i, step in enumerate(steps, 1)]
+            else:
+                _run_steps(d, steps, screens_by_name, results)
     finally:
         _test_running.clear()
     return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
@@ -503,7 +721,7 @@ def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
     if screen is None:
         return {"status": "unchecked", "screen_name": screen_name,
                 "message": f"第一步的畫面「{screen_name}」不在地圖資料裡，無法檢查"}
-    status, message = check_current_screen(d, screen_name, screen.get("elements", []))
+    status, message = PLATFORM.runner.check_current_screen(d, screen_name, screen.get("elements", []))
     return {"status": status, "screen_name": screen_name, "message": message}
 
 
@@ -516,6 +734,7 @@ def _step_result(i: int, step: dict, outcome: str) -> dict:
 
 
 def _run_steps(d, steps: list, screens_by_name: dict, results: list):
+    runner = PLATFORM.runner
     for i, step in enumerate(steps, 1):
         action = step.get("action")
         screen_name = step.get("screen_name")
@@ -532,17 +751,21 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
                 el = next((e for e in screen.get("elements", []) if e.get("unique_id") == target), None)
 
             if action == "assert_banner":
-                outcome = "SKIP（assert_banner 目前只有 iOS 版，Android 還沒實作）"
+                # 跑馬燈不在 element_map 裡，不需要 target
+                if PLATFORM.supports_banner:
+                    outcome = runner.run_assert_banner(d, step.get("value"), step.get("timeout", 10))
+                else:
+                    outcome = f"SKIP（assert_banner 目前只有 iOS 版，{PLATFORM.name} 還沒實作）"
             elif el is None:
                 outcome = f"FAIL（在畫面「{screen_name}」的資料裡找不到 {target}，請確認 element_map.json 是最新的）"
             elif action == "tap":
-                outcome = run_tap(d, el)
+                outcome = runner.run_tap(d, el)
             elif action == "input_text":
-                outcome = run_input_text(d, el, step.get("value", ""))
+                outcome = runner.run_input_text(d, el, step.get("value", ""))
             elif action == "assert_visible":
-                outcome = retry_assert(lambda: run_assert_visible(d, el), step.get("timeout"))
+                outcome = retry_assert(lambda: runner.run_assert_visible(d, el), step.get("timeout"))
             elif action == "assert_text_contains":
-                outcome = retry_assert(lambda: run_assert_text_contains(d, el, step.get("value", "")),
+                outcome = retry_assert(lambda: runner.run_assert_text_contains(d, el, step.get("value", "")),
                                        step.get("timeout"))
             else:
                 outcome = f"FAIL（未知的 action: {action}）"
@@ -551,8 +774,10 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
 
         results.append(_step_result(i, step, outcome))
 
-        if action in ("tap", "input_text") and not _stop_requested.is_set():
-            wait_after_action(d)
+        # 下一步是跑馬燈驗證時不等畫面穩定，不然跑馬燈可能在等待期間就消失了
+        banner_next = PLATFORM.supports_banner and next_is_banner_check(steps, i)
+        if action in ("tap", "input_text") and not banner_next and not _stop_requested.is_set():
+            runner.wait_after_action(d)
 
 
 def stop_test_script() -> dict:
@@ -560,6 +785,28 @@ def stop_test_script() -> dict:
         return {"stopped": False, "message": "目前沒有執行中的測試"}
     _stop_requested.set()
     return {"stopped": True, "message": "已送出停止，正在捲動找元件的話會立刻中斷，其他動作做完這一步就停"}
+
+
+# ---------------------------------------------------------------------------
+# /scan_screen：給 app_map_viewer.html 的「手動建樹」功能用——使用者手動點擊
+# 一個元件把手機導到新畫面後，對「目前畫面」執行一次真正的掃描，直接沿用
+# capture_screen_map.py 的 scan_screen()，不是另外寫一套解析邏輯。
+#
+# describe 預設 False（跳過 LLM 描述，理由跟 crawl_app_tree.py 一樣：手動
+# 建樹本來就是一個節點一個節點慢慢加，先求有結構、之後要不要對這個畫面
+# 補描述由使用者自己決定，不要每加一個節點就預設付一次 API 成本）。
+# scroll 預設 True，跟 crawl_app_tree.py 不同——手動建樹不是「爬完立刻要用
+# 座標點下一步」，使用者是特地要完整記錄這個畫面，值得多花時間把可捲動
+# 內容也收集完整。
+# ---------------------------------------------------------------------------
+
+def do_scan_screen(payload: dict) -> dict:
+    if not PLATFORM.supports_scan:
+        return {"error": f"/scan_screen 目前只有 iOS 版，{PLATFORM.name} 還沒整合"}
+    screen_name = (payload.get("screen_name") or "").strip()
+    if not screen_name:
+        return {"error": "screen_name 不可為空"}
+    return {"screen_data": PLATFORM.scan(get_driver(), screen_name, payload)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -581,17 +828,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/ping":
-            self._send_json(200, {"status": "ok"})
+            self._send_json(200, {"status": "ok", "platform": PLATFORM.name})
+            return
+        if self.path == "/llm_scenarios_prompt":
+            self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
             return
         self._send_json(404, {"error": "not found"})
 
     KNOWN_PATHS = (
         "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
-        "/llm_chat", "/run_test_script", "/stop_test_script",
+        "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
     )
-    # /llm_chat 純粹是LLM聊天代理，不操作裝置，不需要Appium session存活，
-    # 讓使用者就算模擬器還沒開也能先設計測試案例
-    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/stop_test_script")
+    # 純 LLM 的代理不操作裝置，不需要Appium session存活，讓使用者就算手機
+    # 還沒接好也能先設計測試案例
+    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script")
 
     def do_POST(self):
         if self.path not in self.KNOWN_PATHS:
@@ -622,10 +872,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def _dispatch(self, path: str, payload: dict) -> dict:
+        runner = PLATFORM.runner
         if path == "/tap":
-            return {"result": run_tap(get_driver(), payload)}
+            return {"result": runner.run_tap(get_driver(), payload)}
         if path == "/assert_visible":
-            return {"result": run_assert_visible(get_driver(), payload)}
+            return {"result": runner.run_assert_visible(get_driver(), payload)}
         if path == "/inspect":
             return inspect_element(payload)
         if path == "/test_xpath":
@@ -638,15 +889,27 @@ class Handler(BaseHTTPRequestHandler):
             return run_test_script(payload)
         if path == "/stop_test_script":
             return stop_test_script()
+        if path == "/scan_screen":
+            return do_scan_screen(payload)
+        if path == "/llm_scenarios":
+            return llm_generate_scenarios(payload)
 
     def log_message(self, format, *args):
         print("[viewer_server]", format % args)
 
 
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"[viewer_server] 已啟動：http://{HOST}:{PORT}（只接受本機連線）")
-    print("[viewer_server] 等待 viewer.html 的按鈕觸發請求，Ctrl+C 結束")
+    global PLATFORM
+    parser = argparse.ArgumentParser(description="App 元件地圖／測試工具的本機橋接伺服器")
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), default="ios",
+                        help="這次要接的裝置平台（預設 ios）")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"監聽埠（預設 {DEFAULT_PORT}）")
+    args = parser.parse_args()
+    PLATFORM = PLATFORMS[args.platform]()
+
+    server = ThreadingHTTPServer((HOST, args.port), Handler)
+    print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}）：http://{HOST}:{args.port}（只接受本機連線）")
+    print("[viewer_server] 等待 viewer 的按鈕觸發請求，Ctrl+C 結束")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

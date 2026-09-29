@@ -565,7 +565,7 @@
     <div class="modal-grid">
       <div class="modal-stage-col">
         <div class="conn-bar">
-          <span>裝置橋接（<span class="mono">python viewer_server_ios.py</span>）：</span>
+          <span>裝置橋接（<span class="mono">python viewer_server.py</span>）：</span>
           <input type="text" id="modalServerUrl" value="http://127.0.0.1:8767">
           <button class="btn" id="modalServerCheckBtn">檢查連線</button>
           <span class="conn-status unknown" id="modalServerStatus">未檢查</span>
@@ -1092,7 +1092,7 @@
       rebuildAll();
       selectScreen(s.uid);
     } catch (err) {
-      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？手機是否已經停在這個新畫面？）";
+      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server.py 有啟動嗎？手機是否已經停在這個新畫面？）";
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1228,7 +1228,7 @@
       rebuildAll();
       selectScreen(s.uid);
     } catch (err) {
-      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？手機是否已經停在這個畫面？）";
+      resultEl.textContent = "掃描失敗：" + err.message + "（viewer_server.py 有啟動嗎？手機是否已經停在這個畫面？）";
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1377,7 +1377,7 @@
       resultEl.textContent = "已載入 " + data.ancestors.length + " 層上層元素，選一層會自動帶入建議查詢";
       resultEl.className = "xpath-editor-result";
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？）";
+      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
       resultEl.className = "xpath-editor-result error";
     }
   }
@@ -1394,7 +1394,7 @@
       resultEl.textContent = "查到 " + data.count + " 個結果" + suffix;
       resultEl.className = "xpath-editor-result " + (data.count === 1 ? "pass" : "fail");
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？）";
+      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
       resultEl.className = "xpath-editor-result error";
     }
   }
@@ -1483,7 +1483,7 @@
       closeModal();
       selectScreen(newUid);
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？）";
+      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
       resultEl.className = "tap-result fail";
       btn.disabled = false;
     }
@@ -1560,7 +1560,7 @@
       resultEl.textContent = data.result;
       resultEl.className = "tap-result " + (String(data.result).indexOf("PASS") === 0 ? "pass" : "fail");
     } catch (err) {
-      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？）";
+      resultEl.textContent = "連線失敗：" + err.message + "（viewer_server.py 有啟動嗎？）";
       resultEl.className = "tap-result fail";
     } finally {
       btn.disabled = false;
@@ -1826,7 +1826,7 @@
         scenarioPromptInput.value = await fetchScenarioDefaultPrompt();
       } catch (err) {
         scenarioPromptInput.value = "";
-        alert("讀取提示詞失敗：" + err.message + "（viewer_server_ios.py 有啟動嗎？）");
+        alert("讀取提示詞失敗：" + err.message + "（viewer_server.py 有啟動嗎？）");
       }
     }
   });
@@ -1942,7 +1942,7 @@
       scenarioLastList = data.scenarios || [];
       renderScenarioList(scenarioLastList);
     } catch (err) {
-      scenarioResultHost.innerHTML = '<div class="empty-state">連線失敗：' + escapeHtml(err.message) + '（viewer_server_ios.py 有啟動嗎？）</div>';
+      scenarioResultHost.innerHTML = '<div class="empty-state">連線失敗：' + escapeHtml(err.message) + '（viewer_server.py 有啟動嗎？）</div>';
     } finally {
       scenarioGenerateBtn.disabled = false;
       scenarioGenerateBtn.textContent = "🔍 分析並產生情境列表";
@@ -2131,7 +2131,7 @@
       }
     } catch (err) {
       thinkingMsg.remove();
-      appendChatMessage("system-note", "連線失敗：" + err.message + "（請確認 viewer_server_ios.py 已啟動、上方連線網址正確）");
+      appendChatMessage("system-note", "連線失敗：" + err.message + "（請確認 viewer_server.py 已啟動、上方連線網址正確）");
       llmgenChatHistory.pop();
     } finally {
       llmgenInput.disabled = false;
@@ -2147,7 +2147,7 @@
   });
   llmgenViewPromptBtn.addEventListener("click", function () {
     alert(
-      "系統提示詞由 viewer_server_ios.py 依你勾選的畫面資料組出，重點規則：\n\n" +
+      "系統提示詞由 viewer_server.py 依你勾選的畫面資料組出，重點規則：\n\n" +
       "1. 輸出必須是 ```json 包起來的測試案例\n2. action 只能是 tap／input_text／assert_visible／assert_text_contains／assert_banner（iOS，驗證短暫出現的跑馬燈）\n" +
       "3. target 必須是勾選畫面裡真實存在的 unique_id，不可以憑空編造\n4. 測試案例可以橫跨多個畫面\n" +
       "5. assert_visible／assert_text_contains 可加 timeout（秒），畫面會晚幾秒才更新時，在期限內反覆檢查直到通過"
@@ -2332,7 +2332,7 @@
       if (data.error) alert("執行失敗：" + data.error);
       else renderRunscriptPreview(data.results, data.stopped, data.precheck);
     } catch (err) {
-      alert("連線失敗：" + err.message + "（請確認 viewer_server_ios.py 已啟動）");
+      alert("連線失敗：" + err.message + "（請確認 viewer_server.py 已啟動）");
     } finally {
       runscriptRunBtn.disabled = false;
       runscriptRunBtn.textContent = "▶ 執行測試";

@@ -22,14 +22,13 @@
 - `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述
 - `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
 - `run_test_case.py` — 執行測試案例（tap/input/assert）
-- `viewer_server_ios.py` — 本機橋接伺服器，讓瀏覽器工具能操作iPhone
 
 **Android 核心程式**
 - `capture_screen_map_android.py` — Android版掃描
 - `run_test_case_android.py` — Android版測試案例執行
-- `viewer_server.py` — Android版橋接伺服器
 
 **共用程式**
+- `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
 - `test_config.py` — Appium連線設定＋Gemini LLM設定，**換裝置/App先改這裡**
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 
@@ -268,8 +267,8 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 - `test_config.py` 的 `ANDROID_DESIRED_CAPS["udid"]` 換成你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
 - 對應的程式：`capture_screen_map_android.py`／`run_test_case_android.py`／
-  `viewer_server.py`（port 8766），瀏覽器工具用 `viewer.html`（不是
-  `app_map_viewer.html`）
+  `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具用
+  `viewer.html`（不是 `app_map_viewer.html`）
 
 ---
 
@@ -282,20 +281,20 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 1. iPhone 接上 USB、解鎖，打開待測 App
 2. **視窗 1**：`appium --address 127.0.0.1`（一直開著）
-3. **視窗 2**：`uv run python viewer_server_ios.py`（一直開著），看到
-   `已啟動：http://127.0.0.1:8767` 就代表成功
+3. **視窗 2**：`uv run python viewer_server.py --platform ios`（一直開著），看到
+   `已啟動（平台：ios）：http://127.0.0.1:8767` 就代表成功
 4. 用瀏覽器打開 `app_map_viewer.html`（雙擊檔案即可），按「📂 載入地圖
    JSON」選 `app_map_tree.json`
 5. 網頁裡的「裝置橋接」網址預設是 `http://127.0.0.1:8767`，不用改；按
    「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了
 
-> `viewer_server_ios.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
+> `viewer_server.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
 > 不要再另外跑 `crawl_app_tree.py`／`capture_screen_map.py` 這類直接連
 > 裝置的腳本**，會搶連線。要跑的話先在視窗 2 按 `Ctrl+C` 關掉它。
 
 ### 3.2 第一次跑最小流程（確認環境是通的）
 
-先確認 `viewer_server_ios.py` **沒有**在執行。
+先確認 `viewer_server.py` **沒有**在執行。
 
 1. 手動把 iPhone 導航到一個畫面（例如 App 首頁）
 2. 掃描這個畫面（會呼叫 LLM 生成描述，需要 `GEMINI_API_KEY`）：
@@ -321,10 +320,10 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 | 檔案 | 用途 |
 |---|---|
-| `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server_ios.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯） |
+| `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯） |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains` |
-| `viewer_server_ios.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作 iPhone。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner` 跟 `/scan_screen` 目前只有 iOS。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 
@@ -332,7 +331,6 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 |---|---|
 | `capture_screen_map_android.py` | `capture_screen_map.py` 的 Android 移植，跟 iOS 版共用同一份 `element_map.json`/schema，只多一個 `platform` 欄位 |
 | `run_test_case_android.py` | `run_test_case.py` 的 Android 移植，native 元件定位改用 `AppiumBy.ID`（resource-id） |
-| `viewer_server.py` | Android 版橋接伺服器（預設 port 8766），跟 `viewer_server_ios.py` 是同一套 API 形狀，只是內部呼叫 Android 版的執行邏輯 |
 
 ### 4.3 共用程式
 
@@ -419,8 +417,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    API 回應不會告訴你實際解析到哪個確切版本，`test_config.py` 沿用這個
    設計但要注意：Google 更新別名指向的版本時可能導致行為/計費突然改變，
    正式上線前建議改成寫死的版本號
-5. **`viewer_server_ios.py`／`viewer_server.py` 同一時間只能服務一個
-   Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）
+5. **`viewer_server.py` 同一時間只能服務一個 Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）
    又開著橋接伺服器對同一台裝置操作，會搶同一個連線
 
 ---

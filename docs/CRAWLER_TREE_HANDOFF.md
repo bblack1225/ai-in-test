@@ -286,7 +286,7 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 
 ## 九、操作提醒（延續舊教訓）
 
-- `viewer_server_ios.py` 常駐時不要另開腳本連同一裝置（並行 session 不穩）。跑
+- `viewer_server.py` 常駐時不要另開腳本連同一裝置（並行 session 不穩）。跑
   `crawl_app_tree.py` / `capture_screen_map.py` 前先停掉 viewer
 - Bash 工具跑 Python 前先 `source ~/.zshrc`（`GEMINI_API_KEY`）
 - 長時間背景跑的 Python 記得 `-u` 或 `stdbuf -oL`，否則 stdout 被 block-buffer 到看不到進度

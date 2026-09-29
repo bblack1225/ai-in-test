@@ -15,8 +15,8 @@
 |---|---|---|---|
 | 1 | `describe_native_elements()`（`capture_screen_map.py`） | 掃描一個畫面、`describe=True`、且畫面上有原生ID元件時 | 該畫面**所有原生ID元件**的 class/label/value（純文字，無截圖），一次批次呼叫 |
 | 2 | `describe_generated_elements()`（`capture_screen_map.py`） | 掃描一個畫面、`describe=True`、且畫面上有無ID元件時 | 該畫面**所有無ID元件**的 class/label/bounds/position_bucket/nearby_text ＋ 該畫面截圖（除非螢幕保護擋掉，改純文字），一次批次呼叫 |
-| 3 | `/agent_xpath`（`viewer_server_ios.py`，「AI定位」按鈕觸發） | 人工在 viewer 上對某個定位失敗的元件按下「AI定位」 | **完整的畫面 page_source（原始XML樹）**＋目標元件線索，最多重試 3 次，**每次重試都重送一次完整 page_source** |
-| 4 | `/llm_chat`（`viewer_server_ios.py`，「LLM測案產生」對話框） | 使用者在測案產生對話框裡每送一則訊息 | 完整 system prompt（含使用者選定畫面的精簡元件資料）＋**到目前為止的完整對話歷史**，無狀態設計，每輪都整包重送 |
+| 3 | `/agent_xpath`（`viewer_server.py`，「AI定位」按鈕觸發） | 人工在 viewer 上對某個定位失敗的元件按下「AI定位」 | **完整的畫面 page_source（原始XML樹）**＋目標元件線索，最多重試 3 次，**每次重試都重送一次完整 page_source** |
+| 4 | `/llm_chat`（`viewer_server.py`，「LLM測案產生」對話框） | 使用者在測案產生對話框裡每送一則訊息 | 完整 system prompt（含使用者選定畫面的精簡元件資料）＋**到目前為止的完整對話歷史**，無狀態設計，每輪都整包重送 |
 | 5 | `generate_test_case.py` | 命令列單獨執行（較早期的 POC，目前主線是用 3 的對話式產生取代） | 單一畫面的精簡元件清單 |
 
 **關鍵：1、2 是「掃描階段」的成本，按畫面數計；3、4 是「人工互動階段」的成本，按操作次數／對話輪數計，且都有「整包重送」的設計，用越多次/對話越長，單次成本不會降反而可能持平或略增。**
