@@ -327,6 +327,11 @@
   .match-apply-row { margin-top: 6px; }
   .match-apply-btn { font-size: 11px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
   .match-applied-note { font-size: 11px; color: var(--accent); font-weight: 600; }
+  .source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); }
+  .source-line .source-kind { font-weight: 600; }
+  .source-line .source-name { font-family: "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
+  .source-line .btn { margin-left: auto; padding: 3px 9px; font-size: 11px; }
+  .source-line.empty { background: var(--grey-soft); color: var(--ink-soft); }
   .script-note { font-size: 11px; color: var(--ink-soft); margin-top: 6px; padding: 6px 8px; background: var(--grey-soft); border-radius: 6px; }
   .script-note.warn { background: var(--gold-soft); color: var(--gold); }
 
@@ -452,6 +457,7 @@
           <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
           <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="scenarioJsonInput" accept="application/json"></label>
         </div>
+        <div class="source-line" id="scenarioSourceLine"></div>
         <div class="field-row">
           <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
           <button class="btn" id="scenarioSelectNoneBtn">全部取消</button>
@@ -488,6 +494,7 @@
           <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
           <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="llmgenJsonInput" accept="application/json"></label>
         </div>
+        <div class="source-line" id="llmgenSourceLine"></div>
         <div class="field-row">
           <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
           <button class="btn" id="llmgenSelectNoneBtn">全部取消</button>
@@ -530,6 +537,8 @@
           <label class="file-btn-label">📂 element_map.json<input type="file" id="runscriptElmapInput" accept="application/json"></label>
           <label class="file-btn-label">📂 測試案例 JSON<input type="file" id="runscriptCaseInput" accept="application/json"></label>
         </div>
+        <div class="source-line" id="runscriptMapSourceLine"></div>
+        <div class="source-line" id="runscriptCaseSourceLine"></div>
         <div class="conn-bar">
           <span>裝置橋接：</span>
           <input type="text" id="runscriptServerUrl" value="http://127.0.0.1:8767">
@@ -580,6 +589,31 @@
   var screens = DATA.screens, edges = DATA.edges, skipped = DATA.skipped, app = DATA.app;
   var byUid = {}, elStatus = {}, edgesByFrom = {}, edgesByTo = {}, skippedByScreen = {};
   var selectedUid = null, nodeGroups = {};
+  // 目前地圖是從哪個檔案載入的，給「測試情境產生」「LLM測案產生」「測案執行」
+  // 顯示資料來源用；頁面內嵌的資料沒有檔名
+  var currentMapFileName = null;
+
+  // 各分頁的「目前使用」標示。kind 是來源類型（例如「目前地圖」「上傳檔案」），
+  // name 是檔名或補充說明；kind 為 null 代表還沒有資料。
+  // 有傳 onReset 代表目前不是用目前地圖，多一顆「改回目前地圖」
+  function setSourceLine(el, label, kind, name, onReset) {
+    el.className = "source-line" + (kind ? "" : " empty");
+    el.innerHTML = '<span>' + escapeHtml(label) + '：</span>' +
+      '<span class="source-kind">' + escapeHtml(kind || "尚未選擇") + '</span>' +
+      (name ? '<span class="source-name">' + escapeHtml(name) + '</span>' : "");
+    if (onReset) {
+      var btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = "↺ 改回目前地圖";
+      btn.addEventListener("click", onReset);
+      el.appendChild(btn);
+    }
+  }
+  function currentMapSourceName() {
+    var count = "（" + screens.length + " 個畫面）";
+    if (currentMapFileName) return currentMapFileName + " " + count;
+    return screens.length ? "頁面內嵌的地圖 " + count : "（地圖檢視還沒載入地圖）";
+  }
   var svg = document.getElementById("tree");
 
   function key(su, eu) { return su + "\x01" + eu; }
@@ -821,6 +855,7 @@
         var normalized = normalizeImportedMap(data);
         screens = normalized.screens; edges = normalized.edges; skipped = normalized.skipped; app = normalized.app;
         DATA.screens = screens; DATA.edges = edges; DATA.skipped = skipped; DATA.app = app;
+        currentMapFileName = file.name;
         selectedUid = null;
         detailCounter.textContent = "";
         rebuildAll();
@@ -832,6 +867,7 @@
         // 不要蓋掉。
         if (scenarioDataSource !== "uploaded") initScenarioFromCurrentMap();
         if (llmgenDataSource !== "uploaded") initLlmgenFromCurrentMap();
+        if (!runscriptElementMap) renderRunscriptPreview(); // 測案執行預設也是用目前地圖
         document.getElementById("mapSaveStatus").textContent = "已載入（" + screens.length + " 個畫面）";
       } catch (err) {
         alert("JSON 解析失敗：" + err.message);
@@ -1804,9 +1840,11 @@
     }
   });
 
+  var scenarioSourceLine = document.getElementById("scenarioSourceLine");
   function initScenarioFromCurrentMap() {
     scenarioData = { screens: shortScreensToLlmgenFormat(screens) };
     scenarioDataSource = "default";
+    setSourceLine(scenarioSourceLine, "目前使用", "預設：目前地圖", currentMapSourceName());
     buildScenarioScreenChecklist();
   }
   scenarioJsonInput.addEventListener("change", function (e) {
@@ -1815,9 +1853,11 @@
     reader.onload = function () {
       try { scenarioData = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
       scenarioDataSource = "uploaded";
+      setSourceLine(scenarioSourceLine, "目前使用", "上傳檔案", file.name + "（" + (scenarioData.screens || []).length + " 個畫面）", initScenarioFromCurrentMap);
       buildScenarioScreenChecklist();
     };
     reader.readAsText(file);
+    e.target.value = "";
   });
   function buildScenarioScreenChecklist() {
     scenarioScreenChecklist.innerHTML = "";
@@ -1974,9 +2014,13 @@
       };
     });
   }
+  var llmgenSourceLine = document.getElementById("llmgenSourceLine");
+  var llmgenSourceFileName = null;
   function initLlmgenFromCurrentMap() {
     llmgenData = { screens: shortScreensToLlmgenFormat(screens) };
     llmgenDataSource = "default";
+    llmgenSourceFileName = null;
+    setSourceLine(llmgenSourceLine, "目前使用", "預設：目前地圖", currentMapSourceName());
     buildLlmgenScreenChecklist();
   }
   llmgenJsonInput.addEventListener("change", function (e) {
@@ -1985,9 +2029,12 @@
     reader.onload = function () {
       try { llmgenData = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
       llmgenDataSource = "uploaded";
+      llmgenSourceFileName = file.name;
+      setSourceLine(llmgenSourceLine, "目前使用", "上傳檔案", file.name + "（" + (llmgenData.screens || []).length + " 個畫面）", initLlmgenFromCurrentMap);
       buildLlmgenScreenChecklist();
     };
     reader.readAsText(file);
+    e.target.value = "";
   });
   function buildLlmgenScreenChecklist() {
     llmgenScreenChecklist.innerHTML = "";
@@ -2127,7 +2174,11 @@
     runscriptElementMap = llmgenDataSource === "default"
       ? { screens: shortScreensToExecutionFormat(screens) }
       : llmgenData;
+    runscriptElementMapSource = llmgenDataSource === "default"
+      ? { kind: "LLM測案產生用的地圖（目前地圖）", name: currentMapSourceName() }
+      : { kind: "LLM測案產生用的地圖（上傳檔案）", name: llmgenSourceFileName };
     runscriptTestCase = llmgenLatestCase;
+    runscriptTestCaseSource = { kind: "LLM測案產生的測案", name: llmgenLatestCase.test_name || "（未命名）" };
     renderRunscriptPreview();
     document.querySelector('.tab-btn[data-tab="runscript"]').click();
   });
@@ -2142,24 +2193,42 @@
   var runscriptStopBtn = document.getElementById("runscriptStopBtn");
   var runscriptBody = document.getElementById("runscriptBody");
   var runscriptElementMap = null, runscriptTestCase = null;
+  // runscriptElementMap 為 null 時代表用目前地圖（即時抓，地圖換了會跟著變）
+  var runscriptElementMapSource = null, runscriptTestCaseSource = null;
+  var runscriptMapSourceLine = document.getElementById("runscriptMapSourceLine");
+  var runscriptCaseSourceLine = document.getElementById("runscriptCaseSourceLine");
+  function renderRunscriptSources() {
+    if (runscriptElementMap) setSourceLine(runscriptMapSourceLine, "地圖", runscriptElementMapSource.kind, runscriptElementMapSource.name, function () {
+      runscriptElementMap = null;
+      runscriptElementMapSource = null;
+      renderRunscriptPreview();
+    });
+    else setSourceLine(runscriptMapSourceLine, "地圖", "預設：目前地圖", currentMapSourceName());
+    if (runscriptTestCase) setSourceLine(runscriptCaseSourceLine, "測試案例", runscriptTestCaseSource.kind, runscriptTestCaseSource.name);
+    else setSourceLine(runscriptCaseSourceLine, "測試案例", null, "上傳測試案例 JSON，或在「LLM測案產生」按「送去執行」");
+  }
 
   runscriptElmapInput.addEventListener("change", function (e) {
     var file = e.target.files[0]; if (!file) return;
     var reader = new FileReader();
     reader.onload = function () {
       try { runscriptElementMap = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
+      runscriptElementMapSource = { kind: "上傳檔案", name: file.name + "（" + (runscriptElementMap.screens || []).length + " 個畫面）" };
       renderRunscriptPreview();
     };
     reader.readAsText(file);
+    e.target.value = "";
   });
   runscriptCaseInput.addEventListener("change", function (e) {
     var file = e.target.files[0]; if (!file) return;
     var reader = new FileReader();
     reader.onload = function () {
       try { runscriptTestCase = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
+      runscriptTestCaseSource = { kind: "上傳檔案", name: file.name };
       renderRunscriptPreview();
     };
     reader.readAsText(file);
+    e.target.value = "";
   });
   function findElementInMap(elementMap, screenName, targetId) {
     if (!elementMap) return null;
@@ -2168,6 +2237,7 @@
     return (screen.elements || []).find(function (el) { return el.unique_id === targetId; }) || null;
   }
   function renderRunscriptPreview(results, stopped) {
+    renderRunscriptSources();
     if (!runscriptTestCase) {
       runscriptBody.innerHTML = '<div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div>';
       runscriptRunBtn.disabled = true;
