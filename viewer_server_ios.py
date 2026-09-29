@@ -59,6 +59,7 @@ from run_test_case import (
     run_assert_visible,
     run_input_text,
     run_tap,
+    skip_visible_in_page_source,
     wait_after_action,
 )
 from test_config import APPIUM_SERVER_URL, DESIRED_CAPS, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
@@ -541,16 +542,17 @@ def run_test_script(payload: dict) -> dict:
     _stop_requested.clear()
     _test_running.set()
     try:
-        if payload.get("check_screen", True):
-            precheck = _precheck_screen(d, steps, screens_by_name)
-        else:
-            precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
-        print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
-        if precheck["status"] == "fail":
-            results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
-                       for i, step in enumerate(steps, 1)]
-        else:
-            _run_steps(d, steps, screens_by_name, results)
+        with skip_visible_in_page_source(d):
+            if payload.get("check_screen", True):
+                precheck = _precheck_screen(d, steps, screens_by_name)
+            else:
+                precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
+            print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
+            if precheck["status"] == "fail":
+                results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
+                           for i, step in enumerate(steps, 1)]
+            else:
+                _run_steps(d, steps, screens_by_name, results)
     finally:
         _test_running.clear()
     return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}

@@ -51,6 +51,7 @@ import argparse
 import json
 import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
 
 from appium import webdriver
@@ -133,6 +134,36 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
         if time.time() >= deadline:
             return f"{outcome}（已等待 {float(timeout):g} 秒）"
         time.sleep(poll_interval)
+
+
+@contextmanager
+def skip_visible_in_page_source(driver):
+    """
+    執行測試期間讓 page_source 不計算 visible 屬性，結束後恢復原本設定。
+
+    visible 不是元件現成的屬性，WDA 要逐個元件算「在不在螢幕內、有沒有被蓋住」，
+    元件多的畫面（報價清單）這是讀一次 page_source 最花時間的部分之一。執行測試時
+    讀 page_source 的地方（等畫面穩定、第0步畫面檢查、位置定位）都只用類型、座標、
+    id、文字，用不到 visible。
+
+    一定要恢復：掃描（capture_screen_map.parse_candidate_elements）跟爬蟲會用
+    visible 決定收錄哪些元件、哪些能點，viewer_server_ios 跟測試共用同一個連線。
+    element.get_attribute("visible")（ensure_visible 用的）不受這個設定影響。
+    """
+    try:
+        original = driver.get_settings().get("pageSourceExcludedAttributes", "")
+        driver.update_settings({"pageSourceExcludedAttributes": "visible"})
+    except Exception as e:
+        print(f"  [提示] 無法設定跳過 visible，照原本方式讀畫面結構（{e}）")
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            driver.update_settings({"pageSourceExcludedAttributes": original})
+        except Exception as e:
+            print(f"  [警告] 恢復 pageSourceExcludedAttributes 失敗，之後掃描前請重新連線（{e}）")
 
 
 def xpath_literal(value: str) -> str:
@@ -728,15 +759,16 @@ def main():
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=options)
 
     try:
-        if not verify_current_screen(driver, args.screen_name, element_lookup):
+        with skip_visible_in_page_source(driver):
+            if not verify_current_screen(driver, args.screen_name, element_lookup):
+                save_result_screenshot(driver, args.screen_name)
+                raise SystemExit(
+                    f"手機目前畫面看起來不是「{args.screen_name}」，為避免座標點擊備援機制誤觸其他畫面上的"
+                    f"真實元件，中止執行。請手動導航回正確畫面後再重新執行（已存一張當下截圖到 "
+                    f"test_results/{args.screen_name}_after.png 方便你確認目前實際在哪個畫面）。"
+                )
+            results = run_test_case(driver, test_case, element_lookup)
             save_result_screenshot(driver, args.screen_name)
-            raise SystemExit(
-                f"手機目前畫面看起來不是「{args.screen_name}」，為避免座標點擊備援機制誤觸其他畫面上的"
-                f"真實元件，中止執行。請手動導航回正確畫面後再重新執行（已存一張當下截圖到 "
-                f"test_results/{args.screen_name}_after.png 方便你確認目前實際在哪個畫面）。"
-            )
-        results = run_test_case(driver, test_case, element_lookup)
-        save_result_screenshot(driver, args.screen_name)
     finally:
         driver.quit()
 
