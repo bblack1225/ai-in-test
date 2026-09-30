@@ -345,6 +345,9 @@
   .chat-input-row { display: flex; gap: 8px; }
   .chat-input-row textarea { flex: 1; min-height: 44px; font-family: inherit; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); resize: vertical; }
   pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
+  .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; }
+  .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: 11px; }
 
   .script-step-card { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--paper-raised); }
   .script-step-card.pass { border-left: 4px solid var(--accent); }
@@ -520,8 +523,15 @@
           </div>
         </div>
         <div>
-          <span class="section-label">目前產生的測試案例</span>
+          <span class="section-label">目前產生的測試案例</span><span class="case-sync-badge" id="llmgenCaseSyncBadge" hidden>✏️ 手動修改過，LLM 還不知道</span>
           <pre class="case-json" id="llmgenCaseJson">（尚未產生）</pre>
+          <textarea class="case-json-editor" id="llmgenCaseEditor" spellcheck="false" hidden></textarea>
+          <div class="btn-row" style="margin-bottom:8px;">
+            <button class="btn" id="llmgenEditBtn" disabled>✏️ 編輯</button>
+            <button class="btn primary" id="llmgenEditSaveBtn" hidden>💾 儲存修改</button>
+            <button class="btn" id="llmgenEditCancelBtn" hidden>取消</button>
+            <button class="btn" id="llmgenSyncReviewBtn" disabled title="同步後請 LLM 檢查你改過的部分，有問題會修正並輸出完整 JSON。只是要接著下別的指令的話，直接在對話框輸入即可，送出前會自動同步">🔍 同步並請 LLM 檢查調整</button>
+          </div>
           <div class="btn-row">
             <label class="file-btn-label" title="匯入之前匯出的測試案例，接著在上方對話框描述要怎麼改，LLM 會以它為基礎修改">📂 匯入既有測試案例來修改<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
             <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出測試案例</button>
@@ -2118,7 +2128,15 @@
   var llmgenCaseJson = document.getElementById("llmgenCaseJson");
   var llmgenExportBtn = document.getElementById("llmgenExportBtn");
   var llmgenToRunBtn = document.getElementById("llmgenToRunBtn");
+  var llmgenCaseSyncBadge = document.getElementById("llmgenCaseSyncBadge");
+  var llmgenCaseEditor = document.getElementById("llmgenCaseEditor");
+  var llmgenEditBtn = document.getElementById("llmgenEditBtn");
+  var llmgenEditSaveBtn = document.getElementById("llmgenEditSaveBtn");
+  var llmgenEditCancelBtn = document.getElementById("llmgenEditCancelBtn");
+  var llmgenSyncReviewBtn = document.getElementById("llmgenSyncReviewBtn");
   var llmgenData = null, llmgenDataSource = null, llmgenChatHistory = [], llmgenLatestCase = null;
+  // llmgenCaseUnsynced：測案被手動改過、還沒放進對話紀錄，LLM 看到的還是舊版
+  var llmgenCaseUnsynced = false, llmgenEditing = false;
 
   // 給 LLM 對話式產生測案用：LLM 只需要知道「有哪些元件、長怎樣」來寫出
   // 測案步驟，不需要真的拿去定位，欄位刻意精簡省token。
@@ -2198,6 +2216,8 @@
     llmgenSendBtn.disabled = !hasSelection;
     llmgenViewPromptBtn.disabled = !hasSelection;
     llmgenClearBtn.disabled = llmgenChatHistory.length === 0;
+    // 「同步並請 LLM 檢查」要有勾選畫面才能送；初始化時按鈕可能還沒抓到，先略過
+    if (llmgenEditBtn) updateLlmgenCaseControls();
   }
   llmgenSelectAllBtn.addEventListener("click", function () {
     llmgenScreenChecklist.querySelectorAll(".llmgen-screen-cb").forEach(function (cb) { cb.checked = true; });
@@ -2230,15 +2250,106 @@
     if (!match) return null;
     try { return JSON.parse(match[1]); } catch (err) { return null; }
   }
-  function renderLlmgenCase(testCase) {
+  // manual=true 代表這份是使用者手動改的，LLM 還不知道；LLM 產生／匯入的版本本來就在對話紀錄裡
+  function renderLlmgenCase(testCase, manual) {
     llmgenLatestCase = testCase;
+    llmgenCaseUnsynced = !!manual;
     llmgenCaseJson.textContent = JSON.stringify(testCase, null, 2);
     llmgenExportBtn.disabled = false;
     llmgenToRunBtn.disabled = false;
+    updateLlmgenCaseControls();
   }
+  function updateLlmgenCaseControls() {
+    llmgenCaseJson.hidden = llmgenEditing;
+    llmgenCaseEditor.hidden = !llmgenEditing;
+    llmgenEditBtn.hidden = llmgenEditing;
+    llmgenEditSaveBtn.hidden = !llmgenEditing;
+    llmgenEditCancelBtn.hidden = !llmgenEditing;
+    llmgenEditBtn.disabled = !llmgenLatestCase;
+    llmgenCaseSyncBadge.hidden = !llmgenCaseUnsynced;
+    llmgenSyncReviewBtn.disabled = !llmgenCaseUnsynced || llmgenEditing || llmgenSelectedScreens().length === 0;
+    llmgenExportBtn.disabled = !llmgenLatestCase || llmgenEditing;
+    llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
+  }
+  // 自動勾選測案裡用到的畫面，回傳目前資料來源找不到的畫面名稱
+  function checkLlmgenScreensUsedBy(testCase) {
+    var usedScreens = [];
+    testCase.steps.forEach(function (s) { if (s.screen_name && usedScreens.indexOf(s.screen_name) < 0) usedScreens.push(s.screen_name); });
+    var foundScreens = [];
+    llmgenScreenChecklist.querySelectorAll(".llmgen-screen-cb").forEach(function (cb) {
+      var name = llmgenData.screens[Number(cb.value)].screen_name;
+      if (usedScreens.indexOf(name) >= 0) { cb.checked = true; foundScreens.push(name); }
+    });
+    updateLlmgenSendEnabled();
+    return usedScreens.filter(function (n) { return foundScreens.indexOf(n) < 0; });
+  }
+  // 手動修改後的版本放進對話紀錄（使用者貼上新版＋助理確認收到），做法跟「匯入既有測試案例」
+  // 一樣，只是接在目前對話後面、不清空——LLM 之前的討論還留著，只是之後改以這份為準
+  function syncManualCaseToLlmgen() {
+    if (!llmgenLatestCase || !llmgenCaseUnsynced) return;
+    var caseText = JSON.stringify(llmgenLatestCase, null, 2);
+    llmgenChatHistory.push(
+      { role: "user", text: "我手動修改了測試案例，以下是修改後的最新完整版本。之後請以這份為準，" +
+          "沒提到要改的地方請保持我修改後的樣子，不要改回你之前的版本：\n```json\n" + caseText + "\n```" },
+      { role: "model", text: "收到，之後會以你手動修改後的版本（" + llmgenLatestCase.steps.length +
+          " 個步驟）為基礎修改。\n```json\n" + caseText + "\n```" }
+    );
+    var emptyState = llmgenMessages.querySelector(".empty-state");
+    if (emptyState) emptyState.remove();
+    appendChatMessage("info-note", "🔄 已把手動修改後的測案同步給 LLM（" + llmgenLatestCase.steps.length + " 個步驟），之後的調整會以這份為基礎");
+    llmgenCaseUnsynced = false;
+    updateLlmgenCaseControls();
+    updateLlmgenSendEnabled();
+  }
+  llmgenEditBtn.addEventListener("click", function () {
+    if (!llmgenLatestCase) return;
+    llmgenEditing = true;
+    llmgenCaseEditor.value = JSON.stringify(llmgenLatestCase, null, 2);
+    updateLlmgenCaseControls();
+    llmgenCaseEditor.focus();
+  });
+  llmgenEditCancelBtn.addEventListener("click", function () {
+    llmgenEditing = false;
+    updateLlmgenCaseControls();
+  });
+  llmgenEditSaveBtn.addEventListener("click", function () {
+    var edited;
+    try { edited = JSON.parse(llmgenCaseEditor.value); } catch (err) { alert("JSON 格式錯誤，還沒儲存：" + err.message); return; }
+    if (!edited || !Array.isArray(edited.steps)) { alert("找不到 steps 陣列，還沒儲存"); return; }
+    if (JSON.stringify(edited) === JSON.stringify(llmgenLatestCase)) {
+      llmgenEditing = false;
+      updateLlmgenCaseControls();
+      return;
+    }
+    // target 對不上目前資料的步驟先提醒（執行時會找不到元件），但仍讓使用者決定要不要存
+    if (llmgenData) {
+      var unknown = [];
+      edited.steps.forEach(function (step, i) {
+        if (!step.target || step.action === "assert_banner") return;
+        var screen = (llmgenData.screens || []).find(function (sc) { return sc.screen_name === step.screen_name; });
+        var ok = screen && (screen.elements || []).some(function (el) { return el.unique_id === step.target; });
+        if (!ok) unknown.push("第 " + (i + 1) + " 步：" + step.target);
+      });
+      if (unknown.length && !confirm("這些步驟的 target 在目前的畫面資料裡找不到，執行時會失敗：\n\n" +
+          unknown.join("\n") + "\n\n仍要儲存嗎？")) return;
+    }
+    llmgenEditing = false;
+    renderLlmgenCase(edited, true);
+    if (llmgenData) checkLlmgenScreensUsedBy(edited);
+  });
+  llmgenSyncReviewBtn.addEventListener("click", function () {
+    syncManualCaseToLlmgen();
+    llmgenInput.value = "請檢查我剛剛手動調整的部分（跟你前一版比較），確認：target 的 unique_id 都存在於畫面資料、" +
+      "screen_name 跟 target 所在的畫面一致、步驟順序合理、assert_banner 緊接在觸發它的 tap 後面。" +
+      "有問題就修正，說明改了哪幾步、為什麼，並輸出修改後的完整 JSON；沒問題就說明檢查結果，並原樣輸出完整 JSON。";
+    sendLlmgenMessage();
+  });
   async function sendLlmgenMessage() {
     var text = llmgenInput.value.trim();
     if (!text) return;
+    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消，再跟 LLM 對話"); return; }
+    // 手動改過但還沒同步就直接講下一個指令：先自動同步，不然 LLM 會拿舊版來改，把手動的修改蓋掉
+    if (llmgenCaseUnsynced) syncManualCaseToLlmgen();
     var emptyState = llmgenMessages.querySelector(".empty-state");
     if (emptyState) emptyState.remove();
     appendChatMessage("user", text);
@@ -2310,15 +2421,9 @@
       if (!llmgenData) { alert("請先載入地圖或上傳 element_map.json，LLM 需要畫面元件資料才能修改測案"); return; }
       if (llmgenChatHistory.length && !confirm("匯入會開始一段新對話，目前的對話紀錄會被清空，確定嗎？")) return;
 
+      if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消再匯入"); return; }
       // 自動勾選測案裡用到的畫面，找不到的畫面列出來提醒使用者
-      var usedScreens = [];
-      testCase.steps.forEach(function (s) { if (s.screen_name && usedScreens.indexOf(s.screen_name) < 0) usedScreens.push(s.screen_name); });
-      var foundScreens = [];
-      llmgenScreenChecklist.querySelectorAll(".llmgen-screen-cb").forEach(function (cb) {
-        var name = llmgenData.screens[Number(cb.value)].screen_name;
-        if (usedScreens.indexOf(name) >= 0) { cb.checked = true; foundScreens.push(name); }
-      });
-      var missingScreens = usedScreens.filter(function (n) { return foundScreens.indexOf(n) < 0; });
+      var missingScreens = checkLlmgenScreensUsedBy(testCase);
 
       var caseText = JSON.stringify(testCase, null, 2);
       var ackText = "已讀入既有的測試案例「" + (testCase.test_name || "（未命名）") + "」（" + testCase.steps.length +
