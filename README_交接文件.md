@@ -265,7 +265,8 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
   iOS 一樣用 `app_map_viewer.html`。地圖可以用
   `crawl_app_tree.py --platform android` 自動爬（先加 `--dry_run --safe_keywords`
-  看會點哪些），或用「手動建樹」建立。Android 爬蟲目前只做過離線驗證
+  看會點哪些），或用「手動建樹」建立（底層呼叫 `/scan_screen`；要用 Android
+  的地圖或新建空白地圖，載入 iOS 的 `app_map_tree.json` 會因平台不一致被擋）。Android 爬蟲目前只做過離線驗證
   （用真實畫面 XML），還沒有在能正常使用的 App 上實際爬過
 
 ---
@@ -321,7 +322,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 | `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py` |
-| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner` 跟 `/scan_screen` 目前只有 iOS。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner` 目前只有 iOS（`platforms/android.py` 的 `supports_banner = False`）；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 
