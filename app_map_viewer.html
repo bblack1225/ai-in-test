@@ -1350,11 +1350,16 @@
   modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) closeModal(); });
 
-  function pickModalElement(el) {
+  function pickModalElement(el, fromBox) {
     modalPickedUid = el.u;
     renderModalBoxes();
     renderModalList(document.getElementById("modalSearch").value, document.getElementById("modalClickableOnly").checked);
     renderModalPicked(el);
+    // 從圖上點的，右邊清單捲到對應那一列，不用自己往下找橘紅色那筆
+    if (fromBox) {
+      var row = document.querySelector("#modalListHost .modal-list-row.picked");
+      if (row) row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
   }
 
   function renderModalBoxes() {
@@ -1375,7 +1380,7 @@
       box.style.width = (el.b.width / modalScreen.w * 100) + "%";
       box.style.height = (el.b.height / modalScreen.h * 100) + "%";
       box.title = el.d || el.n || el.l || el.c;
-      box.addEventListener("click", function () { pickModalElement(el); });
+      box.addEventListener("click", function () { pickModalElement(el, true); });
       wrap.appendChild(box);
     });
   }
