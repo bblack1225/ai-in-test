@@ -1676,8 +1676,40 @@
       document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.toggle("active", b === btn); });
       var target = btn.dataset.tab;
       document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.toggle("active", p.id === "tab-" + target); });
+      syncTabsWithCurrentMap();
     });
   });
+
+  // 地圖檢視裡新增／刪除／掃描節點都是直接改 screens，不會通知其他分頁；
+  // 切換分頁時重新抓一次目前地圖，其他分頁才看得到剛建好的節點。
+  // 使用者另外上傳 element_map.json 的分頁不動；已勾選的畫面依名稱保留。
+  function syncTabsWithCurrentMap() {
+    if (scenarioDataSource !== "uploaded") {
+      rebuildKeepingChecks(scenarioScreenChecklist, "scenario-screen-cb", function () { return scenarioData; },
+        initScenarioFromCurrentMap, updateScenarioGenerateEnabled);
+    }
+    if (llmgenDataSource !== "uploaded") {
+      rebuildKeepingChecks(llmgenScreenChecklist, "llmgen-screen-cb", function () { return llmgenData; },
+        initLlmgenFromCurrentMap, updateLlmgenSendEnabled);
+    }
+    // 測案執行在執行當下才抓目前地圖，這裡只更新來源標示，不重畫預覽以免洗掉執行結果
+    if (!runscriptElementMap) renderRunscriptSources();
+  }
+  function rebuildKeepingChecks(container, cbClass, getData, reinit, onChange) {
+    var prevChecked = Object.create(null);
+    var oldData = getData();
+    container.querySelectorAll("." + cbClass).forEach(function (cb) {
+      var s = oldData && oldData.screens[Number(cb.value)];
+      if (s) prevChecked[s.screen_name] = cb.checked;
+    });
+    reinit();
+    var newData = getData();
+    container.querySelectorAll("." + cbClass).forEach(function (cb) {
+      var name = newData.screens[Number(cb.value)].screen_name;
+      if (name in prevChecked) cb.checked = prevChecked[name];
+    });
+    onChange();
+  }
 
   // ================= 改版比對：相似度計分＋人工確認識別碼延續（整合自 viewer.html）=================
   var oldData = null, newData = null, oldScreen = null, newScreen = null, scriptData = null;
