@@ -493,12 +493,17 @@ def ensure_visible(driver, element):
     return element
 
 
-def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: float = 0.1) -> str:
+def watch_banner(driver, texts: list[str], timeout: float = 10.0,
+                 poll_interval: float = 0.1) -> tuple[dict, dict, str]:
     """
-    驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後上方的「委託回報」）。
+    盯著畫面等「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後上方的「委託回報」），
+    回傳 ({每段文字: 抓到它的那個 label，沒抓到是 None}, {每段文字: 第一次看到的時間}, 補充說明)。
+    第一次看到的時間給 in_order（要求依序出現）比對先後用。
+    PASS/FAIL 的判定、連續好幾個 assert_banner 步驟怎麼合併監看，在
+    run_test_case.run_banner_group，這裡只負責「這段時間內看過哪些文字」。
 
-    expected 可以是字串或字串陣列，每個字串都要出現在畫面上某個 StaticText 裡才算 PASS，
-    例如 ["委託回報", "2882 國泰金"]。不需要 element_map 裡的元件。
+    每段文字只要在 timeout 內「出現過一次」就算數，不用同時在畫面上——
+    接連跳出好幾個跑馬燈時，前一個消失了也不會被當成沒出現。
 
     跟 run_assert_visible 刻意不同的三點（都是實測跑馬燈抓不到的原因）：
       - 用 iOS predicate 查，查詢在手機上完成；XPath 要先把整份 page source
@@ -509,18 +514,14 @@ def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: fl
     所以這一步必須緊接在觸發它的 tap 之後，中間不能先跑 wait_after_action()
     （它也是一直抓 page source，會把跑馬燈的時間耗掉），執行端已經處理。
     """
-    texts = [expected] if isinstance(expected, str) else list(expected or [])
-    texts = [t for t in texts if t]
-    if not texts:
-        return "FAIL（assert_banner 的 value 沒有指定要等的文字）"
-
+    found = {t: None for t in texts}
+    seen_at = {}
     predicate = "type == 'XCUIElementTypeStaticText' AND (" + " OR ".join(
         f"label CONTAINS {_predicate_literal(t)}" for t in texts) + ")"
 
     original_idle = driver.get_settings().get("waitForIdleTimeout")
     driver.update_settings({"waitForIdleTimeout": 0})
     try:
-        seen_labels = set()
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
@@ -529,16 +530,19 @@ def run_assert_banner(driver, expected, timeout: float = 10.0, poll_interval: fl
             except Exception:
                 # 元素剛好在讀屬性時消失（stale），下一輪再查
                 labels = []
-            seen_labels.update(labels)
-            if all(any(t in label for label in seen_labels) for t in texts):
-                return f"PASS（跑馬燈出現，抓到的文字：{'、'.join(sorted(seen_labels))}）"
+            now = time.time()
+            for t in texts:
+                if found[t] is None:
+                    found[t] = next((label for label in labels if t in label), None)
+                    if found[t] is not None:
+                        seen_at[t] = now
+            if all(found.values()):
+                break
             time.sleep(poll_interval)
     finally:
         if original_idle is not None:
             driver.update_settings({"waitForIdleTimeout": original_idle})
-
-    missing = [t for t in texts if not any(t in label for label in seen_labels)]
-    return f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}）"
+    return found, seen_at, ""
 
 
 class IOSPlatform:
@@ -612,8 +616,8 @@ class IOSPlatform:
         print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: tap", {"x": center_x, "y": center_y})
 
-    def assert_banner(self, driver, expected, timeout: float = 10.0) -> str:
-        return run_assert_banner(driver, expected, timeout)
+    def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
+        return watch_banner(driver, texts, timeout)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()

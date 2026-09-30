@@ -399,7 +399,7 @@ def wait_after_action(platform, driver, max_wait: float = 3.0, poll_interval: fl
 
 def next_is_banner_check(steps: list, current_index: int) -> bool:
     """current_index 是從1起算的步驟編號；下一步是 assert_banner 時，這一步做完不能先
-    wait_after_action()，否則跑馬燈會在等畫面穩定的那幾秒內消失（見 platforms/ios.run_assert_banner）。"""
+    wait_after_action()，否則跑馬燈會在等畫面穩定的那幾秒內消失（見 platforms/ios.py、platforms/android.py 的 watch_banner）。"""
     return current_index < len(steps) and steps[current_index].get("action") == "assert_banner"
 
 
@@ -411,10 +411,9 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
     """
     action = step.get("action")
     if action == "assert_banner":
-        # 跑馬燈不在 element_map 裡，不需要 target
-        if not platform.supports_banner:
-            return f"SKIP（assert_banner 目前只有 iOS 版，{platform.name} 還沒實作）"
-        return platform.assert_banner(driver, step.get("value"), step.get("timeout", 10))
+        # 跑馬燈不在 element_map 裡，不需要 target；在測案裡執行時會先被
+        # run_step_in_case 攔下來跟後面連續的 assert_banner 合併監看，這裡是單獨一步的情況
+        return run_banner_group(platform, driver, [step])[0]
 
     if el is None:
         where = f"畫面「{step['screen_name']}」的資料" if step.get("screen_name") else "element_map.json"
@@ -432,6 +431,101 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
     return f"FAIL（未知的 action: {action}）"
 
 
+def banner_texts(step: dict) -> list[str]:
+    value = step.get("value")
+    texts = [value] if isinstance(value, str) else list(value or [])
+    return [t for t in texts if t]
+
+
+def run_banner_group(platform, driver, group: list) -> list[str]:
+    """
+    把連續好幾個 assert_banner 步驟合併成「一次監看」，回傳每一步各自的結果文字。
+
+    接連跳出好幾個跑馬燈時（例如「買進-委託處理中」→「委託狀態已可查詢」），
+    如果一步一步分開等，前一步等比較久的話，輪到下一步時它的跑馬燈可能已經
+    消失了；合併後從第一步開始就同時盯著所有步驟的文字，誰先出現都會被記下來。
+    監看時間是各步 timeout 加總（跟分開執行時最久要等的時間一樣），全部抓到就提早結束。
+
+    預設只要求「每段文字都有出現過」，不管先後。步驟加上 "in_order": true 時，
+    另外要求這一步的跑馬燈比前一個 assert_banner 步驟的晚出現（或同時出現）——
+    比的是「這一步最早看到的文字」跟「前一步最晚看到的文字」第一次被看到的時間。
+    順序不對時前後兩步都算 FAIL：順序是兩步之間的關係，只把後一步標 FAIL 的話，
+    前一步（例如「應該先跳出的那個」）看起來像是通過了，容易誤會。
+    """
+    if not platform.supports_banner:
+        return [f"SKIP（assert_banner 在 {platform.name} 還沒實作）"] * len(group)
+
+    texts = list(dict.fromkeys(t for step in group for t in banner_texts(step)))
+    timeout = sum(step.get("timeout", 10) for step in group)
+    found, seen_at, note = platform.watch_banner(driver, texts, timeout) if texts else ({}, {}, "")
+
+    outcomes = []
+    order_violations = []  # (後一步的 k, 早了幾秒)
+    for k, step in enumerate(group):
+        step_texts = banner_texts(step)
+        if not step_texts:
+            outcomes.append("FAIL（assert_banner 的 value 沒有指定要等的文字）")
+            continue
+        missing = [t for t in step_texts if not found.get(t)]
+        if missing:
+            outcomes.append(f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}"
+                            + (f"，{note}" if note else "") + "）")
+        elif step.get("in_order") and k > 0:
+            outcome, early_by = _check_banner_order(group[k - 1], step_texts, found, seen_at)
+            outcomes.append(outcome)
+            if early_by is not None:
+                order_violations.append((k, early_by))
+        else:
+            seen = sorted({found[t].strip() for t in step_texts})
+            outcomes.append(f"PASS（跑馬燈出現，抓到的文字：{'、'.join(seen)}）")
+    for k, early_by in order_violations:
+        if outcomes[k - 1].startswith("PASS"):
+            seen = "、".join(sorted({found[t].strip() for t in banner_texts(group[k - 1])}))
+            outcomes[k - 1] = (f"FAIL（跑馬燈有出現，但比下一個跑馬燈晚 {early_by:.1f} 秒出現，順序不對"
+                               f"（下一步要求在它之後出現）；抓到的文字：{seen}）")
+    if len(group) > 1:
+        outcomes = [o[:-1] + f"；與其他 {len(group) - 1} 個連續的 assert_banner 步驟合併監看）"
+                    for o in outcomes]
+    return outcomes
+
+
+def _check_banner_order(previous_step: dict, step_texts: list[str], found: dict,
+                        seen_at: dict) -> tuple[str, float | None]:
+    """in_order 的步驟：確認這一步的文字不早於前一步的文字出現（前提是這一步的文字都抓到了）。
+    回傳 (結果文字, 順序不對時早了幾秒，其他情況 None)，讓呼叫端把前一步也標 FAIL"""
+    seen = "、".join(sorted({found[t].strip() for t in step_texts}))
+    prev_texts = banner_texts(previous_step)
+    if not prev_texts or not all(t in seen_at for t in prev_texts):
+        return f"FAIL（跑馬燈有出現，但前一個跑馬燈沒抓到，無法確認先後順序；抓到的文字：{seen}）", None
+    this_first = min(seen_at[t] for t in step_texts)
+    prev_last = max(seen_at[t] for t in prev_texts)
+    if this_first < prev_last:
+        early_by = prev_last - this_first
+        return (f"FAIL（跑馬燈有出現，但比前一個跑馬燈早 {early_by:.1f} 秒出現，"
+                f"順序不對；抓到的文字：{seen}）"), early_by
+    return f"PASS（跑馬燈依序出現，比前一個晚 {this_first - prev_last:.1f} 秒；抓到的文字：{seen}）", None
+
+
+def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
+    """
+    在一份測案裡執行第 i 步（從1起算）。遇到 assert_banner 時，把它跟後面連續的
+    assert_banner 一起交給 run_banner_group 合併監看，後面那幾步的結果先存在
+    banner_outcomes（呼叫端整份測案共用同一個 dict），輪到它們時直接取出，
+    所以每一步在結果清單裡還是各自一列。
+    """
+    if i in banner_outcomes:
+        return banner_outcomes.pop(i)
+    step = steps[i - 1]
+    if step.get("action") != "assert_banner":
+        return execute_step(platform, driver, step, el)
+    end = i
+    while end < len(steps) and steps[end].get("action") == "assert_banner":
+        end += 1
+    outcomes = run_banner_group(platform, driver, steps[i - 1:end])
+    banner_outcomes.update({i + k: o for k, o in enumerate(outcomes) if k > 0})
+    return outcomes[0]
+
+
 def should_wait_after(platform, steps: list, current_index: int) -> bool:
     """tap/input_text 之後要等畫面穩定，除非下一步是要趁跑馬燈還在時驗證的 assert_banner"""
     action = steps[current_index - 1].get("action")
@@ -443,8 +537,10 @@ def should_wait_after(platform, steps: list, current_index: int) -> bool:
 def run_test_case(platform, driver, test_case: dict, element_lookup: dict):
     results = []
     steps = test_case["steps"]
+    banner_outcomes = {}
     for i, step in enumerate(steps, 1):
-        outcome = execute_step(platform, driver, step, element_lookup.get(step.get("target")))
+        outcome = run_step_in_case(platform, driver, steps, i, element_lookup.get(step.get("target")),
+                                   banner_outcomes)
         results.append((i, step, outcome))
         print(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
         if should_wait_after(platform, steps, i):

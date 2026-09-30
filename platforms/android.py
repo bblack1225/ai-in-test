@@ -458,12 +458,126 @@ def locate_generated_element(driver, el: dict):
     return matched
 
 
+_DASHES = str.maketrans({c: "-" for c in "－—–‐‑−"})
+
+
+def _normalize_banner_text(text: str) -> str:
+    """比對跑馬燈文字前先去掉空白、統一各種破折號（全形－、—、– 等），
+    避免測案寫「買進-委託處理中」但畫面上是「買進－委託處理中」這種差一個字元就抓不到"""
+    return re.sub(r"\s+", "", text or "").translate(_DASHES)
+
+
+def _texts_in_source(xml_source: str) -> list[str]:
+    """page source 裡每個節點的 text/content-desc，外加「同一個父節點底下所有子節點文字接起來」——
+    跑馬燈的文字常被拆成好幾個 TextView（例如「買進」＋「-委託處理中」），單看一個節點永遠比對不到"""
+    try:
+        root = ET.fromstring(xml_source)
+    except ET.ParseError:
+        return []
+    texts = []
+    for node in root.iter():
+        own = " ".join(v for v in (node.attrib.get("text"), node.attrib.get("content-desc")) if v)
+        if own:
+            texts.append(own)
+        joined = "".join(child.attrib.get("text") or child.attrib.get("content-desc") or "" for child in node)
+        if joined:
+            texts.append(joined)
+    return texts
+
+
+def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval: float = 0.1,
+                 source_interval: float = 2.0) -> tuple[dict, dict, str]:
+    """
+    盯著畫面等跑馬燈/通知橫幅，比照 iOS 版（platforms/ios.watch_banner），回傳
+    ({每段文字: 抓到它的那段文字，沒抓到是 None}, {每段文字: 第一次看到的時間}, 補充說明)。每段文字只要在
+    timeout 內出現過一次就算數；PASS/FAIL 判定在 run_test_case.run_banner_group。
+
+    Android 對應 iOS 那三點的做法：
+      - 用 UiSelector 的 textContains/descriptionContains 查，查詢在手機上完成，
+        不用先把整份 page source 傳回電腦（對應 iOS 的 predicate）
+      - 暫時把 UiAutomator2 的 waitForIdleTimeout 設 0，不等 App 靜止
+      - 不看 is_displayed()，查得到就算出現
+    Android 另外要處理的：
+      - 系統 Toast 不在一般的畫面結構裡，UiAutomator2 是從 accessibility 事件攔下來、
+        只能用 //android.widget.Toast 這條 XPath 查到
+      - App 用 PopupWindow／浮動層畫的橫幅是另一個視窗，UiAutomator2 預設只看目前
+        取得焦點的視窗，所以暫時打開 enableMultiWindows
+      - UiSelector 只能比對單一節點、而且是原字比對，文字被拆成好幾個 TextView 或
+        破折號全半形不同就抓不到；所以每隔 source_interval 秒另外抓一次整份 page
+        source 做寬鬆比對（見 _texts_in_source、_normalize_banner_text）。
+        抓 page source 比較慢，只當備援，不拿來當主要輪詢
+    有文字沒抓到時，會把最後一次抓到的 page source 存到 test_results/，路徑放在
+    補充說明裡，用來確認跑馬燈在畫面結構裡實際長什麼樣子。
+    """
+    found = {t: None for t in texts}
+    seen_at = {}
+    wanted = {t: _normalize_banner_text(t) for t in texts}
+    selectors = [f"new UiSelector().{method}({uiautomator_string_literal(t)})"
+                 for t in texts for method in ("textContains", "descriptionContains")]
+
+    def read_texts(elements):
+        return [" ".join(v for v in (e.get_attribute("text"), e.get_attribute("content-desc")) if v)
+                for e in elements]
+
+    def record(labels, when):
+        for label in labels:
+            normalized = _normalize_banner_text(label)
+            for t in texts:
+                if found[t] is None and wanted[t] in normalized:
+                    found[t] = label
+                    seen_at[t] = when
+
+    original = driver.get_settings()
+    driver.update_settings({"waitForIdleTimeout": 0, "enableMultiWindows": True})
+    last_source = None
+    try:
+        deadline = time.time() + timeout
+        next_source_at = time.time()
+        while time.time() < deadline:
+            for selector in selectors:
+                try:
+                    record(read_texts(driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, selector)), time.time())
+                except Exception:
+                    # 元素剛好在讀屬性時消失（stale），下一輪再查
+                    pass
+            try:
+                record(read_texts(driver.find_elements(AppiumBy.XPATH, "//android.widget.Toast")), time.time())
+            except Exception:
+                pass
+            if not all(found.values()) and time.time() >= next_source_at:
+                try:
+                    # 時間記「開始抓」的那一刻：page source 可能要抓一兩秒，記抓完的時間會讓順序判斷偏晚
+                    source_started = time.time()
+                    last_source = driver.page_source
+                    record(_texts_in_source(last_source), source_started)
+                except Exception:
+                    pass
+                next_source_at = time.time() + source_interval
+            if all(found.values()):
+                break
+            time.sleep(poll_interval)
+    finally:
+        driver.update_settings({key: original[key] for key in ("waitForIdleTimeout", "enableMultiWindows")
+                                if key in original})
+
+    note = ""
+    if last_source and not all(found.values()):
+        debug_path = f"test_results/banner_debug_{time.strftime('%Y%m%d_%H%M%S')}.xml"
+        try:
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(last_source)
+            note = f"最後一次的畫面結構存在 {debug_path}"
+        except OSError:
+            pass
+    return found, seen_at, note
+
+
 class AndroidPlatform:
     name = "android"
     native_by = AppiumBy.ID
     native_id_name = "resource-id"
     generated_locate_label = "XPath / UiScrollable 定位"
-    supports_banner = False
+    supports_banner = True
     screen_id_attrs = ("resource-id",)
     screen_label_attrs = ("text", "content-desc")
 
@@ -531,8 +645,8 @@ class AndroidPlatform:
         print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: clickGesture", {"x": center_x, "y": center_y})
 
-    def assert_banner(self, driver, expected, timeout: float = 10.0) -> str:
-        raise NotImplementedError("assert_banner 目前只有 iOS 版")
+    def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
+        return watch_banner(driver, texts, timeout)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("text") or element.get_attribute("content-desc") or "").strip()

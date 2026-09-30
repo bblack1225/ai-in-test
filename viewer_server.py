@@ -14,7 +14,7 @@ Android 二選一）。前端打 /ping 會拿到 {"platform": "ios"|"android"}�
 
 平台差異（連線設定、native id 定位方式、Accessibility Tree 的解析、/agent_xpath
 prompt 的平台用語）都在 platforms/ios.py、platforms/android.py，這支只透過
-PLATFORM 取用；assert_banner 目前只有 iOS 版實作。
+PLATFORM 取用。
 
 API：
   - /tap、/assert_visible：單次點擊/驗證可見
@@ -57,8 +57,8 @@ from platforms import PLATFORMS, get_platform
 from run_test_case import (
     StopRequested,
     check_current_screen,
-    execute_step,
     run_assert_visible,
+    run_step_in_case,
     run_tap,
     set_stop_checker,
     should_wait_after,
@@ -362,7 +362,11 @@ def _build_llm_testgen_system_prompt(screens_context_json: str) -> str:
    - assert_banner：驗證「只出現幾秒就消失」的跑馬燈/通知橫幅（例如下單後
      上方的「委託回報」）。不需要 target；value 是跑馬燈上要出現的文字陣列，
      例如 ["委託回報", "2882 國泰金"]。這一步必須**緊接在觸發它的 tap 後面**
-     （例如送出委託的按鈕），中間不要插入其他步驟，否則跑馬燈會先消失"""
+     （例如送出委託的按鈕），中間不要插入其他步驟，否則跑馬燈會先消失。
+     接連會跳出好幾個跑馬燈時，每個跑馬燈各寫一個 assert_banner、連續排在一起，
+     執行端會自動合併成一次監看，不用擔心前一個等太久讓後一個消失。預設只檢查
+     「都有出現」、不管先後；使用者明確要求依序出現（例如「先…再…」「依序」）時，
+     在後面那一步加上 "in_order": true，代表它必須比前一個 assert_banner 晚出現"""
 
     return f"""你是 Android/iOS App 自動化測試專家，協助使用者根據「已經掃描好的畫面
 元件資料」設計、產生可以透過 Appium 執行的自動化測試案例。
@@ -619,6 +623,7 @@ def _step_result(i: int, step: dict, outcome: str) -> dict:
 
 
 def _run_steps(d, steps: list, screens_by_name: dict, results: list):
+    banner_outcomes = {}
     for i, step in enumerate(steps, 1):
         if _stop_requested.is_set():
             results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
@@ -631,7 +636,7 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
         if screen is not None:
             el = next((e for e in screen.get("elements", []) if e.get("unique_id") == step.get("target")), None)
         try:
-            outcome = execute_step(PLATFORM, d, step, el)
+            outcome = run_step_in_case(PLATFORM, d, steps, i, el, banner_outcomes)
         except StopRequested:
             outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
         results.append(_step_result(i, step, outcome))
