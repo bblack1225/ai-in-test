@@ -521,6 +521,7 @@
           <span class="section-label">目前產生的測試案例</span>
           <pre class="case-json" id="llmgenCaseJson">（尚未產生）</pre>
           <div class="btn-row">
+            <label class="file-btn-label" title="匯入之前匯出的測試案例，接著在上方對話框描述要怎麼改，LLM 會以它為基礎修改">📂 匯入既有測試案例來修改<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
             <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出測試案例</button>
             <button class="btn primary" id="llmgenToRunBtn" disabled>➡ 送去執行</button>
           </div>
@@ -2248,6 +2249,52 @@
     llmgenChatHistory = [];
     llmgenMessages.innerHTML = '<div class="empty-state">對話已清空，可以重新開始描述你想要的測試流程。</div>';
     updateLlmgenSendEnabled();
+  });
+  // 匯入之前產生（或手調過）的測試案例當作修改基礎：開一段新對話，把測案塞進
+  // 對話歷史的第一輪（使用者貼上測案 + 助理確認收到），之後使用者講要怎麼改，
+  // LLM 就會像修改自己上一輪的輸出一樣，重新輸出完整 JSON——不需要動伺服器端。
+  var llmgenCaseImportInput = document.getElementById("llmgenCaseImportInput");
+  llmgenCaseImportInput.addEventListener("change", function (e) {
+    var file = e.target.files[0]; if (!file) return;
+    e.target.value = "";
+    var reader = new FileReader();
+    reader.onload = function () {
+      var testCase;
+      try { testCase = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
+      if (!testCase || !Array.isArray(testCase.steps)) { alert("這不是測試案例 JSON（找不到 steps 陣列）"); return; }
+      if (!llmgenData) { alert("請先載入地圖或上傳 element_map.json，LLM 需要畫面元件資料才能修改測案"); return; }
+      if (llmgenChatHistory.length && !confirm("匯入會開始一段新對話，目前的對話紀錄會被清空，確定嗎？")) return;
+
+      // 自動勾選測案裡用到的畫面，找不到的畫面列出來提醒使用者
+      var usedScreens = [];
+      testCase.steps.forEach(function (s) { if (s.screen_name && usedScreens.indexOf(s.screen_name) < 0) usedScreens.push(s.screen_name); });
+      var foundScreens = [];
+      llmgenScreenChecklist.querySelectorAll(".llmgen-screen-cb").forEach(function (cb) {
+        var name = llmgenData.screens[Number(cb.value)].screen_name;
+        if (usedScreens.indexOf(name) >= 0) { cb.checked = true; foundScreens.push(name); }
+      });
+      var missingScreens = usedScreens.filter(function (n) { return foundScreens.indexOf(n) < 0; });
+
+      var caseText = JSON.stringify(testCase, null, 2);
+      var ackText = "已讀入既有的測試案例「" + (testCase.test_name || "（未命名）") + "」（" + testCase.steps.length +
+        " 個步驟），請告訴我要怎麼調整，我會輸出修改後的完整 JSON。";
+      llmgenChatHistory = [
+        { role: "user", text: "以下是一份之前產生的測試案例，請以它為基礎，依照我接下來的指示修改（沒提到要改的步驟請保持原樣）：\n```json\n" + caseText + "\n```" },
+        { role: "model", text: ackText + "\n```json\n" + caseText + "\n```" },
+      ];
+      llmgenMessages.innerHTML = "";
+      appendChatMessage("user", "📂 匯入測試案例：" + file.name);
+      appendChatMessage("model", ackText);
+      if (missingScreens.length) {
+        appendChatMessage("system-note", "目前資料來源找不到這些畫面：" + missingScreens.join("、") +
+          "。LLM 看不到它們的元件，改到這些步驟時可能無法確認 unique_id，建議換成對應的地圖再匯入。");
+      }
+      renderLlmgenCase(testCase);
+      updateLlmgenSendEnabled();
+      llmgenInput.placeholder = "例如：第 3 步之後加一個驗證「委託成功」文字的步驟";
+      llmgenInput.focus();
+    };
+    reader.readAsText(file);
   });
   llmgenExportBtn.addEventListener("click", function () {
     if (!llmgenLatestCase) return;
