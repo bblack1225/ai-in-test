@@ -350,6 +350,8 @@
   .script-step-card.pass { border-left: 4px solid var(--accent); }
   .script-step-card.fail { border-left: 4px solid var(--danger); }
   .script-step-card.skip { border-left: 4px solid var(--gold); }
+  .script-step-card.running { border-left: 4px solid var(--accent); background: var(--paper); }
+  .script-step-outcome.running { color: var(--accent); }
   .script-step-index { font-family: "IBM Plex Mono", monospace; font-weight: 700; color: var(--ink-soft); }
   .script-step-top { display: flex; gap: 8px; align-items: center; }
   .script-step-action { font-weight: 700; font-size: 12px; }
@@ -2408,7 +2410,7 @@
     if (!screen) return null;
     return (screen.elements || []).find(function (el) { return el.unique_id === targetId; }) || null;
   }
-  function renderRunscriptPreview(results, stopped, precheck) {
+  function renderRunscriptPreview(results, stopped, precheck, runningIndex) {
     renderRunscriptSources();
     if (!runscriptTestCase) {
       runscriptBody.innerHTML = '<div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div>';
@@ -2451,7 +2453,9 @@
     steps.forEach(function (step, i) {
       var result = results ? results[i] : null;
       var outcome = result ? result.outcome : null;
-      var outcomeClass = outcome ? (outcome.indexOf("PASS") === 0 ? "pass" : outcome.indexOf("FAIL") === 0 ? "fail" : "skip") : "";
+      var isRunning = !outcome && runningIndex === i + 1;
+      if (isRunning) outcome = "⏳ 執行中...";
+      var outcomeClass = isRunning ? "running" : outcome ? (outcome.indexOf("PASS") === 0 ? "pass" : outcome.indexOf("FAIL") === 0 ? "fail" : "skip") : "";
       var el = findElementInMap(elementMap, step.screen_name, step.target);
       var resolvedLabel = step.action === "assert_banner"
         ? "等待跑馬燈出現（不需要 element_map 元件）"
@@ -2488,18 +2492,39 @@
     runscriptStopBtn.hidden = false;
     runscriptStopBtn.disabled = false;
     runscriptStopBtn.textContent = "⏹ 停止";
+    var progressBase = runscriptServerUrl.value.replace(/\/$/, "");
+    var progressTimer = null;
     try {
-      await assertPlatformMatches(runscriptServerUrl.value.replace(/\/$/, ""), runscriptDataPlatform());
+      await assertPlatformMatches(progressBase, runscriptDataPlatform());
+      // 執行是同步請求要跑完才回傳，執行中另外輪詢 /test_progress 顯示目前跑到哪一步
+      var polling = false, runFinished = false;
+      progressTimer = setInterval(async function () {
+        if (polling) return;
+        polling = true;
+        try {
+          var pr = await (await fetch(progressBase + "/test_progress")).json();
+          if (pr.running && !runFinished) {
+            runscriptRunBtn.textContent = "執行中（" + Math.max(pr.current || 0, 0) + "/" + pr.total + "）...";
+            renderRunscriptPreview(pr.results, false, pr.precheck, pr.current || 0);
+            var running = runscriptBody.querySelector(".script-step-card.running");
+            if (running) running.scrollIntoView({ block: "nearest" });
+            runscriptRunBtn.disabled = true;
+          }
+        } catch (e) { /* 輪詢失敗不影響主流程 */ }
+        polling = false;
+      }, 1000);
       var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked }),
       });
+      runFinished = true;
       var data = await res.json();
       if (data.error) alert("執行失敗：" + data.error);
       else renderRunscriptPreview(data.results, data.stopped, data.precheck);
     } catch (err) {
       alert(failText("連線失敗", err, "（請確認 viewer_server.py 已啟動）"));
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       runscriptRunBtn.disabled = false;
       runscriptRunBtn.textContent = "▶ 執行測試";
       runscriptStopBtn.hidden = true;

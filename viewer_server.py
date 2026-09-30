@@ -82,6 +82,10 @@ driver = None
 _device_lock = threading.Lock()
 _test_running = threading.Event()
 _stop_requested = threading.Event()
+# 測案執行的即時進度：/run_test_script 是同步請求，要跑完才回傳，所以另外開
+# GET /test_progress 讓 viewer 執行中輪詢，看到目前跑到第幾步、已完成步驟的結果。
+# results 跟 run_test_script 共用同一個 list，_run_steps 每做完一步就會 append。
+_progress = {"running": False, "current": None, "total": 0, "results": [], "precheck": None}
 # 讓捲動搜尋這類長迴圈也能被停止中斷（見 run_test_case.raise_if_stopped）
 set_stop_checker(_stop_requested.is_set)
 
@@ -566,6 +570,7 @@ def run_test_script(payload: dict) -> dict:
     d = get_driver()
     results = []
     _stop_requested.clear()
+    _progress.update(running=True, current=0, total=len(steps), results=results, precheck=None)
     _test_running.set()
     try:
         with PLATFORM.page_source_context(d):
@@ -573,6 +578,7 @@ def run_test_script(payload: dict) -> dict:
                 precheck = _precheck_screen(d, steps, screens_by_name)
             else:
                 precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
+            _progress["precheck"] = precheck
             print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
             if precheck["status"] == "fail":
                 results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
@@ -581,6 +587,7 @@ def run_test_script(payload: dict) -> dict:
                 _run_steps(d, steps, screens_by_name, results)
     finally:
         _test_running.clear()
+        _progress.update(running=False, current=None)
     return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
 
 
@@ -617,6 +624,8 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
             results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
             continue
 
+        _progress["current"] = i
+        print(f"[測案執行] 第{i}/{len(steps)}步：{step.get('action')} {step.get('target')}")
         screen = screens_by_name.get(step.get("screen_name"))
         el = None
         if screen is not None:
@@ -682,6 +691,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/ping":
             self._send_json(200, {"status": "ok", "platform": PLATFORM.name})
+            return
+        if self.path == "/test_progress":
+            self._send_json(200, {**_progress, "results": list(_progress["results"])})
             return
         if self.path == "/llm_scenarios_prompt":
             self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
