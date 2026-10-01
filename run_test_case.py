@@ -79,6 +79,38 @@ class StopRequested(Exception):
 _stop_checker = None
 
 
+# 執行測案時「步驟失敗先關掉非預期彈窗再重試」的開關（viewer 的勾選框／命令列 --dismiss_dialogs），
+# 預設關閉：測案本來就要操作的對話框（例如「確定買進」確認框）不該被自動關掉
+_dismiss_dialogs_enabled = False
+
+
+def set_dismiss_dialogs(enabled: bool) -> None:
+    global _dismiss_dialogs_enabled
+    _dismiss_dialogs_enabled = bool(enabled)
+
+
+def try_dismiss_dialogs(platform, driver) -> list[str]:
+    """開關有開才去找彈窗，回傳按過的按鈕文字；沒開或沒找到回傳空清單"""
+    if not _dismiss_dialogs_enabled:
+        return []
+    try:
+        dismissed = platform.dismiss_dialogs(driver)
+    except Exception as e:
+        print(f"    [關閉非預期彈窗] 檢查失敗，照原本結果繼續: {e}")
+        return []
+    if dismissed:
+        print(f"    [關閉非預期彈窗] 按了：{'、'.join(dismissed)}")
+    return dismissed
+
+
+def with_dismiss_note(outcome: str, dismissed: list[str]) -> str:
+    """在結果文字最後補上「先關掉了哪些彈窗」，網頁上看得到這一步是重試後才通過的"""
+    note = f"已先關掉非預期彈窗（按了「{'」「'.join(dismissed)}」）"
+    if outcome.endswith("）"):
+        return outcome[:-1] + f"；{note}）"
+    return f"{outcome}（{note}）"
+
+
 def set_stop_checker(checker) -> None:
     """viewer_server 啟動時把自己的停止旗標註冊進來；命令列執行不註冊，行為不變。"""
     global _stop_checker
@@ -90,7 +122,8 @@ def raise_if_stopped() -> None:
         raise StopRequested()
 
 
-def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
+def retry_assert(check, timeout=None, poll_interval: float = 0.5,
+                 on_fail=None, on_fail_interval: float = 3.0) -> str:
     """
     assert_visible / assert_text_contains 的步驟有寫 timeout（秒）時，在期限內反覆
     執行 check()，一出現 PASS 就回報，時間到才回報最後一次的 FAIL。用在「操作後
@@ -99,12 +132,22 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
 
     沒寫 timeout 就只檢查一次，跟原本行為完全一樣。SKIP 代表這個元件本來就驗證
     不了，重試也沒用，直接回傳。
+
+    on_fail：等待期間沒通過時呼叫（第一次沒通過馬上呼叫，之後每 on_fail_interval 秒一次），
+    回傳這次處理掉的東西（清單）。給「自動關閉非預期彈窗」用：被彈窗擋住時不用等到
+    timeout 用完才處理，關掉後繼續在剩下的時間內檢查。處理過的東西會註記在結果裡。
     """
     if not timeout:
         return check()
 
     deadline = time.time() + float(timeout)
     attempts = 0
+    handled = []
+    next_on_fail_at = 0.0
+
+    def finish(outcome):
+        return with_dismiss_note(outcome, handled) if handled else outcome
+
     while True:
         raise_if_stopped()
         attempts += 1
@@ -116,9 +159,13 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5) -> str:
             # 畫面刷新中元件剛好被換掉（stale）之類的，下一輪再查
             outcome = f"FAIL（檢查時發生錯誤：{type(e).__name__}）"
         if not outcome.startswith("FAIL"):
-            return outcome if attempts == 1 else f"{outcome}（重試第 {attempts} 次才通過）"
+            return finish(outcome if attempts == 1 else f"{outcome}（重試第 {attempts} 次才通過）")
         if time.time() >= deadline:
-            return f"{outcome}（已等待 {float(timeout):g} 秒）"
+            return finish(f"{outcome}（已等待 {float(timeout):g} 秒）")
+        if on_fail is not None and time.time() >= next_on_fail_at:
+            handled.extend(on_fail() or [])
+            next_on_fail_at = time.time() + on_fail_interval
+            continue  # 處理完馬上再檢查一次，不用多睡一輪
         time.sleep(poll_interval)
 
 
@@ -188,8 +235,19 @@ def run_tap(platform, driver, el: dict) -> str:
         return f"PASS（{platform.generated_locate_label}）"
 
     raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
+    # 找不到元件可能是被彈窗擋住：這時用舊座標盲點會點在彈窗上、還回報 PASS，
+    # 所以退回座標點擊前先關彈窗、再找一次
+    dismissed = try_dismiss_dialogs(platform, driver)
+    if dismissed:
+        matched = platform.locate_generated_element(driver, el)
+        if matched is not None:
+            platform.ensure_visible(driver, matched)
+            matched.click()
+            return with_dismiss_note(f"PASS（{platform.generated_locate_label}）", dismissed)
+        raise_if_stopped()
     platform.tap_by_coordinates(driver, el["bounds"])
-    return "PASS（座標點擊，備援方式）"
+    outcome = "PASS（座標點擊，備援方式）"
+    return with_dismiss_note(outcome, dismissed) if dismissed else outcome
 
 
 def run_assert_visible(platform, driver, el: dict) -> str:
@@ -423,11 +481,14 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
         return run_tap(platform, driver, el)
     if action == "input_text":
         return run_input_text(platform, driver, el, step.get("value", ""))
+    # 有 timeout 的驗證：等待期間就順便關非預期彈窗（開關沒開時 try_dismiss_dialogs 直接回空清單）
+    dismiss = lambda: try_dismiss_dialogs(platform, driver)
     if action == "assert_visible":
-        return retry_assert(lambda: run_assert_visible(platform, driver, el), step.get("timeout"))
+        return retry_assert(lambda: run_assert_visible(platform, driver, el), step.get("timeout"),
+                            on_fail=dismiss if _dismiss_dialogs_enabled else None)
     if action == "assert_text_contains":
         return retry_assert(lambda: run_assert_text_contains(platform, driver, el, step.get("value", "")),
-                            step.get("timeout"))
+                            step.get("timeout"), on_fail=dismiss if _dismiss_dialogs_enabled else None)
     return f"FAIL（未知的 action: {action}）"
 
 
@@ -506,6 +567,21 @@ def _check_banner_order(previous_step: dict, step_texts: list[str], found: dict,
     return f"PASS（跑馬燈依序出現，比前一個晚 {this_first - prev_last:.1f} 秒；抓到的文字：{seen}）", None
 
 
+def execute_step_dismissing_dialogs(platform, driver, step: dict, el: dict | None) -> str:
+    """
+    執行一步；失敗時（而且開關有開）檢查是不是被非預期彈窗擋住，有的話關掉再重試一次。
+    只在失敗時才檢查：正常情況不多花時間，也不會誤關測案本來就要操作的對話框。
+    el 是 None（地圖裡找不到 target）是資料問題，關彈窗也沒用，不重試。
+    """
+    outcome = execute_step(platform, driver, step, el)
+    if not outcome.startswith("FAIL") or el is None:
+        return outcome
+    dismissed = try_dismiss_dialogs(platform, driver)
+    if not dismissed:
+        return outcome
+    return with_dismiss_note(execute_step(platform, driver, step, el), dismissed)
+
+
 def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
     """
     在一份測案裡執行第 i 步（從1起算）。遇到 assert_banner 時，把它跟後面連續的
@@ -517,7 +593,7 @@ def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, ban
         return banner_outcomes.pop(i)
     step = steps[i - 1]
     if step.get("action") != "assert_banner":
-        return execute_step(platform, driver, step, el)
+        return execute_step_dismissing_dialogs(platform, driver, step, el)
     end = i
     while end < len(steps) and steps[end].get("action") == "assert_banner":
         end += 1
@@ -563,8 +639,11 @@ def main():
     parser = argparse.ArgumentParser(description="執行 generate_test_case.py 產生的測試案例")
     parser.add_argument("--screen_name", required=True)
     parser.add_argument("--platform", choices=sorted(PLATFORMS), default="ios", help="裝置平台（預設 ios）")
+    parser.add_argument("--dismiss_dialogs", action="store_true",
+                        help="步驟失敗時先關掉擋在前面的非預期彈窗（行銷/評分/推播邀請…）再重試一次")
     args = parser.parse_args()
     platform = get_platform(args.platform)
+    set_dismiss_dialogs(args.dismiss_dialogs)
 
     test_case = load_test_case(args.screen_name)
     element_lookup = load_element_lookup(args.screen_name)
@@ -575,7 +654,11 @@ def main():
 
     try:
         with platform.page_source_context(driver):
-            if not verify_current_screen(platform, driver, args.screen_name, element_lookup):
+            on_screen = verify_current_screen(platform, driver, args.screen_name, element_lookup)
+            if not on_screen and try_dismiss_dialogs(platform, driver):
+                # 畫面對不上可能只是被非預期彈窗蓋住，關掉後再檢查一次
+                on_screen = verify_current_screen(platform, driver, args.screen_name, element_lookup)
+            if not on_screen:
                 save_result_screenshot(driver, args.screen_name)
                 raise SystemExit(
                     f"手機目前畫面看起來不是「{args.screen_name}」，為避免座標點擊備援機制誤觸其他畫面上的"

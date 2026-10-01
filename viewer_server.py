@@ -60,9 +60,12 @@ from run_test_case import (
     run_assert_visible,
     run_step_in_case,
     run_tap,
+    set_dismiss_dialogs,
     set_stop_checker,
     should_wait_after,
+    try_dismiss_dialogs,
     wait_after_action,
+    with_dismiss_note,
 )
 from test_config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
 
@@ -576,6 +579,7 @@ def run_test_script(payload: dict) -> dict:
     _stop_requested.clear()
     _progress.update(running=True, current=0, total=len(steps), results=results, precheck=None)
     _test_running.set()
+    set_dismiss_dialogs(payload.get("dismiss_dialogs", False))
     try:
         with PLATFORM.page_source_context(d):
             if payload.get("check_screen", True):
@@ -590,6 +594,7 @@ def run_test_script(payload: dict) -> dict:
             else:
                 _run_steps(d, steps, screens_by_name, results)
     finally:
+        set_dismiss_dialogs(False)
         _test_running.clear()
         _progress.update(running=False, current=None)
     return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
@@ -611,6 +616,13 @@ def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
         return {"status": "unchecked", "screen_name": screen_name,
                 "message": f"第一步的畫面「{screen_name}」不在地圖資料裡，無法檢查"}
     status, message = check_current_screen(PLATFORM, d, screen_name, screen.get("elements", []))
+    if status == "fail":
+        # 畫面對不上可能只是被非預期彈窗蓋住（例如一打開 App 就跳的公告）：
+        # 勾選了自動關閉彈窗時，關掉再檢查一次，不然整份測案會直接 SKIP，輪不到步驟失敗時的處理
+        dismissed = try_dismiss_dialogs(PLATFORM, d)
+        if dismissed:
+            status, message = check_current_screen(PLATFORM, d, screen_name, screen.get("elements", []))
+            message = with_dismiss_note(message, dismissed)
     return {"status": status, "screen_name": screen_name, "message": message}
 
 

@@ -648,6 +648,21 @@ class AndroidPlatform:
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
 
+    def dismiss_dialogs(self, driver) -> list[str]:
+        """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
+        永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
+        from crawl_app_tree import android_dismiss_modal
+        # 系統權限視窗不處理（使用者決定）：權限框是系統的 permissioncontroller／packageinstaller
+        # 跳出來的，出現時目前前景的 package 就是它
+        try:
+            package = driver.current_package or ""
+        except Exception:
+            return []
+        if "permissioncontroller" in package or "packageinstaller" in package:
+            print(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
+            return []
+        return android_dismiss_modal(driver)
+
     def element_text(self, element) -> str:
         return (element.get_attribute("text") or element.get_attribute("content-desc") or "").strip()
 

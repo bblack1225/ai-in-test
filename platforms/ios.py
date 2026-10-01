@@ -545,6 +545,11 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0,
     return found, seen_at, ""
 
 
+# 系統權限視窗才會有的按鈕（通知、定位、相機、聯絡人、追蹤…都有「不允許」）
+_PERMISSION_ALERT_PREDICATE = ("type == 'XCUIElementTypeButton' AND label IN "
+                               "{'不允許', 'Don’t Allow', \"Don't Allow\"}")
+
+
 class IOSPlatform:
     name = "ios"
     native_by = AppiumBy.ACCESSIBILITY_ID
@@ -618,6 +623,20 @@ class IOSPlatform:
 
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
+
+    def dismiss_dialogs(self, driver) -> list[str]:
+        """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
+        永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
+        from crawl_app_tree import dismiss_modal
+        # 系統權限視窗不處理（使用者決定）：有些權限框的按鈕是「不允許／好」，
+        # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
+        try:
+            if driver.find_elements(AppiumBy.IOS_PREDICATE, _PERMISSION_ALERT_PREDICATE):
+                print("    [關閉非預期彈窗] 畫面上是系統權限視窗，不處理")
+                return []
+        except Exception:
+            return []
+        return dismiss_modal(driver)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()

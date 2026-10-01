@@ -563,6 +563,7 @@
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
           <label class="field-row" style="gap:4px;"><input type="checkbox" id="runscriptCheckScreen" checked> 執行前先檢查手機是否停在第一步的畫面（第0步）</label>
+          <label class="field-row" style="gap:4px;" title="步驟失敗時，先關掉擋在前面的彈窗（稍後再說／不用了／關閉…）再重試一次；只在失敗時才檢查，不會誤關測案本來要操作的對話框"><input type="checkbox" id="runscriptDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試（行銷／評分／推播邀請…）</label>
         </div>
         <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
       </div>
@@ -2481,6 +2482,7 @@
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
   var runscriptStopBtn = document.getElementById("runscriptStopBtn");
   var runscriptCheckScreen = document.getElementById("runscriptCheckScreen");
+  var runscriptDismissDialogs = document.getElementById("runscriptDismissDialogs");
   var runscriptBody = document.getElementById("runscriptBody");
   var runscriptElementMap = null, runscriptTestCase = null;
   // runscriptElementMap 為 null 時代表用目前地圖（即時抓，地圖換了會跟著變）
@@ -2631,7 +2633,7 @@
       }, 1000);
       var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked }),
+        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked }),
       });
       runFinished = true;
       var data = await res.json();
