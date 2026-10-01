@@ -42,6 +42,8 @@ API：
 """
 
 import argparse
+import base64
+import binascii
 import json
 import threading
 import xml.etree.ElementTree as ET
@@ -424,6 +426,11 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    「完整」的（不是增量片段的）JSON code block，不要只回傳有變動的部分。
 6. 如果使用者的需求不清楚（例如沒說清楚要測哪個畫面、哪個操作、預期結果
    是什麼），可以先反問澄清，不用勉強硬猜然後生成不精確的測試案例。
+7. 使用者可能會附上流程圖、規格書 PDF、截圖等附件（訊息裡標示【附件：檔名】），
+   用來說明要測的流程與預期結果。附件只是「要測什麼」的參考：步驟的 target
+   仍然只能用上面畫面資料裡真的存在的 unique_id（規則3），不能因為附件上
+   畫了某個按鈕就編造 id。附件裡的流程有步驟對應不到任何畫面元件時，在說明
+   文字裡列出是哪幾步、建議補掃哪個畫面；附件內容看不清楚或有歧義時，先反問
 """
 
 
@@ -438,6 +445,31 @@ def _usage_info(response) -> dict | None:
     }
 
 
+# /llm_chat 的附件：Gemini 能直接讀的圖片、PDF 原封不動交給它；純文字類解碼後當文字送
+# （比當成檔案送穩定，CSV/JSON/Markdown 都適用）。Word/Excel 這類 Gemini 讀不了，前端就擋掉
+LLM_ATTACHMENT_BINARY_TYPES = {"image/png", "image/jpeg", "image/webp", "application/pdf"}
+LLM_ATTACHMENT_TEXT_TYPES = {"text/plain", "text/markdown", "text/csv", "application/json"}
+
+
+def _message_parts(message: dict) -> list:
+    """一則對話訊息轉成 Gemini 的 parts：附件在前、文字在後（先看資料再看指示）"""
+    parts = []
+    for att in message.get("attachments") or []:
+        name, mime = att.get("name", "附件"), att.get("mime", "")
+        data = base64.b64decode(att.get("data", ""))
+        if mime in LLM_ATTACHMENT_BINARY_TYPES:
+            parts.append(types.Part.from_text(text=f"【附件：{name}】"))
+            parts.append(types.Part.from_bytes(data=data, mime_type=mime))
+        elif mime in LLM_ATTACHMENT_TEXT_TYPES:
+            parts.append(types.Part.from_text(text=f"【附件：{name}】\n{data.decode('utf-8', errors='replace')}"))
+        else:
+            raise ValueError(f"不支援的附件格式：{name}（{mime}）")
+    text = message.get("text", "")
+    if text or not parts:
+        parts.append(types.Part.from_text(text=text))
+    return parts
+
+
 def run_llm_chat(payload: dict) -> dict:
     """
     多輪對話代理：把系統提示詞（含使用者選定的畫面元件精簡資料）+ 目前為止的
@@ -450,13 +482,14 @@ def run_llm_chat(payload: dict) -> dict:
 
     system_prompt = _build_llm_testgen_system_prompt(json.dumps(screens_context, ensure_ascii=False))
 
-    contents = [
-        types.Content(
-            role="user" if m.get("role") == "user" else "model",
-            parts=[types.Part.from_text(text=m.get("text", ""))],
-        )
-        for m in messages
-    ]
+    try:
+        contents = [
+            types.Content(role="user" if m.get("role") == "user" else "model", parts=_message_parts(m))
+            for m in messages
+        ]
+    except (ValueError, binascii.Error) as e:
+        return {"error": f"附件讀取失敗：{e}"}
+    attachment_count = sum(len(m.get("attachments") or []) for m in messages)
 
     try:
         response = generate_content_with_retry(
@@ -471,7 +504,7 @@ def run_llm_chat(payload: dict) -> dict:
     if usage_info:
         print(f"[llm_chat token用量] prompt={usage_info['prompt_tokens']} "
               f"output={usage_info['output_tokens']} total={usage_info['total_tokens']}"
-              f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料）")
+              f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料、{attachment_count} 個附件）")
 
     return {"reply": (response.text or "").strip(), "usage": usage_info}
 

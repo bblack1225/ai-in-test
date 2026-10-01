@@ -342,7 +342,26 @@
   .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
   .chat-msg.model { align-self: flex-start; background: var(--grey-soft); color: var(--ink); }
   .chat-msg.system-note { align-self: center; background: var(--danger-soft); color: var(--danger); font-size: 11px; }
-  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row { display: flex; gap: 8px; align-items: stretch; }
+  .chat-box.drag-over .chat-messages { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
+  .attach-btn { padding: 6px 10px; font-size: 15px; }
+  .attach-tray { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+  .attach-tray[hidden] { display: none; }
+  .attach-item { position: relative; display: flex; align-items: center; gap: 8px; height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); overflow: visible; }
+  .attach-item.image { width: 56px; }
+  .attach-item.image img { width: 100%; height: 100%; object-fit: cover; border-radius: 9px; display: block; }
+  .attach-item.doc { padding: 0 10px 0 6px; max-width: 200px; }
+  .attach-doc-icon { flex: none; width: 36px; height: 42px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; color: #fff; background: var(--grey-mid); }
+  .attach-doc-icon.pdf { background: var(--danger); }
+  .attach-doc-meta { display: flex; flex-direction: column; min-width: 0; font-size: 11px; line-height: 1.35; }
+  .attach-doc-name { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .attach-doc-sub { color: var(--ink-soft); }
+  .attach-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-size: 12px; line-height: 1; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
+  .attach-remove:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .chat-msg .attach-tray { padding: 0; border: none; background: transparent; margin-bottom: 6px; }
+  .chat-msg.user .attach-item { border-color: transparent; }
+  .attach-hint { font-size: 11px; color: var(--ink-soft); }
+  .attach-hint.warn { color: var(--gold); }
   .chat-input-row textarea { flex: 1; min-height: 44px; font-family: inherit; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); resize: vertical; }
   pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
   textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
@@ -513,10 +532,14 @@
         </div>
         <div class="chat-box">
           <div class="chat-messages" id="llmgenMessages"><div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div></div>
+          <div class="attach-tray" id="llmgenAttachTray" hidden></div>
           <div class="chat-input-row">
+            <button class="btn attach-btn" id="llmgenAttachBtn" disabled title="附加流程圖、規格書等檔案（可多選；也可以直接貼上截圖或拖曳檔案進來）。支援 png／jpg／webp／pdf／txt／md／csv／json">📎</button>
+            <input type="file" id="llmgenAttachInput" multiple hidden accept="image/png,image/jpeg,image/webp,application/pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json">
             <textarea id="llmgenInput" placeholder="例如：在自選庫存點第一支股票，確認能進到個股總覽頁" disabled></textarea>
             <button class="btn primary" id="llmgenSendBtn" disabled>送出</button>
           </div>
+          <div class="attach-hint" id="llmgenAttachHint"></div>
           <div class="btn-row">
             <button class="btn" id="llmgenViewPromptBtn" disabled>查看系統提示詞規則</button>
             <button class="btn" id="llmgenClearBtn" disabled>清空對話</button>
@@ -2129,6 +2152,11 @@
   var llmgenCaseJson = document.getElementById("llmgenCaseJson");
   var llmgenExportBtn = document.getElementById("llmgenExportBtn");
   var llmgenToRunBtn = document.getElementById("llmgenToRunBtn");
+  var llmgenAttachTray = document.getElementById("llmgenAttachTray");
+  var llmgenAttachBtn = document.getElementById("llmgenAttachBtn");
+  var llmgenAttachInput = document.getElementById("llmgenAttachInput");
+  var llmgenAttachHint = document.getElementById("llmgenAttachHint");
+  var llmgenPendingAttachments = [];
   var llmgenCaseSyncBadge = document.getElementById("llmgenCaseSyncBadge");
   var llmgenCaseEditor = document.getElementById("llmgenCaseEditor");
   var llmgenEditBtn = document.getElementById("llmgenEditBtn");
@@ -2215,6 +2243,7 @@
     var hasSelection = selectedCount > 0;
     llmgenInput.disabled = !hasSelection;
     llmgenSendBtn.disabled = !hasSelection;
+    llmgenAttachBtn.disabled = !hasSelection;
     llmgenViewPromptBtn.disabled = !hasSelection;
     llmgenClearBtn.disabled = llmgenChatHistory.length === 0;
     // 「同步並請 LLM 檢查」要有勾選畫面才能送；初始化時按鈕可能還沒抓到，先略過
@@ -2345,19 +2374,165 @@
       "有問題就修正，說明改了哪幾步、為什麼，並輸出修改後的完整 JSON；沒問題就說明檢查結果，並原樣輸出完整 JSON。";
     sendLlmgenMessage();
   });
+  // ---- 附件（流程圖、規格書 PDF…）----
+  // 伺服器不保存對話，附件跟著那則訊息存在 llmgenChatHistory 裡、每輪都整包重送，
+  // 所以要控制總大小：Gemini 單次請求 inline 資料上限約 20MB，留一點給文字跟畫面資料
+  var LLMGEN_ATTACH_MAX_TOTAL = 18 * 1024 * 1024;
+  var LLMGEN_ATTACH_TYPES = {
+    "image/png": "image", "image/jpeg": "image", "image/webp": "image", "application/pdf": "PDF",
+    "text/plain": "TXT", "text/markdown": "MD", "text/csv": "CSV", "application/json": "JSON",
+  };
+  var LLMGEN_ATTACH_EXT_TYPES = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", pdf: "application/pdf",
+    txt: "text/plain", md: "text/markdown", markdown: "text/markdown", csv: "text/csv", json: "application/json",
+  };
+  function attachmentMime(file) {
+    if (LLMGEN_ATTACH_TYPES[file.type]) return file.type;
+    // 瀏覽器對 .md 等副檔名常常給空的 type，退回看副檔名
+    var ext = (file.name.split(".").pop() || "").toLowerCase();
+    return LLMGEN_ATTACH_EXT_TYPES[ext] || null;
+  }
+  function formatBytes(n) {
+    return n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  }
+  function historyAttachments() {
+    return llmgenChatHistory.reduce(function (all, m) { return all.concat(m.attachments || []); }, []);
+  }
+  function totalAttachmentBytes(list) {
+    return list.reduce(function (sum, a) { return sum + (a.size || 0); }, 0);
+  }
+  function readFileAsAttachment(file, mime) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve({ name: file.name || "貼上的圖片.png", mime: mime, size: file.size, data: String(reader.result).split(",")[1] });
+      };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+  async function addLlmgenAttachments(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    var rejected = [], tooBig = [];
+    var used = totalAttachmentBytes(historyAttachments()) + totalAttachmentBytes(llmgenPendingAttachments);
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i], mime = attachmentMime(file);
+      if (!mime) { rejected.push(file.name); continue; }
+      if (llmgenPendingAttachments.some(function (a) { return a.name === file.name && a.size === file.size; })) continue;
+      if (used + file.size > LLMGEN_ATTACH_MAX_TOTAL) { tooBig.push(file.name + "（" + formatBytes(file.size) + "）"); continue; }
+      try {
+        llmgenPendingAttachments.push(await readFileAsAttachment(file, mime));
+        used += file.size;
+      } catch (err) { rejected.push(file.name); }
+    }
+    renderLlmgenAttachTray();
+    var notes = [];
+    if (rejected.length) notes.push("不支援的格式（Word／Excel 請先另存成 PDF）：" + rejected.join("、"));
+    if (tooBig.length) notes.push("超過附件總大小上限 " + formatBytes(LLMGEN_ATTACH_MAX_TOTAL) + "，沒有加入：" + tooBig.join("、"));
+    if (notes.length) alert(notes.join("\n\n"));
+  }
+  function attachmentItemHtml(att, removeIndex) {
+    var kind = LLMGEN_ATTACH_TYPES[att.mime] || "FILE";
+    var remove = removeIndex === undefined ? "" :
+      '<button class="attach-remove" data-index="' + removeIndex + '" title="移除" aria-label="移除 ' + escapeHtml(att.name) + '">✕</button>';
+    if (kind === "image") {
+      return '<div class="attach-item image" title="' + escapeHtml(att.name + "・" + formatBytes(att.size)) + '">' +
+        '<img src="data:' + att.mime + ";base64," + att.data + '" alt="' + escapeHtml(att.name) + '">' + remove + "</div>";
+    }
+    return '<div class="attach-item doc" title="' + escapeHtml(att.name) + '">' +
+      '<div class="attach-doc-icon' + (kind === "PDF" ? " pdf" : "") + '">' + kind + "</div>" +
+      '<div class="attach-doc-meta"><span class="attach-doc-name">' + escapeHtml(att.name) + "</span>" +
+      '<span class="attach-doc-sub">' + kind + "・" + formatBytes(att.size) + "</span></div>" + remove + "</div>";
+  }
+  function renderLlmgenAttachTray() {
+    llmgenAttachTray.hidden = llmgenPendingAttachments.length === 0;
+    llmgenAttachTray.innerHTML = llmgenPendingAttachments.map(function (att, i) { return attachmentItemHtml(att, i); }).join("");
+    updateLlmgenAttachHint();
+  }
+  function updateLlmgenAttachHint() {
+    var sent = historyAttachments();
+    var total = totalAttachmentBytes(sent) + totalAttachmentBytes(llmgenPendingAttachments);
+    if (!sent.length && !llmgenPendingAttachments.length) { llmgenAttachHint.textContent = ""; return; }
+    var parts = [];
+    if (sent.length) parts.push("對話中已有 " + sent.length + " 個附件（之後每輪都會一起送給 LLM，計入 token 用量）");
+    if (llmgenPendingAttachments.length) parts.push("待送出 " + llmgenPendingAttachments.length + " 個");
+    llmgenAttachHint.textContent = "📎 " + parts.join("，") + "・合計 " + formatBytes(total) + " / " + formatBytes(LLMGEN_ATTACH_MAX_TOTAL);
+    llmgenAttachHint.className = "attach-hint" + (total > LLMGEN_ATTACH_MAX_TOTAL * 0.8 ? " warn" : "");
+  }
+  llmgenAttachTray.addEventListener("click", function (e) {
+    var btn = e.target.closest(".attach-remove");
+    if (!btn) return;
+    llmgenPendingAttachments.splice(Number(btn.dataset.index), 1);
+    renderLlmgenAttachTray();
+  });
+  llmgenAttachBtn.addEventListener("click", function () { llmgenAttachInput.click(); });
+  llmgenAttachInput.addEventListener("change", function (e) {
+    var files = e.target.files;
+    addLlmgenAttachments(files).then(function () { e.target.value = ""; });
+  });
+  llmgenInput.addEventListener("paste", function (e) {
+    var files = Array.prototype.slice.call((e.clipboardData && e.clipboardData.files) || []);
+    if (!files.length) return;  // 純文字照常貼上
+    e.preventDefault();
+    addLlmgenAttachments(files);
+  });
+  var llmgenChatBox = llmgenMessages.closest(".chat-box");
+  llmgenChatBox.addEventListener("dragover", function (e) {
+    if (llmgenAttachBtn.disabled || !e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types, "Files") < 0) return;
+    e.preventDefault();
+    llmgenChatBox.classList.add("drag-over");
+  });
+  llmgenChatBox.addEventListener("dragleave", function (e) {
+    if (!llmgenChatBox.contains(e.relatedTarget)) llmgenChatBox.classList.remove("drag-over");
+  });
+  llmgenChatBox.addEventListener("drop", function (e) {
+    llmgenChatBox.classList.remove("drag-over");
+    if (llmgenAttachBtn.disabled || !e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    addLlmgenAttachments(e.dataTransfer.files);
+  });
+  function appendUserMessage(text, attachments) {
+    var div = appendChatMessage("user", "");
+    if (attachments && attachments.length) {
+      var tray = document.createElement("div");
+      tray.className = "attach-tray";
+      tray.innerHTML = attachments.map(function (att) { return attachmentItemHtml(att); }).join("");
+      div.appendChild(tray);
+    }
+    div.appendChild(document.createTextNode(text));
+    llmgenMessages.scrollTop = llmgenMessages.scrollHeight;
+    return div;
+  }
+
   async function sendLlmgenMessage() {
     var text = llmgenInput.value.trim();
-    if (!text) return;
+    var attachments = llmgenPendingAttachments.slice();
+    if (!text && !attachments.length) return;
+    if (!text) text = "請依照附件內容產生測試案例";
     if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消，再跟 LLM 對話"); return; }
     // 手動改過但還沒同步就直接講下一個指令：先自動同步，不然 LLM 會拿舊版來改，把手動的修改蓋掉
     if (llmgenCaseUnsynced) syncManualCaseToLlmgen();
     var emptyState = llmgenMessages.querySelector(".empty-state");
     if (emptyState) emptyState.remove();
-    appendChatMessage("user", text);
-    llmgenChatHistory.push({ role: "user", text: text });
+    appendUserMessage(text, attachments);
+    var userMessage = { role: "user", text: text };
+    if (attachments.length) userMessage.attachments = attachments;
+    llmgenChatHistory.push(userMessage);
+    var typedText = llmgenInput.value;
     llmgenInput.value = "";
+    llmgenPendingAttachments = [];
+    renderLlmgenAttachTray();
     llmgenInput.disabled = true;
     llmgenSendBtn.disabled = true;
+    llmgenAttachBtn.disabled = true;
+    // 失敗時把這則訊息的文字、附件放回輸入區，使用者不用重選檔案
+    function restoreUnsentMessage() {
+      llmgenChatHistory.pop();
+      llmgenInput.value = typedText;
+      llmgenPendingAttachments = attachments.concat(llmgenPendingAttachments);
+      renderLlmgenAttachTray();
+    }
     llmgenSendBtn.textContent = "傳送中...";
     var thinkingMsg = appendChatMessage("model", "思考中...");
     try {
@@ -2369,8 +2544,8 @@
       var data = await res.json();
       thinkingMsg.remove();
       if (data.error) {
-        appendChatMessage("system-note", "LLM 呼叫失敗：" + data.error);
-        llmgenChatHistory.pop();
+        appendChatMessage("system-note", "LLM 呼叫失敗：" + data.error + "（訊息和附件已放回輸入區）");
+        restoreUnsentMessage();
       } else {
         appendChatMessage("model", data.reply);
         llmgenChatHistory.push({ role: "model", text: data.reply });
@@ -2379,12 +2554,14 @@
       }
     } catch (err) {
       thinkingMsg.remove();
-      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動、上方連線網址正確）"));
-      llmgenChatHistory.pop();
+      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動、上方連線網址正確；訊息和附件已放回輸入區）"));
+      restoreUnsentMessage();
     } finally {
       llmgenInput.disabled = false;
       llmgenSendBtn.disabled = false;
+      llmgenAttachBtn.disabled = false;
       llmgenSendBtn.textContent = "送出";
+      updateLlmgenAttachHint();
       llmgenClearBtn.disabled = llmgenChatHistory.length === 0;
       llmgenInput.focus();
     }
@@ -2398,7 +2575,8 @@
       "系統提示詞由 viewer_server.py 依你勾選的畫面資料組出，重點規則：\n\n" +
       "1. 輸出必須是 ```json 包起來的測試案例\n2. action 只能是 tap／input_text／assert_visible／assert_text_contains／assert_banner（驗證短暫出現的跑馬燈；連續幾個會合併監看，加 \"in_order\": true 要求比前一個晚出現）\n" +
       "3. target 必須是勾選畫面裡真實存在的 unique_id，不可以憑空編造\n4. 測試案例可以橫跨多個畫面\n" +
-      "5. assert_visible／assert_text_contains 可加 timeout（秒），畫面會晚幾秒才更新時，在期限內反覆檢查直到通過"
+      "5. assert_visible／assert_text_contains 可加 timeout（秒），畫面會晚幾秒才更新時，在期限內反覆檢查直到通過\n" +
+      "6. 附件（流程圖、PDF…）只當作「要測什麼」的參考，target 仍然只能用勾選畫面裡的 unique_id；對應不到元件的步驟會列出來，建議補掃畫面"
     );
   });
   llmgenClearBtn.addEventListener("click", function () {
@@ -2406,6 +2584,7 @@
     llmgenChatHistory = [];
     llmgenMessages.innerHTML = '<div class="empty-state">對話已清空，可以重新開始描述你想要的測試流程。</div>';
     updateLlmgenSendEnabled();
+    updateLlmgenAttachHint();
   });
   // 匯入之前產生（或手調過）的測試案例當作修改基礎：開一段新對話，把測案塞進
   // 對話歷史的第一輪（使用者貼上測案 + 助理確認收到），之後使用者講要怎麼改，
@@ -2442,6 +2621,7 @@
       }
       renderLlmgenCase(testCase);
       updateLlmgenSendEnabled();
+      updateLlmgenAttachHint();
       llmgenInput.placeholder = "例如：第 3 步之後加一個驗證「委託成功」文字的步驟";
       llmgenInput.focus();
     };
