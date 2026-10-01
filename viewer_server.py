@@ -397,7 +397,10 @@ unique_id/id_source/class/label/description 這幾個欄位）：
 2. action 只能是這{action_count}種：
    - tap：點擊
    - input_text：輸入文字，只對有 {PLATFORM.native_id_name} 的 native 元件有效
-     （沒有native id的輸入框無法可靠定位，不要對這種元件用input_text）
+     （沒有native id的輸入框無法可靠定位，不要對這種元件用input_text）。
+     帳號、密碼、身分證字號這類登入資料**不要寫真的值**，一律用環境變數代號：
+     帳號 "${{LOGIN_ID}}"、密碼 "${{LOGIN_PASSWORD}}"，其他的照 "${{大寫英文名稱}}" 命名，
+     執行時會從環境變數讀入；使用者在對話裡給了真的密碼也不要照抄進 JSON
    - assert_visible：驗證元件可見
    - assert_text_contains：驗證元件「目前顯示的文字內容」有包含指定字串，
      用在「這個畫面的文字內容因為別的畫面的操作而改變」這種跨畫面情境

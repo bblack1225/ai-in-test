@@ -624,6 +624,10 @@ class IOSPlatform:
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
 
+    def input_text(self, driver, element, value: str) -> str:
+        element.send_keys(value)
+        return "PASS"
+
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
         永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""

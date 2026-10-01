@@ -39,13 +39,15 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
 
 import argparse
 import json
+import os
+import re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import InvalidElementStateException, InvalidSessionIdException, NoSuchElementException
 
 from test_config import APPIUM_SERVER_URL
 
@@ -201,15 +203,41 @@ def _locate_by_custom_xpath(driver, el: dict):
     return matches[0]
 
 
+_ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def resolve_env_placeholders(value: str) -> tuple[str, list[str]]:
+    """把 "${LOGIN_PASSWORD}" 這類代號換成環境變數的值，回傳 (換好的值, 沒設定的變數名稱)。
+    帳號密碼不寫進測案 JSON（測案會匯出、分享、commit），執行時才從啟動 viewer_server
+    的那個 shell 的環境變數讀進來"""
+    missing = []
+
+    def replace(match):
+        name = match.group(1)
+        if name not in os.environ:
+            missing.append(name)
+            return match.group(0)
+        return os.environ[name]
+
+    return _ENV_PLACEHOLDER.sub(replace, value or ""), missing
+
+
 def run_input_text(platform, driver, el: dict, value: str) -> str:
     if el["id_source"] != "native":
         return f"SKIP（無 native id 的輸入框無法可靠定位，建議回報開發團隊補上 {platform.native_id_name}）"
+    resolved, missing = resolve_env_placeholders(value)
+    if missing:
+        return (f"FAIL（環境變數沒設定：{'、'.join(missing)}，請在啟動 viewer_server 的視窗先 "
+                f"export {missing[0]}=... 再重新啟動）")
     try:
         element = driver.find_element(platform.native_by, el["native_id"])
-        element.send_keys(value)
-        return "PASS"
     except NoSuchElementException:
         return f"FAIL（找不到元件: {el['native_id']}）"
+    try:
+        # 結果文字不帶輸入的值：可能是密碼
+        return platform.input_text(driver, element, resolved)
+    except InvalidElementStateException as e:
+        return f"FAIL（輸入框不接受輸入：{e.msg.splitlines()[0] if e.msg else type(e).__name__}）"
 
 
 def run_tap(platform, driver, el: dict) -> str:
@@ -573,13 +601,28 @@ def execute_step_dismissing_dialogs(platform, driver, step: dict, el: dict | Non
     只在失敗時才檢查：正常情況不多花時間，也不會誤關測案本來就要操作的對話框。
     el 是 None（地圖裡找不到 target）是資料問題，關彈窗也沒用，不重試。
     """
-    outcome = execute_step(platform, driver, step, el)
+    outcome = _execute_step_safely(platform, driver, step, el)
     if not outcome.startswith("FAIL") or el is None:
         return outcome
     dismissed = try_dismiss_dialogs(platform, driver)
     if not dismissed:
         return outcome
-    return with_dismiss_note(execute_step(platform, driver, step, el), dismissed)
+    return with_dismiss_note(_execute_step_safely(platform, driver, step, el), dismissed)
+
+
+def _execute_step_safely(platform, driver, step: dict, el: dict | None) -> str:
+    """一步裡發生沒預料到的錯誤（Appium 回報元件狀態不對、連線抖動…）只讓這一步 FAIL，
+    不要整份測案中斷——批次執行時一份測案中斷，後面的測案也跟著跑不了。
+    停止請求跟 Appium session 整個斷掉這類「繼續跑也沒意義」的錯誤照常往外丟"""
+    try:
+        return execute_step(platform, driver, step, el)
+    except StopRequested:
+        raise
+    except InvalidSessionIdException:
+        raise
+    except Exception as e:
+        first_line = (getattr(e, "msg", None) or str(e) or "").splitlines()
+        return f"FAIL（執行時發生錯誤：{type(e).__name__}{'：' + first_line[0] if first_line else ''}）"
 
 
 def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:

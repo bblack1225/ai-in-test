@@ -28,7 +28,7 @@ from contextlib import nullcontext
 
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException
 
 from capture_screen_map import position_bucket, read_and_merge_round
 from run_test_case import raise_if_stopped, xpath_literal
@@ -572,6 +572,57 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
     return found, seen_at, note
 
 
+# 模擬按鍵輸入用的 Android keycode（KeyEvent.KEYCODE_*）。只收帳號密碼常見的字元，
+# 中文這類沒有對應按鍵的字元打不出來，遇到就回報 FAIL
+_SHIFT = 1  # KeyEvent.META_SHIFT_ON
+_KEYCODES = {**{str(d): 7 + d for d in range(10)},
+             **{c: 29 + i for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")},
+             **{c.upper(): (29 + i, _SHIFT) for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")},
+             " ": 62, ".": 56, ",": 55, "-": 69, "=": 70, "/": 76, "@": 77, "+": 81,
+             ";": 74, "'": 75, "[": 71, "]": 72, "\\": 73, "`": 68, "*": 17, "#": 18,
+             "_": (69, _SHIFT), "!": (8, _SHIFT), "$": (11, _SHIFT), "%": (12, _SHIFT),
+             "^": (13, _SHIFT), "&": (14, _SHIFT), "(": (16, _SHIFT), ")": (7, _SHIFT),
+             "?": (76, _SHIFT), ":": (74, _SHIFT), "~": (68, _SHIFT)}
+
+
+def _find_edit_text(element):
+    """抓到的是外層容器、旁邊的標籤時，往下找真正的 EditText；本身就是 EditText 就用它"""
+    if (element.get_attribute("class") or "").endswith("EditText"):
+        return element
+    try:
+        inner = element.find_elements(AppiumBy.XPATH, ".//android.widget.EditText")
+    except Exception:
+        inner = []
+    return inner[0] if inner else element
+
+
+def input_text(driver, element, value: str) -> str:
+    """
+    輸入文字。帳號密碼欄位常常擋掉 UiAutomator2 預設的「直接設定文字」（ACTION_SET_TEXT，
+    錯誤是 InvalidElementStateException: Cannot set the element to ...），但還是接受
+    一個鍵一個鍵的按鍵事件，所以被擋時改成先點一下取得焦點、再逐字模擬按鍵。
+    App 自己畫的安全鍵盤（數字／亂序鍵盤）連按鍵事件都不收的話，這裡也打不進去，會回報 FAIL。
+    """
+    target = _find_edit_text(element)
+    try:
+        target.send_keys(value)
+        return "PASS"
+    except InvalidElementStateException:
+        pass
+
+    unsupported = sorted({c for c in value if c not in _KEYCODES})
+    if unsupported:
+        return f"FAIL（輸入框不接受直接設定文字，改用模擬按鍵也打不出這些字元：{''.join(unsupported)}）"
+    target.click()
+    time.sleep(0.3)  # 等輸入框取得焦點、鍵盤出現
+    for c in value:
+        code = _KEYCODES[c]
+        keycode, meta = code if isinstance(code, tuple) else (code, 0)
+        driver.press_keycode(keycode, metastate=meta or None)
+    driver.hide_keyboard() if driver.is_keyboard_shown() else None
+    return "PASS（輸入框不接受直接設定文字，改用模擬按鍵逐字輸入）"
+
+
 class AndroidPlatform:
     name = "android"
     native_by = AppiumBy.ID
@@ -647,6 +698,9 @@ class AndroidPlatform:
 
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
+
+    def input_text(self, driver, element, value: str) -> str:
+        return input_text(driver, element, value)
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
