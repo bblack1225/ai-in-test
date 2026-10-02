@@ -36,7 +36,7 @@ APPIUM_SERVER_URL = "http://127.0.0.1:4723"
 ANDROID_DESIRED_CAPS = {
     "platformName": "Android",
     "automationName": "UiAutomator2",
-    "udid": "59031FDCQ001N1",
+    "udid": "emulator-5554",
     "noReset": True,
 }
 
