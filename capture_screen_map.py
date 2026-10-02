@@ -24,7 +24,9 @@ POC: App 元件地圖產生器（第一步），iOS / Android 共用
            python capture_screen_map.py --platform android --screen_name login_screen
   3. 結果會寫入 / 更新 element_map.json（同一個檔案，畫面資料會累加），
      或用 --output 寫到別的檔案（方便先備份現況再產生新版本來跑改版比對）
-  4. 若該畫面有無 id 元件，裁切截圖會存到 crops/ 資料夾，方便之後人工核對
+  4. 加上 --save_crops 時，無 id 元件的裁切截圖會存到 crops/ 資料夾，方便人工核對
+     LLM 描述（預設不存：沒有任何程式讀這些小圖，viewer 是用整張截圖＋座標畫框，
+     而且文字會變的元件每掃一次檔名就不同，會一直累積；清理舊檔見 cleanup_images.py）
 
 執行前準備：
   1. iOS：Mac + Xcode，WebDriverAgent 已完成第一次簽署安裝，iPhone 用 USB 接上 Mac
@@ -548,7 +550,7 @@ def crop_element_screenshot(screenshot_png: bytes, bounds: dict, save_path: Path
 # ---------------------------------------------------------------------------
 
 def scan_screen(platform, driver, screen_name: str, describe: bool = True, scroll: bool = True,
-                wait_stable: bool = True, page_source: str | None = None) -> dict:
+                wait_stable: bool = True, page_source: str | None = None, save_crops: bool = False) -> dict:
     """
     掃描目前畫面，產出完整元件地圖資料。
 
@@ -569,6 +571,9 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
     省一次往返——元件多的畫面（實測 1000+ 元件）單次 page_source 可以貴到 20 秒以上，
     爬蟲每個畫面進來前通常已經為了做骨架簽章 / 登出偵測抓過一次，不重抓最划算。
     傳 None（預設）自己抓一次。
+
+    save_crops=False（預設）：不存無 id 元件的裁切小圖，screenshot_crop 留 None。
+    只有要人工打開小圖核對 LLM 描述時才需要開。
     """
     print(f"開始掃描畫面: {screen_name}")
 
@@ -678,7 +683,7 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
 
             crop_saved = False
             crop_path = None
-            if not screenshot_blocked:
+            if save_crops and not screenshot_blocked:
                 crop_path = CROPS_DIR / f"{screen_name}_{unique_id.split('::')[-1]}.png"
                 crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], crop_path, scale_x, scale_y)
                 if not crop_saved:
@@ -758,6 +763,8 @@ def main():
              "指定成別的路徑時，同一個畫面重掃會覆蓋該檔案裡同名畫面的資料、"
              "不影響 element_map.json，方便先備份現況再產生新版本來跑改版比對。"
     )
+    parser.add_argument("--save_crops", action="store_true",
+                        help="另外存無 id 元件的裁切小圖到 crops/，給人工核對 LLM 描述用（預設不存）")
     args = parser.parse_args()
     platform = get_platform(args.platform)
     output_path = Path(args.output) if args.output else OUTPUT_JSON_PATH
@@ -765,7 +772,7 @@ def main():
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=platform.make_options())
 
     try:
-        screen_data = scan_screen(platform, driver, args.screen_name)
+        screen_data = scan_screen(platform, driver, args.screen_name, save_crops=args.save_crops)
         save_to_json(screen_data, output_path)
     finally:
         driver.quit()

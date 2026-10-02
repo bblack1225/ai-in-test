@@ -36,7 +36,7 @@
 **資料檔案（跟程式同層，不要搬動，程式用相對路徑讀寫）**
 - `app_map_tree.json` — 爬蟲產出的樹狀地圖，`app_map_viewer.html`主要吃這個
 - `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
-- `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖
+- `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
 - `test_cases/`／`test_results/` — 範例測試案例／執行結果截圖
 
 **其他**
@@ -364,8 +364,8 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 |---|---|
 | `app_map_tree.json` | `crawl_app_tree.py` 最新一次爬蟲產出的樹狀地圖（全名欄位格式：`screen_uid`/`screen_name`/`elements[]`/`unique_id`...），`app_map_viewer.html` 主要吃這個檔案 |
 | `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
-| `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示 |
-| `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用（4085個檔案，體積較大） |
+| `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `cleanup_images.py` 清掉沒有地圖在用的 |
+| `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `cleanup_images.py --all_crops` 清掉 |
 | `test_cases/` | 幾份範例測試案例 JSON（`generate_test_case.py`/LLM對話產生的格式），給 `run_test_case.py` 執行 |
 | `test_results/` | 範例：執行測案後存下來的截圖 |
 
