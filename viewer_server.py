@@ -1016,12 +1016,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_api(self, method: str):
         """
-        workspace 專案的讀寫，路徑對照（<kind> 是 cases 或 batches）：
+        workspace 專案的讀寫（建立專案、改專案設定用 workspace.py 的 create／update），
+        路徑對照（<kind> 是 cases 或 batches）：
           GET    /api/projects                          專案清單
-          POST   /api/projects                          建立 {id, name, platform, bundle_id}
           POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
           GET    /api/projects/<id>                     專案資訊＋地圖／測案／批次清單
-          PUT    /api/projects/<id>                     改專案設定 {name?, bundle_id?}（平台不能改）
           GET    /api/projects/<id>/export              下載 zip
           GET    /api/projects/<id>/maps/<name>         讀地圖 → {map, map_version}
           POST   /api/projects/<id>/maps/<name>         新增地圖 {map?}（沒給就是空白），同名已存在回 409
@@ -1042,20 +1041,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "GET" and not parts:
                 self._send_json(200, {"projects": WORKSPACE.list_projects()})
-            elif method == "POST" and not parts:
-                body = self._read_json_body() or {}
-                self._send_json(200, {"project": WORKSPACE.create_project(
-                    str(body.get("id", "")).strip(), str(body.get("name", "")).strip(),
-                    body.get("platform"), str(body.get("bundle_id", "")).strip())})
             elif method == "POST" and parts == ["import"]:
                 new_id = (query.get("id") or [None])[0]
                 self._send_json(200, {"project": WORKSPACE.import_zip(self._read_body(), new_id)})
             elif method == "GET" and len(parts) == 1:
                 self._send_json(200, WORKSPACE.summary(parts[0]))
-            elif method == "PUT" and len(parts) == 1:
-                body = self._read_json_body() or {}
-                self._send_json(200, {"project": WORKSPACE.update_project(
-                    parts[0], body.get("name"), body.get("bundle_id"))})
             elif method == "GET" and len(parts) == 2 and parts[1] == "export":
                 body = WORKSPACE.export_zip(parts[0])
                 self.send_response(200)

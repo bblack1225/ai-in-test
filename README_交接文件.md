@@ -337,7 +337,7 @@ workspace/projects/mbroker-demo-ios/
 └── batches/*.json   批次設定（地圖、測案都用名稱引用，執行時用最新版）
 ```
 
-- **建立專案**：網頁頁首「＋ 新增專案」，或
+- **建立專案**：
   ```
   uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" --bundle_id com.cathay.securities.tw.mBroker.Demo
   ```
@@ -347,9 +347,12 @@ workspace/projects/mbroker-demo-ios/
   ```
   地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
   第一次被讀到時會自動搬成 `maps/main.json`
-- **修改專案設定**：網頁頁首「⚙ 專案設定」可以改名稱、bundle id（iOS）／package（Android）。
-  平台不能改（地圖是照那個平台掃出來的）。bundle id 留空的話，iOS 用 `test_config.py` 的
-  `bundleId`、Android 用當下前景的 App；兩支以上 App 時建議一定要填
+- **修改專案設定**（名稱、bundle id／package；平台不能改，地圖是照那個平台掃出來的）：
+  ```
+  uv run python workspace.py update mbroker-demo-ios --bundle_id com.cathay.securities.tw.mBroker.Demo
+  ```
+  bundle id 留空的話，iOS 用 `test_config.py` 的 `bundleId`、Android 用當下前景的 App；
+  兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到
 - **網頁上的行為**：
   - 頁首「地圖」切換專案裡的地圖（記住每個專案上次開哪張），旁邊可以「＋ 新地圖」「⧉ 複製」
     「✎ 改名」（專案裡存的批次會跟著改）「🗑 刪除地圖」（最後一張不能刪）

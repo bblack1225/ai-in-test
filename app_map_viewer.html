@@ -471,8 +471,6 @@
       <button class="btn" id="mapRenameBtn">✎ 改名</button>
       <button class="btn" id="mapDeleteBtn">🗑 刪除地圖</button>
     </span>
-    <button class="btn" id="projectCreateBtn">＋ 新增專案</button>
-    <button class="btn" id="projectSettingsBtn" disabled title="改專案名稱、App 的 bundle id／package">⚙ 專案設定</button>
     <button class="btn" id="projectExportBtn" disabled title="地圖、截圖、測案、批次打包成一個 zip，交給其他團隊匯入">⬇ 匯出專案 zip</button>
     <label class="file-btn-label" title="匯入其他人匯出的專案 zip">📂 匯入專案 zip<input type="file" id="projectImportInput" accept=".zip,application/zip"></label>
     <span class="project-save-status" id="projectSaveStatus"></span>
@@ -3672,7 +3670,6 @@
     document.getElementById("mapTitle").textContent = on ? currentProject.name + " 畫面地圖" : "畫面地圖";
     document.title = on ? currentProject.name + "｜畫面地圖" : "畫面地圖";
     projectExportBtn.disabled = !on;
-    document.getElementById("projectSettingsBtn").disabled = !on;
     document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 匯入地圖檔成新地圖" : "📂 載入之前匯出的地圖";
     renderMapPicker();
     renderProjectPickers();
@@ -3697,43 +3694,6 @@
   }
 
   projectSelect.addEventListener("change", function () { openProject(projectSelect.value); });
-
-  document.getElementById("projectCreateBtn").addEventListener("click", async function () {
-    var id = (prompt("專案代號（小寫英數字、- 和 _，會當成資料夾名稱），例如 mbroker-demo-ios、cathaysec-android：") || "").trim();
-    if (!id) return;
-    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id)) { alert("專案代號只能用小寫英數字、- 和 _"); return; }
-    var name = prompt("顯示名稱，例如「樹精靈 Demo iOS」：", id);
-    if (name === null) return;
-    var serverPlatform = null;
-    try { serverPlatform = await fetchServerPlatform(API_BASE); } catch (e) { /* 用 ios 當預設 */ }
-    var platform = (prompt("平台（ios 或 android）：", serverPlatform || "ios") || "").trim().toLowerCase();
-    if (platform !== "ios" && platform !== "android") { alert("平台要是 ios 或 android"); return; }
-    var bundleId = prompt("App 的 bundle id（iOS）／package（Android），可以先留空：", "");
-    if (bundleId === null) return;
-    try {
-      await apiJson("POST", "/api/projects", { id: id, name: name.trim() || id, platform: platform, bundle_id: bundleId.trim() });
-      await loadProjectList();
-      await openProject(id);
-    } catch (err) { alert("建立專案失敗：" + err.message); }
-  });
-
-  document.getElementById("projectSettingsBtn").addEventListener("click", async function () {
-    if (!currentProject) return;
-    var name = prompt("專案名稱：", currentProject.name);
-    if (name === null) return;
-    var bundleId = prompt("App 的 bundle id（iOS）／package（Android）\n" +
-      "爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個；留空的話 iOS 用 test_config.py 的 bundleId、Android 用當下前景的 App。\n" +
-      "（平台固定是 " + platformName(currentProject.platform) + "，不能改：地圖是照這個平台掃出來的）", currentProject.bundle_id || "");
-    if (bundleId === null) return;
-    try {
-      var data = await apiJson("PUT", projectApi(), { name: name.trim(), bundle_id: bundleId.trim() });
-      currentProject = data.project;
-      currentMapFileName = mapSourceLabel();
-      await loadProjectList();
-      updateProjectUi();
-      setProjectStatus("專案設定已更新");
-    } catch (err) { alert("更新專案設定失敗：" + err.message); }
-  });
 
   projectExportBtn.addEventListener("click", async function () {
     if (!currentProject) return;
@@ -3833,7 +3793,7 @@
     var pick = ids.indexOf(last) >= 0 ? last : (ids.length === 1 && last !== "" ? ids[0] : null);
     if (pick) { await openProject(pick); return; }
     setProjectStatus(ids.length ? "選一個專案開始，地圖、測案都會自動存在專案裡"
-      : "還沒有專案：按「＋ 新增專案」建立，或匯入其他人給的專案 zip");
+      : "還沒有專案：用 uv run python workspace.py create 建立（見 README 3.3），或匯入其他人給的專案 zip");
   }
 
   initScenarioFromCurrentMap();

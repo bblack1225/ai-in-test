@@ -18,6 +18,8 @@ CLI：
     uv run python workspace.py list
     uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" \\
         --bundle_id com.cathay.securities.tw.mBroker.Demo
+    # 改名稱、bundle id（平台不能改）
+    uv run python workspace.py update mbroker-demo-ios --bundle_id com.example.app
     # 把舊的 app_map_tree.json＋用到的截圖＋test_cases/ 搬進專案（不會刪原檔），地圖存成 main
     uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
     # 地圖存成別的名稱：--map_name trading
@@ -418,6 +420,10 @@ def _main():
     c.add_argument("--platform", choices=PLATFORMS, required=True)
     c.add_argument("--name", default="", help="顯示名稱，例如「樹精靈 Demo iOS」")
     c.add_argument("--bundle_id", default="", help="iOS bundle id／Android package")
+    u = sub.add_parser("update", help="改專案名稱、bundle id（平台不能改：地圖是照那個平台掃出來的）")
+    u.add_argument("project_id")
+    u.add_argument("--name", default=None, help="新的顯示名稱")
+    u.add_argument("--bundle_id", default=None, help="新的 bundle id／package，給空字串 \"\" 就是清掉")
     m = sub.add_parser("import-legacy", help="把舊的 app_map_tree.json、test_cases/ 複製進專案")
     m.add_argument("project_id")
     m.add_argument("--map", type=Path, default=None, help="地圖 JSON，例如 app_map_tree.json")
@@ -437,6 +443,11 @@ def _main():
         elif args.cmd == "create":
             p = ws.create_project(args.project_id, args.name, args.platform, args.bundle_id)
             print(f"已建立專案 {p['id']}：{ws.project_dir(p['id'])}")
+        elif args.cmd == "update":
+            if args.name is None and args.bundle_id is None:
+                sys.exit("沒有要改的東西：加 --name 或 --bundle_id")
+            p = ws.update_project(args.project_id, args.name, args.bundle_id)
+            print(f"已更新 {p['id']}：名稱「{p['name']}」、bundle id「{p['bundle_id']}」、平台 {p['platform']}")
         elif args.cmd == "import-legacy":
             r = ws.import_legacy(args.project_id, args.map, args.cases, args.map_name)
             print(f"地圖：{r['screens']} 個畫面、複製 {r['screenshots']} 張截圖；測案：{len(r['cases'])} 份")
