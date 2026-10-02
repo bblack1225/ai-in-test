@@ -283,7 +283,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
   iOS 一樣用 `app_map_viewer.html`。地圖可以用
   `crawl_app_tree.py --platform android` 自動爬（先加 `--dry_run --safe_keywords`
-  看會點哪些），或用「手動建樹」建立（底層呼叫 `/scan_screen`；要用 Android
+  看會點哪些），或用「手動建樹」建立（節點詳情的「🌱 從這裡點出新畫面…」按鈕，底層呼叫 `/scan_screen`；要用 Android
   的地圖或新建空白地圖，載入 iOS 的 `app_map_tree.json` 會因平台不一致被擋）。Android 爬蟲目前只做過離線驗證
   （用真實畫面 XML），還沒有在能正常使用的 App 上實際爬過
 
@@ -418,7 +418,7 @@ workspace/projects/mbroker-demo-ios/
 
 | 檔案 | 用途 |
 |---|---|
-| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
+| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
 | `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，Android 現在也能用 `app_map_viewer.html`，這支之後會退役 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
@@ -482,7 +482,7 @@ workspace/projects/mbroker-demo-ios/
    landing 到錯誤畫面。已經嘗試兩種修法（naive path-replay、anchor驗證
    的 path-replay）都在實機測試失敗，目前只有人工手動點擊能可靠脫困。
    詳見 `docs/CRAWLER_TREE_HANDOFF.md`
-2. **`app_map_viewer.html` 手動新增節點時，若勾選「同時捲動收集完整
+2. **`app_map_viewer.html` 手動建樹（「🌱 從這裡點出新畫面…」）時，若勾選「同時捲動收集完整
    清單」，捲動後抓到的元件座標會跟畫面截圖對不齊**（因為代表截圖固定是
    捲動前最頂部那張，捲動後各輪的座標是相對那一輪自己的畫面，不是相對
    代表截圖）——這是已知限制，介面上有提示文字，預設不勾選這個選項
