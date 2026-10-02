@@ -66,7 +66,7 @@ from workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _wri
 from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
 from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 from run_test_case import xpath_literal
-from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
+from test_config import APPIUM_SERVER_URL
 
 OUTPUT_PATH = Path("app_map_tree.json")
 
@@ -900,7 +900,8 @@ class IOSCrawlRules:
         self.platform = self.platform_class()
 
     def default_app_id(self, driver) -> str | None:
-        return DESIRED_CAPS.get("bundleId")
+        """沒給 --bundle_id、專案也沒設定時：iOS 用 config 的 launch_bundle_id，再沒有就用前景的 App"""
+        return self.platform.app_id(driver)
 
     def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
         return skeleton_signature(page_source)
@@ -923,10 +924,6 @@ class IOSCrawlRules:
 
 class AndroidCrawlRules(IOSCrawlRules):
     platform_class = AndroidPlatform
-
-    def default_app_id(self, driver) -> str | None:
-        # ANDROID_DESIRED_CAPS 沒有指定 App，爬蟲是接手目前畫面，所以用啟動當下前景的 App
-        return driver.current_package
 
     def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
         try:
@@ -1240,7 +1237,7 @@ def main():
                          help="裝置平台（預設：有 --project 用專案的平台，否則 ios）")
     parser.add_argument("--bundle_id", default=None,
                          help="App 的 bundle id（iOS）／package（Android），用來判斷有沒有跑出 App；"
-                              "預設用專案設定的，沒有的話 iOS 讀 test_config，Android 用啟動當下前景的 App")
+                              "預設用專案設定的；都沒有的話用啟動當下前景的 App（iOS 會先看 config.toml 的 launch_bundle_id）")
     parser.add_argument("--project", default=None,
                          help="寫進 workspace 的這個專案（maps/<地圖>.json＋截圖），不寫 app_map_tree.json")
     parser.add_argument("--map", default=DEFAULT_MAP,
@@ -1270,8 +1267,10 @@ def main():
     args.platform = args.platform or "ios"
 
     RULES = CRAWL_RULES[args.platform]()
-    driver = webdriver.Remote(APPIUM_SERVER_URL, options=RULES.platform.make_options())
-    bundle_id = args.bundle_id or project_bundle_id or RULES.default_app_id(driver)
+    bundle_id = args.bundle_id or project_bundle_id
+    # 知道要爬哪支 App 的話，iOS 連線時順便把它打開
+    driver = webdriver.Remote(APPIUM_SERVER_URL, options=RULES.platform.make_options(app_id=bundle_id))
+    bundle_id = bundle_id or RULES.default_app_id(driver)
     print(f"[爬蟲] 平台：{RULES.platform.name}，App：{bundle_id}")
 
     cfg = {

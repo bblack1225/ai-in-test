@@ -22,7 +22,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import identity_keys_in_region, position_bucket, read_and_merge_round
 from run_test_case import raise_if_stopped
-from test_config import DESIRED_CAPS
+from test_config import CONFIG, ios_capabilities
 
 
 # ---------------------------------------------------------------------------
@@ -602,8 +602,9 @@ class IOSPlatform:
                        "   那是 Android 的屬性名稱）")
     xpath_bad_example = "//{class}[.//@label=X]"
 
-    def make_options(self):
-        return XCUITestOptions().load_capabilities(DESIRED_CAPS)
+    def make_options(self, app_id: str | None = None):
+        """app_id：連線時順便打開這支 App；沒給就照 config.toml（預設不打開，操作前景的 App）"""
+        return XCUITestOptions().load_capabilities(ios_capabilities(app_id))
 
     # --- 掃描（capture_screen_map.py）---
     display_name = "iOS"
@@ -682,7 +683,14 @@ class IOSPlatform:
         go_back(driver)
 
     def app_id(self, driver) -> str | None:
-        return DESIRED_CAPS.get("bundleId")
+        """呼叫端（批次執行）沒給專案的 bundle id 時的備案：config 指定的 App，沒有就用當下前景的 App"""
+        launch = (CONFIG.get("ios") or {}).get("launch_bundle_id")
+        if launch:
+            return launch
+        try:
+            return driver.execute_script("mobile: activeAppInfo").get("bundleId")
+        except Exception:
+            return None
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、

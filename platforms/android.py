@@ -33,7 +33,7 @@ from selenium.common.exceptions import InvalidElementStateException, NoSuchEleme
 
 from capture_screen_map import position_bucket, read_and_merge_round
 from run_test_case import raise_if_stopped, xpath_literal
-from test_config import ANDROID_DESIRED_CAPS
+from test_config import android_capabilities
 
 
 # ---------------------------------------------------------------------------
@@ -794,8 +794,9 @@ class AndroidPlatform:
     xpath_attr_rule = "Android 的元件屬性用 @text 或 @content-desc 查文字內容"
     xpath_bad_example = "//{class}[.//text=X]"
 
-    def make_options(self):
-        return UiAutomator2Options().load_capabilities(ANDROID_DESIRED_CAPS)
+    def make_options(self, app_id: str | None = None):
+        """Android 不指定 App（app_id 不用），接手目前在前景的 App"""
+        return UiAutomator2Options().load_capabilities(android_capabilities())
 
     # --- 掃描（capture_screen_map.py）---
     display_name = "Android"
@@ -890,8 +891,8 @@ class AndroidPlatform:
         driver.back()
 
     def app_id(self, driver) -> str | None:
-        """capabilities 沒指定 appPackage（目前是接上已經開著的 App），用當下前景的 App"""
-        return ANDROID_DESIRED_CAPS.get("appPackage") or driver.current_package
+        """capabilities 沒指定 appPackage（接上已經開著的 App），用當下前景的 App"""
+        return driver.current_package
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
