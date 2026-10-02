@@ -4,6 +4,14 @@
 
 ## 快速導覽
 
+**環境裝好之後，每次使用只要一個指令**（詳見 3.1）：
+
+```
+uv run python aitest.py start cathaysec-ios
+```
+
+環境有沒有裝好、哪裡沒裝好，用 `uv run python aitest.py doctor` 檢查。
+
 ### 環境需要準備什麼
 
 - Mac + Xcode、Node.js + Appium 3（含 XCUITest driver）
@@ -19,6 +27,7 @@
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
 
 **iOS / Android 共用（用 `--platform` 切換）**
+- `aitest.py` — **一鍵啟動**（`start`：Appium＋viewer_server＋打開瀏覽器）與**環境檢查**（`doctor`）
 - `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
 - `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述，`--platform ios|android`
 - `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
@@ -294,21 +303,37 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 以下指令都在這個資料夾底下執行（`cd` 進來這個資料夾再跑，因為程式用
 相對路徑讀寫 `screenshots/`／`crops/`／`element_map.json` 等檔案）。
 
-### 3.1 每次使用的啟動順序
+### 3.1 每次使用的啟動方式
 
-1. iPhone 接上 USB、解鎖，打開待測 App
-2. **視窗 1**：`appium --address 127.0.0.1`（一直開著）
-3. **視窗 2**：`uv run python viewer_server.py --platform ios`（一直開著），看到
-   `用瀏覽器打開 http://127.0.0.1:8767/` 就代表成功
-4. 用瀏覽器打開 http://127.0.0.1:8767/ （**不要雙擊 HTML 檔**：用 `file://`
-   開的話截圖顯示不出來、也連不到伺服器，頁面頂端會出現提醒），在頁首「專案」
-   選你的專案（上次開的專案會自動開啟）。還沒有專案的話見 3.3
-5. 按「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了（網頁跟 API
-   同源，不用再填伺服器網址）
+1. iPhone 接上 USB、解鎖，打開待測 App（停在要操作的畫面）
+2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話開上次用的專案、平台 ios）：
+   ```
+   uv run python aitest.py start cathaysec-ios
+   ```
+   - Appium 已經開著就直接用；沒開的話自動啟動（只綁 127.0.0.1，log 在 `logs/`）
+   - 接著啟動 `viewer_server.py`，好了之後自動用瀏覽器打開 http://127.0.0.1:8767/ 並切到這個專案
+   - 這個視窗一直開著；按 `Ctrl+C` 結束，會一起關掉這次自動啟動的 Appium
+     （原本就開著的 Appium 不會動）
+3. 常用選項：
+   - `--no-appium`：只看地圖、編輯測案，不接手機
+   - `--no-browser`：不自動開瀏覽器
+   - `--platform android`：沒指定專案時切到 Android
+4. 啟動失敗、或不確定環境有沒有裝好時：
+   ```
+   uv run python aitest.py doctor
+   ```
+   逐項檢查 Python 套件、`config.toml`、API key、Appium 與 driver、Xcode／簽署憑證、手機有沒有
+   接上、adb、專案、port，每一項失敗都會寫怎麼修。只讀取、不會操作手機；只用一個平台的話加
+   `--platform ios`
+
+> 網頁一定要從 http://127.0.0.1:8767/ 開（**不要雙擊 HTML 檔**：用 `file://` 開的話截圖
+> 顯示不出來、也連不到伺服器，頁面頂端會出現提醒）。想手動分開啟動的話，跟以前一樣：
+> 視窗 1 `appium --address 127.0.0.1`、視窗 2 `uv run python viewer_server.py --platform ios`。
 
 > `viewer_server.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
 > 不要再另外跑 `crawl_app_tree.py`／`capture_screen_map.py` 這類直接連
-> 裝置的腳本**，會搶連線。要跑的話先在視窗 2 按 `Ctrl+C` 關掉它。
+> 裝置的腳本**，會搶連線。要跑的話先在 `aitest.py start` 的視窗按 `Ctrl+C` 關掉；
+> 如果 Appium 是 `aitest.py` 自動開的會一起被關掉，跑腳本前要自己開 `appium --address 127.0.0.1`。
 
 ### 3.2 第一次跑最小流程（確認環境是通的）
 
