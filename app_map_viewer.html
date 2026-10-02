@@ -3473,7 +3473,11 @@
     try { last = localStorage.getItem("lastProject"); } catch (e) { /* 照預設 */ }
     // aitest.py start <專案> 打開的網址會帶 ?project=，優先開這個
     var fromUrl = new URLSearchParams(location.search).get("project");
-    if (fromUrl) last = fromUrl;
+    if (fromUrl) {
+      last = fromUrl;
+      // 只在打開頁面時用一次就拿掉：之後在網頁上切了別的專案，重新整理不會又被拉回網址指定的那個
+      try { history.replaceState(null, "", location.pathname); } catch (e) { /* 改不了網址不影響使用 */ }
+    }
     var ids = projectList.map(function (p) { return p.id; });
     var pick = ids.indexOf(last) >= 0 ? last : (ids.length === 1 && last !== "" ? ids[0] : null);
     if (pick) { await openProject(pick); return; }
