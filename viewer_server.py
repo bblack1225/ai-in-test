@@ -1,5 +1,5 @@
 """
-本機小型伺服器：讓 app_map_viewer.html / viewer.html 上的按鈕能透過 HTTP API
+本機小型伺服器：讓 app_map_viewer.html 上的按鈕能透過 HTTP API
 呼叫 run_test_case.py 現成的定位邏輯，對手機執行真正的操作。iOS、Android 共用
 這一支，啟動時用 --platform 指定這次接哪種裝置。
 
@@ -89,8 +89,7 @@ PORT = DEFAULT_PORT  # main() 依 --port 設定，檢查 Host／Origin 標頭用
 # 網頁由這支伺服器直接提供（http://127.0.0.1:8767/），跟 API 同源，不需要 CORS。
 # 網頁檔案跟這支程式放在一起；截圖等資料沿用其他腳本的慣例，相對於啟動時的工作目錄。
 WEB_DIR = Path(__file__).resolve().parent
-WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer.html",
-             "/viewer.html": "viewer.html"}
+WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer.html"}
 DATA_DIRS = ("screenshots", "crops", "test_results")
 # 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png
 PROJECT_STATIC_DIRS = ("screenshots", "crops")

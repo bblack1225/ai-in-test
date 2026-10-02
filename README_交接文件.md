@@ -43,13 +43,12 @@ uv run python aitest.py start cathaysec-ios
 **瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
 - `app_map_viewer.html` — **目前主力工具**：地圖檢視、手動建樹、
   測試情境產生、LLM測案產生、測案執行，全部整合在這一頁（「改版比對」分頁暫時移除，見第八節）
-- `viewer.html` — 較早期的單畫面工具，Android測試目前還在用
 
 **資料檔案**
 - `workspace/projects/<專案>/` — **建議的存放方式**：`maps/`（地圖，可以依功能分好幾張）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
 - 以下是沒開專案時的舊方式（跟程式同層，程式用相對路徑讀寫，不要搬動）
 - `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
-- `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
+- `element_map.json` — 單畫面掃描累積資料（`capture_screen_map.py` 產出，`run_test_case.py` 指令模式讀這個）
 - `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
 - `test_cases/`／`test_results/` — `run_test_case.py` 指令模式讀的測試案例／執行結果截圖（都不進 git，測案建議放專案的 `cases/`）
 
@@ -417,7 +416,7 @@ workspace/projects/mbroker-demo-ios/
 | `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py`。可選「步驟失敗時自動關閉非預期彈窗並重試」（網頁勾選框／`--dismiss_dialogs`），沿用爬蟲 `dismiss_modal()` 的按鈕清單，只在失敗時才檢查；系統權限視窗刻意不處理（偵測到就跳過） |
-| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，可匯出／匯入批次設定檔，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，可匯出／匯入批次設定檔，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 
@@ -435,8 +434,7 @@ workspace/projects/mbroker-demo-ios/
 
 ### 4.4 瀏覽器工具（由 `viewer_server.py` 提供）
 
-兩支 HTML 都由 `viewer_server.py` 直接提供：`http://127.0.0.1:8767/` 是
-`app_map_viewer.html`，`http://127.0.0.1:8767/viewer.html` 是舊工具，截圖
+`app_map_viewer.html` 由 `viewer_server.py` 直接提供（`http://127.0.0.1:8767/`），截圖
 （`screenshots/` 等資料夾）也從同一個網址讀。網頁和 API 同源，伺服器只接受
 自己網頁發出的請求（檢查 `Host`／`Origin`），其他網站沒辦法借瀏覽器操作手機。
 只看地圖不接手機也要開伺服器，但不需要 Appium（只有操作手機的功能才會連 Appium）。
@@ -444,7 +442,6 @@ workspace/projects/mbroker-demo-ios/
 | 檔案 | 用途 |
 |---|---|
 | `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
-| `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，Android 現在也能用 `app_map_viewer.html`，這支之後會退役 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
 > 元件、手動加節點/邊，不用連裝置）——已從交接包移除，因為
@@ -467,7 +464,7 @@ workspace/projects/mbroker-demo-ios/
 | 路徑 | 用途 |
 |---|---|
 | `app_map_tree.json` | `crawl_app_tree.py` 最新一次爬蟲產出的樹狀地圖（全名欄位格式：`screen_uid`/`screen_name`/`elements[]`/`unique_id`...），`app_map_viewer.html` 主要吃這個檔案 |
-| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
+| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
 | `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `cleanup_images.py` 清掉沒有地圖在用的 |
 | `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `cleanup_images.py --all_crops` 清掉 |
 | `test_cases/` | `run_test_case.py --screen_name xxx` 讀的 `test_cases/xxx.json`。測案含特定 App 的畫面和操作，不放進工具 repo；網頁用的測案放在專案的 `cases/`，舊的用 `workspace.py import-legacy --cases` 搬進去 |
@@ -567,6 +564,7 @@ workspace/projects/mbroker-demo-ios/
 |---|---|---|
 | 「改版比對」分頁 | 上傳新舊兩份 `element_map.json`，用相似度計分比對同一畫面的元件（同一個／疑似同一個／全新／已消失），人工確認後把舊的 `unique_id` 延續到新版，可以連同舊測案一起檢查 | 暫時用不到。正式的比對邏輯在 `compare_versions.py`（沒有移除），網頁分頁只是從它移植的展示版 |
 | 地圖檢視的「🔄 重新掃描這個畫面」 | 對已經掃過的節點重掃一次，套用前會列出哪些子節點的入口元件消失了 | 暫時用不到。還沒掃描的手動節點仍然有「🔍 掃描目前畫面」 |
+| `viewer.html`（整支） | 早期的單畫面工具：讀 `element_map.json`，元件校對／篩選、重新定義 XPath、AI 定位、改版比對 demo、LLM 測案產生、測案執行 | 功能都已整合進 `app_map_viewer.html`（改版比對除外，見上一列），兩套前端並存容易混淆 |
 
 **找回來的方法**（git tag `archive/before-ui-trim` 標記的是移除前的最後一個版本）：
 
@@ -579,5 +577,12 @@ workspace/projects/mbroker-demo-ios/
 - 整個加回來：`git log --oneline -- app_map_viewer.html` 找到「暫時移除「改版比對」分頁、「重新掃描這個畫面」按鈕」
   那個 commit，`git revert <commit>`（之後的修改如果動到同一段，要手動處理衝突）
 
-> tag 只存在本機，推上 GitHub 要另外 `git push origin archive/before-ui-trim`，
+`viewer.html` 的版本標記在 tag `archive/before-viewer-retire`：
+```
+git show archive/before-viewer-retire:viewer.html > viewer.html
+```
+放回專案資料夾後，還要在 `viewer_server.py` 的 `WEB_PAGES` 加回 `"/viewer.html": "viewer.html"`，
+才能從 http://127.0.0.1:8767/viewer.html 打開。
+
+> tag 只存在本機，推上 GitHub 要另外 `git push origin --tags`（或逐一 push 這兩個 tag），
 > 其他人才拿得到。

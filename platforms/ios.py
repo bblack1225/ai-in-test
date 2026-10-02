@@ -188,7 +188,7 @@ def parse_candidates_raw(xml_source: str, screen_width: int, screen_height: int)
             "sibling_index": sibling_index,
             "nearby_text": nearby_text[:5],  # 最多留5個，避免過長
             "position_bucket": position_bucket(x, y, width, height, screen_width, screen_height),
-            # 原始屬性照實記錄，不在這裡用來篩選，留給 viewer.html 篩選介面用
+            # 原始屬性照實記錄，不在這裡用來篩選，留給網頁的元件清單篩選用
             "enabled": attrib.get("enabled", "true") == "true",
             "accessible": attrib.get("accessible", "false") == "true",
         })

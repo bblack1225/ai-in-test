@@ -2,9 +2,9 @@
 比對同一個畫面新舊兩個版本的元件差異，判斷哪些元件是「同一個」（延續舊 unique_id）、
 哪些「疑似同一個需要人工確認」、哪些是「全新元件」、哪些舊元件已經消失。
 
-對應 PROJECT_BRIEF 決策3的相似度計分規則，邏輯跟 viewer.html「改版比對 Demo」分頁裡的
-JavaScript 版本一致（那邊是先做 demo 呈現用），這裡是正式流程（crawl_app.py）使用的
-Python 版本，兩邊之後都會維護，但正式流程一律以這支為準。
+對應 PROJECT_BRIEF 決策3的相似度計分規則。網頁上原本有從這支移植的 JavaScript 展示版
+（viewer.html、app_map_viewer.html 的「改版比對」分頁），目前都已暫時移除（README 第八節），
+正式流程一律以這支 Python 版為準。
 
 使用方式：
   python compare_versions.py --old_json element_map_舊版.json --new_json element_map.json \
