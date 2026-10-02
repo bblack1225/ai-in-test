@@ -93,6 +93,13 @@ def appium_endpoint() -> tuple[str, str, int]:
     return url + "/status", parts.hostname or "127.0.0.1", parts.port or 4723
 
 
+def project_choices(workspace: str) -> str:
+    projects = Workspace(workspace).list_projects()
+    if not projects:
+        return "  （還沒有專案，用 uv run python workspace.py create 建立）"
+    return "\n".join(f"  {p['id']:<24} {p['platform']:<8} {p['name']}" for p in projects)
+
+
 def resolve_project(project_id: str | None, platform: str | None, workspace: str) -> tuple[str, dict | None]:
     """平台：--platform 優先，其次專案設定，都沒有就 ios。"""
     project = None
@@ -100,7 +107,7 @@ def resolve_project(project_id: str | None, platform: str | None, workspace: str
         try:
             project = Workspace(workspace).get_project(project_id)
         except WorkspaceError as e:
-            sys.exit(f"錯誤：{e}（uv run python workspace.py list 看有哪些專案）")
+            sys.exit(f"錯誤：{e}。可以用的專案：\n{project_choices(workspace)}")
         if platform and platform != project["platform"]:
             sys.exit(f"錯誤：專案「{project_id}」是 {project['platform']}，跟 --platform {platform} 不一致")
     return platform or (project or {}).get("platform") or "ios", project
@@ -199,6 +206,9 @@ def cmd_start(args) -> None:
         print(f"[aitest] 準備好了：{viewer_url}" + ("" if args.no_browser else "（正在打開瀏覽器）"))
         if project:
             print(f"[aitest] 專案：{project['name']}（{project['platform']}）")
+        else:
+            print(f"[aitest] 沒有指定專案，網頁會開上次用的那個。下次可以直接指定：aitest.py start <專案代號>\n"
+                  f"{project_choices(args.workspace)}")
         print("[aitest] 按 Ctrl+C 結束" + ("（會一起關掉這次啟動的 Appium）" if appium_proc else ""))
         if not args.no_browser:
             webbrowser.open(viewer_url)
@@ -423,7 +433,8 @@ def main():
     parser = argparse.ArgumentParser(description="一鍵啟動（start）＋環境檢查（doctor）")
     sub = parser.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器")
-    s.add_argument("project", nargs="?", default=None, help="直接開這個專案（平台照專案設定），例如 cathaysec-ios")
+    s.add_argument("project", nargs="?", default=None,
+                   help="直接開這個專案（平台照專案設定），例如 cathaysec-ios；有哪些用 workspace.py list 查")
     s.add_argument("--platform", choices=("ios", "android"), default=None, help="預設：專案的平台，沒指定專案就是 ios")
     s.add_argument("--no-appium", action="store_true", help="不啟動 Appium（只看地圖、編輯測案）")
     s.add_argument("--no-browser", action="store_true", help="不自動打開瀏覽器")
