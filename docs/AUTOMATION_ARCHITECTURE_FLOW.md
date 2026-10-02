@@ -43,7 +43,7 @@ flowchart TD
 
     subgraph L2["② 本機驅動／橋接層"]
         B1["Appium-Python-Client<br/>（把 Python 函式呼叫組成 WebDriver 協定的 HTTP 請求）"]
-        B2["viewer_server.py<br/>（本機 HTTP 小型伺服器 :8767，讓瀏覽器能間接操作手機）"]
+        B2["viewer_server.py<br/>（本機 HTTP 小型伺服器 :8767，提供網頁本身＋API，讓瀏覽器能間接操作手機）"]
     end
 
     C["③ Appium Server（Node.js，:4723）<br/>接收 WebDriver 指令，依 platformName 分派給對應的 driver"]

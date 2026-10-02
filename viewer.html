@@ -1051,7 +1051,8 @@
   <div class="header-row header-row-sub">
     <label class="field" id="server-field">
       裝置連線（viewer_server.py，啟動時用 --platform 指定 iOS/Android）
-      <input type="text" id="server-url" value="http://127.0.0.1:8767" />
+      <!-- 網頁由 viewer_server.py 提供（http://127.0.0.1:8767/viewer.html），API 同源，網址留空＝相對路徑 -->
+      <input type="hidden" id="server-url" value="" />
       <span id="server-status" class="unknown">未檢查</span>
       <button class="btn secondary" id="server-check-btn" type="button">測試連線</button>
     </label>
@@ -1191,7 +1192,7 @@
 
     <label class="field">
       LLM 代理連線（viewer_server.py，只是代理呼叫，不需要接手機）
-      <input type="text" id="llmgen-server-url" value="http://127.0.0.1:8767" />
+      <input type="hidden" id="llmgen-server-url" value="" />
     </label>
 
     <div class="spacer"></div>
@@ -1244,7 +1245,7 @@
 
     <label class="field" id="runscript-server-field">
       裝置連線（viewer_server.py）
-      <input type="text" id="runscript-server-url" value="http://127.0.0.1:8767" />
+      <input type="hidden" id="runscript-server-url" value="" />
       <span id="runscript-server-status" class="unknown">未檢查</span>
       <button class="btn secondary" id="runscript-server-check-btn" type="button">測試連線</button>
     </label>
