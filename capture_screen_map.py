@@ -33,7 +33,7 @@ POC: App 元件地圖產生器（第一步），iOS / Android 共用
      Android：Android Studio + SDK + 模擬器（或實體裝置），adb 看得到裝置
   2. 啟動 Appium Server: `appium`（需已安裝 xcuitest / uiautomator2 driver）
   3. 設定環境變數 GEMINI_API_KEY
-  4. 修改 test_config.py 的 DESIRED_CAPS / ANDROID_DESIRED_CAPS
+  4. 裝置設定填在 config.toml（範本 config.example.toml）
 """
 
 import argparse

@@ -9,11 +9,11 @@
 - Mac + Xcode、Node.js + Appium 3（含 XCUITest driver）
 - **uv**（管理 Python 版本與套件）：`uv sync` 一個指令建好環境。系統內建的
   Python 3.9 跑不起來，專案固定用 Python 3.12
-- 環境變數 `GEMINI_API_KEY`（LLM 描述/定位/測案/情境產生都要用到，沒設定
-  的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
+- Gemini API key：填在 `config.toml` 的 `[llm] api_key`，或環境變數 `GEMINI_API_KEY`
+  （LLM 描述/定位/測案/情境產生都要用到，沒設定的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
 - iOS 實機：USB 接 Mac、開發者模式、Xcode 登入 Apple ID 並簽署過
-  WebDriverAgent；`test_config.py` 的 `udid`／`xcodeOrgId`／
-  `updatedWDABundleId` 要換成你自己的
+  WebDriverAgent；`config.toml`（從 `config.example.toml` 複製）的 `udid`／
+  `xcode_org_id`／`wda_bundle_id` 要填你自己的
 - 詳細步驟見下方「二、環境準備」；Android 的差異見「2.9」
 
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
@@ -24,7 +24,9 @@
 - `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
 - `platforms/` — iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
 - `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
-- `test_config.py` — Appium連線設定＋Gemini LLM設定，**換裝置/App先改這裡**
+- `config.toml` — 本機設定（手機 UDID、簽署 Team ID、WDA bundle id、Gemini 模型），**換電腦/手機改這裡**；
+  不進 git，範本是 `config.example.toml`。App 的 bundle id 不在這裡，在專案設定（見 3.3）
+- `test_config.py` — 讀 `config.toml`，組出 Appium 連線設定、提供 Gemini 呼叫，其他程式都從這裡取用
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 - `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
 - `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
@@ -110,19 +112,22 @@ uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')
 
 ### 2.3 設定 Gemini API Key
 
-寫進 `~/.zshrc`，之後開新的終端機都會自動生效（`test_config.py` 用
-`os.environ.get()` 讀取，不會寫死在程式碼裡）：
+兩種方式擇一（都有設的話用環境變數）：
+
+- **寫進 `config.toml`**（建議，`config.toml` 不進 git）：先做完 2.6 建立 `config.toml`，
+  在 `[llm]` 填 `api_key = "你的key"`。注意這個檔案含 key，不要傳給別人
+- **環境變數**：寫進 `~/.zshrc`，之後開新的終端機都會自動生效
+  ```
+  echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
+  ```
+
+確認（不會印出 key 本身）：
 
 ```
-echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
+uv run python -c "import test_config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
 ```
 
-確認（只會顯示有沒有設定，不會印出 key 本身）：
-
-```
-echo ${GEMINI_API_KEY:+已設定}
-uv run python -c "import test_config; print('設定 OK，模型：', test_config.LLM_MODEL)"
-```
+沒設 key 的話只有 LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，看地圖、點擊、爬蟲照常能跑。
 
 ### 2.4 準備 iPhone
 
@@ -167,7 +172,7 @@ WebDriverAgent（WDA）是 Appium 裝到手機上、實際操作畫面的 XCTest
    Product → Test（⌘U）。手機跳出「不受信任的開發者」的話：設定 → 一般 →
    VPN 與裝置管理 → 信任，再按一次 ⌘U。看到測試開始執行、手機顯示
    **Automation Running** 就代表成功，按 ⌘. 停止
-4. 查 Team ID（`test_config.py` 要用）。**Xcode 的 Accounts 頁面只顯示
+4. 查 Team ID（`config.toml` 要用）。**Xcode 的 Accounts 頁面只顯示
    團隊名稱、看不到 ID**，用以下任一方式：
    - 終端機（`organizationalUnitName` 那一行就是 Team ID）：
      ```
@@ -185,26 +190,35 @@ WebDriverAgent（WDA）是 Appium 裝到手機上、實際操作畫面的 XCTest
 > - 每 7 天最多只能註冊 10 個新的 App ID，所以 bundle id 決定後就不要一直換
 > - 加入公司的付費開發者團隊後，效期是 1 年，也沒有 App ID 數量限制
 
-### 2.6 修改 `test_config.py`
+### 2.6 建立 `config.toml`
 
-打開 `test_config.py`，修改 `DESIRED_CAPS`：
+```
+cp config.example.toml config.toml
+```
+
+打開 `config.toml`，填 `[ios]` 這一段：
 
 | 欄位 | 填什麼 |
 |---|---|
 | `udid` | 2.4 查到的手機 UDID |
-| `xcodeOrgId` | 2.5 查到的 Team ID |
-| `xcodeSigningId` | 維持 `"iPhone Developer"`，不用改 |
-| `bundleId` | 待測 App 的 bundle id（目前是樹精靈 Demo：`com.cathay.securities.tw.mBroker.Demo`） |
-| `updatedWDABundleId` | 2.5 在 Xcode 設定的 WDA Bundle Identifier |
+| `xcode_org_id` | 2.5 查到的 Team ID |
+| `wda_bundle_id` | 2.5 在 Xcode 設定的 WDA Bundle Identifier |
+| `launch_bundle_id` | 選填。留空＝連線時不打開任何 App，直接操作手機上目前在前景的 App（換測不同 App 時在手機上切過去就好）；填了就是每次連線都先打開這支 App |
 
-> 注意 key 是 `updatedWDABundleId`（**WDA**）。舊版設定檔曾經拼成
-> `updatedWDIBundleId`，拼錯的話 Appium 會直接忽略這個設定。
+待測 App 的 bundle id 不填在這裡，填在專案設定（`workspace.py create`／`update`，見 3.3）：
+爬蟲用它判斷有沒有跑出 App、連線時打開它；批次執行用它重開 App。
 
-確認設定有被讀到（第三個值是 `None` 代表 key 拼錯）：
+`config.toml` 不進 git（每台電腦、每支手機不一樣）。要切換好幾份設定（例如同一台電腦接兩支
+手機），可以用環境變數 `AITEST_CONFIG=其他檔案.toml` 指定。
+
+確認設定有被讀到：
 
 ```
-uv run python -c "import test_config as t; c = t.DESIRED_CAPS; print(c['udid'], c['xcodeOrgId'], c.get('updatedWDABundleId'))"
+uv run python -c "import test_config as t; print(t.ios_capabilities())"
 ```
+
+缺欄位的話會直接說缺哪個、要填在哪裡。WDA 建置失敗（`xcodebuild failed with code 65`）想看
+詳細錯誤時，在 `config.toml` 的 `[capabilities.ios]` 加 `showXcodeLog = true`。
 
 ### 2.7 第一次連線測試
 
@@ -222,9 +236,9 @@ appium --address 127.0.0.1
 uv run python - <<'EOF'
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
-from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
+from test_config import APPIUM_SERVER_URL, ios_capabilities
 
-d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(DESIRED_CAPS))
+d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(ios_capabilities()))
 try:
     print("連線成功")
     print("螢幕大小：", d.get_window_size())
@@ -234,7 +248,7 @@ finally:
 EOF
 ```
 
-看到「連線成功」，而且「前景 App」的 `bundleId` 是待測 App，就代表整條
+看到「連線成功」，而且「前景 App」的 `bundleId` 是手機上目前開著的那支 App，就代表整條
 路徑（Python → Appium → WDA → 手機）都通了。
 
 ### 2.8 常見問題
@@ -263,7 +277,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
     最省事
   - 金融類 App 常會偵測並擋掉模擬器，擋住的話要改用實機
   - 安裝：把 APK 拖進模擬器視窗，或 `adb install 檔案.apk`
-- `test_config.py` 的 `ANDROID_DESIRED_CAPS["udid"]` 換成你的裝置代號
+- `config.toml` 的 `[android]` `udid` 填你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
 - 對應的程式：`capture_screen_map.py --platform android`／`run_test_case.py --platform android`／
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
@@ -351,7 +365,7 @@ workspace/projects/mbroker-demo-ios/
   ```
   uv run python workspace.py update mbroker-demo-ios --bundle_id com.cathay.securities.tw.mBroker.Demo
   ```
-  bundle id 留空的話，iOS 用 `test_config.py` 的 `bundleId`、Android 用當下前景的 App；
+  bundle id 留空的話，iOS 用 `config.toml` 的 `launch_bundle_id`、再沒有就用當下前景的 App，Android 用當下前景的 App；
   兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到
 - **網頁上的行為**：
   - 頁首「地圖」切換專案裡的地圖（記住每個專案上次開哪張），旁邊可以「＋ 新地圖」「⧉ 複製」
@@ -390,7 +404,7 @@ workspace/projects/mbroker-demo-ios/
 | 檔案 | 用途 |
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
-| `test_config.py` | Appium 連線設定（iOS/Android 各一組 `DESIRED_CAPS`）＋ Gemini LLM 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `generate_content_with_retry()`（503錯誤自動重試）。**換裝置/App 主要改這裡** |
+| `test_config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503錯誤自動重試）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
 | `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次的讀寫，以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面）；`viewer_server.py` 的 `/api/projects/...`、`crawl_app_tree.py --project` 都透過它。CLI：`list`／`create`／`import-legacy` |
 | `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**，`app_map_viewer.html`「改版比對」分頁裡的 JS 是從這支移植的展示版，兩邊邏輯要保持一致，但正式流程以這支 Python 版為準 |
 
@@ -481,9 +495,9 @@ workspace/projects/mbroker-demo-ios/
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
    多長出重複節點，需要人工核對合併
 4. **`gemini-flash-latest`／`gemini-pro-latest` 是會自動換版本的別名**，
-   API 回應不會告訴你實際解析到哪個確切版本，`test_config.py` 沿用這個
+   API 回應不會告訴你實際解析到哪個確切版本，`config.example.toml` 預設沿用這個
    設計但要注意：Google 更新別名指向的版本時可能導致行為/計費突然改變，
-   正式上線前建議改成寫死的版本號
+   正式上線前建議在 `config.toml` 的 `[llm]` 改成寫死的版本號
 5. **`viewer_server.py` 同一時間只能服務一個 Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）
    又開著橋接伺服器對同一台裝置操作，會搶同一個連線
 

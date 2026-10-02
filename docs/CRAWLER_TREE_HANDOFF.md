@@ -278,7 +278,7 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 | `capture_screen_map.py` | iOS 掃描主程式，本 session 加了橫向捲動、截圖保護、scan_screen 三參數 |
 | `run_test_case.py` | iOS 測案執行器，本 session port 了 `_locate_by_xpath_with_scroll` |
 | `platforms/android.py` | Android 版（原本的 `capture_screen_map_android.py` / `run_test_case_android.py`，已併入共用程式），是這次 iOS port 的來源參考 |
-| `test_config.py` | `DESIRED_CAPS`（iOS）/ `ANDROID_DESIRED_CAPS`，換 App 改 `bundleId` |
+| `test_config.py` | 讀 `config.toml` 組 iOS／Android 連線設定；App 的 bundle id 在專案設定（`workspace.py`），換 App 不用改設定檔 |
 | `IOS_FULL_SCAN_HANDOFF.md` | 更早的交接筆記（iOS 全功能驗證，另一條線） |
 | `TROUBLESHOOTING.md` | 所有踩坑記錄（問題 5/6/7 = WDA 環境；31/34/42 = 捲動；41 = iOS 移植） |
 | `ANDROID_TEST_APP_SPEC.md` | TestBankApp 靶場規格（若要 port 爬蟲到 Android 可用） |

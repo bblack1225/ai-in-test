@@ -1,0 +1,40 @@
+# 本機設定範本：複製成 config.toml 再填自己的值
+#     cp config.example.toml config.toml
+# config.toml 不進 git（每台電腦、每個人的裝置和簽署資訊不一樣）。
+#
+# 這裡只放「這台電腦／這支手機」的設定。App 相關的（bundle id／package）放在各專案的
+# project.json，用 workspace.py create／update 設定，換 App 不用改這個檔案。
+# 這個檔案可能含 API key，不要傳給別人、不要放進交付包。
+
+[appium]
+server_url = "http://127.0.0.1:4723"
+
+[ios]
+# 測試用 iPhone 的 UDID：xcrun xctrace list devices（README 2.4）
+udid = ""
+# Apple 開發者 Team ID（README 2.5 步驟 4）
+xcode_org_id = ""
+# 在 Xcode 幫 WebDriverAgentRunner 設定的 Bundle Identifier（README 2.5 步驟 2）
+wda_bundle_id = ""
+# 選填：連線時自動打開這支 App。留空＝不打開任何 App，直接操作手機上目前在前景的 App，
+# 換測不同 App 時只要在手機上切過去就好
+launch_bundle_id = ""
+
+[android]
+# adb devices 查得到的裝置代號，模擬器預設 emulator-5554
+udid = "emulator-5554"
+
+[llm]
+# Gemini API key（README 2.3）。也可以改用環境變數 GEMINI_API_KEY，兩個都有的話用環境變數
+api_key = ""
+# 會自動換版本的別名，正式上線前建議改成寫死的版本號（README 六、第 4 點）
+model = "gemini-flash-latest"
+model_pro = "gemini-pro-latest"
+
+# 進階：額外的 Appium capabilities，原樣加進連線設定（會蓋掉上面算出來的同名欄位）。
+# 例如 WDA 建置失敗（xcodebuild code 65）要看詳細錯誤時：
+#   [capabilities.ios]
+#   showXcodeLog = true
+[capabilities.ios]
+
+[capabilities.android]
