@@ -1021,6 +1021,7 @@ class Handler(BaseHTTPRequestHandler):
           POST   /api/projects                          建立 {id, name, platform, bundle_id}
           POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
           GET    /api/projects/<id>                     專案資訊＋地圖＋測案／批次清單
+          PUT    /api/projects/<id>                     改專案設定 {name?, bundle_id?}（平台不能改）
           GET    /api/projects/<id>/export              下載 zip
           PUT    /api/projects/<id>/map                 存地圖 {map, base_version}，版本不符回 409
           GET    /api/projects/<id>/<kind>/<name>       讀一份
@@ -1047,6 +1048,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"project": WORKSPACE.import_zip(self._read_body(), new_id)})
             elif method == "GET" and len(parts) == 1:
                 self._send_json(200, WORKSPACE.summary(parts[0]))
+            elif method == "PUT" and len(parts) == 1:
+                body = self._read_json_body() or {}
+                self._send_json(200, {"project": WORKSPACE.update_project(
+                    parts[0], body.get("name"), body.get("bundle_id"))})
             elif method == "GET" and len(parts) == 2 and parts[1] == "export":
                 body = WORKSPACE.export_zip(parts[0])
                 self.send_response(200)

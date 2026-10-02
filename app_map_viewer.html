@@ -462,6 +462,7 @@
       <option value="">（不使用專案：手動載入／匯出檔案）</option>
     </select>
     <button class="btn" id="projectCreateBtn">＋ 新增專案</button>
+    <button class="btn" id="projectSettingsBtn" disabled title="改專案名稱、App 的 bundle id／package">⚙ 專案設定</button>
     <button class="btn" id="projectExportBtn" disabled title="地圖、截圖、測案、批次打包成一個 zip，交給其他團隊匯入">⬇ 匯出專案 zip</button>
     <label class="file-btn-label" title="匯入其他人匯出的專案 zip">📂 匯入專案 zip<input type="file" id="projectImportInput" accept=".zip,application/zip"></label>
     <span class="project-save-status" id="projectSaveStatus"></span>
@@ -3333,7 +3334,8 @@
       }, 1000);
       var res = await fetch(base + "/run_batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ options: batchOptions(), groups: batchGroups.map(function (g) {
+        // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 test_config／前景 App
+        body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null, groups: batchGroups.map(function (g) {
           return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases };
         }) }),
       });
@@ -3537,6 +3539,7 @@
     document.getElementById("mapTitle").textContent = on ? currentProject.name + " 畫面地圖" : "畫面地圖";
     document.title = on ? currentProject.name + "｜畫面地圖" : "畫面地圖";
     projectExportBtn.disabled = !on;
+    document.getElementById("projectSettingsBtn").disabled = !on;
     document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 用檔案取代專案地圖" : "📂 載入之前匯出的地圖";
     renderProjectPickers();
     updateLlmgenCaseControls();
@@ -3578,6 +3581,24 @@
       await loadProjectList();
       await openProject(id);
     } catch (err) { alert("建立專案失敗：" + err.message); }
+  });
+
+  document.getElementById("projectSettingsBtn").addEventListener("click", async function () {
+    if (!currentProject) return;
+    var name = prompt("專案名稱：", currentProject.name);
+    if (name === null) return;
+    var bundleId = prompt("App 的 bundle id（iOS）／package（Android）\n" +
+      "爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個；留空的話 iOS 用 test_config.py 的 bundleId、Android 用當下前景的 App。\n" +
+      "（平台固定是 " + platformName(currentProject.platform) + "，不能改：地圖是照這個平台掃出來的）", currentProject.bundle_id || "");
+    if (bundleId === null) return;
+    try {
+      var data = await apiJson("PUT", projectApi(), { name: name.trim(), bundle_id: bundleId.trim() });
+      currentProject = data.project;
+      currentMapFileName = "專案：" + currentProject.name;
+      await loadProjectList();
+      updateProjectUi();
+      setProjectStatus("專案設定已更新");
+    } catch (err) { alert("更新專案設定失敗：" + err.message); }
   });
 
   projectExportBtn.addEventListener("click", async function () {

@@ -325,7 +325,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 ```
 workspace/projects/mbroker-demo-ios/
-├── project.json     名稱、平台、bundle_id（爬蟲沒給 --bundle_id 時用這個）
+├── project.json     專案設定：名稱、平台、bundle_id（爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個）
 ├── map.json         地圖（跟 app_map_tree.json 同格式）
 ├── screenshots/
 ├── cases/*.json     測案
@@ -340,6 +340,9 @@ workspace/projects/mbroker-demo-ios/
   ```
   uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
   ```
+- **修改專案設定**：網頁頁首「⚙ 專案設定」可以改名稱、bundle id（iOS）／package（Android）。
+  平台不能改（地圖是照那個平台掃出來的）。bundle id 留空的話，iOS 用 `test_config.py` 的
+  `bundleId`、Android 用當下前景的 App；兩支以上 App 時建議一定要填
 - **網頁上的行為**：
   - 地圖（手動建樹、刪節點、重新掃描、自訂 XPath）改了**自動存檔**，頁首顯示存檔狀態；
     掃描的截圖直接存進專案資料夾

@@ -122,6 +122,19 @@ class Workspace:
             (d / sub).mkdir(exist_ok=True)
         return {"id": project_id, **project}
 
+    def update_project(self, project_id: str, name: str | None = None, bundle_id: str | None = None) -> dict:
+        """改名稱、bundle_id。平台不能改：地圖是照那個平台掃出來的，換平台就不能用了。"""
+        d = self._existing_dir(project_id)
+        project = _read_json(d / "project.json")
+        if name is not None:
+            if not name.strip():
+                raise WorkspaceError("名稱不能是空的")
+            project["name"] = name.strip()
+        if bundle_id is not None:
+            project["bundle_id"] = bundle_id.strip()
+        _write_json_atomic(d / "project.json", project)
+        return {"id": project_id, **project}
+
     def summary(self, project_id: str) -> dict:
         """網頁開專案時一次拿齊：專案資訊、地圖（含版本）、測案／批次清單。"""
         project = self.get_project(project_id)
