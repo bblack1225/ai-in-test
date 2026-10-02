@@ -1,6 +1,9 @@
 # 本機設定（裝置 UDID、簽署 Team ID），範本是 config.example.toml
 config.toml
 
+# aitest.py start 自己啟動的 Appium log
+logs/
+
 # Python / uv
 .venv/
 __pycache__/

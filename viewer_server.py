@@ -50,6 +50,7 @@ import base64
 import binascii
 import json
 import mimetypes
+import signal
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -1123,6 +1124,10 @@ class Handler(BaseHTTPRequestHandler):
         print("[viewer_server]", format % args)
 
 
+def _raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
     global PLATFORM, PORT, WORKSPACE
     parser = argparse.ArgumentParser(description="App 元件地圖／測試工具的本機橋接伺服器")
@@ -1135,6 +1140,8 @@ def main():
     PORT = args.port
     WORKSPACE = Workspace(args.workspace)
 
+    # 被 aitest.py 或 kill 結束（SIGTERM）時跟 Ctrl+C 一樣收尾：關掉 Appium session，手機上不會留著 WDA 連線
+    signal.signal(signal.SIGTERM, _raise_interrupt)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}），只接受本機連線")
     print(f"[viewer_server] 用瀏覽器打開 http://{HOST}:{PORT}/ ，Ctrl+C 結束")
