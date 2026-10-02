@@ -51,7 +51,7 @@ uv run python aitest.py start cathaysec-ios
 - `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
 - `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
 - `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
-- `test_cases/`／`test_results/` — 範例測試案例／執行結果截圖
+- `test_cases/`／`test_results/` — `run_test_case.py` 指令模式讀的測試案例／執行結果截圖（都不進 git，測案建議放專案的 `cases/`）
 
 **其他**
 - `docs/` — 6份技術文件＋3份真實掃描XML參考資料，細節見「四、檔案總覽」
@@ -460,7 +460,7 @@ workspace/projects/mbroker-demo-ios/
 建議用 `workspace/projects/<專案>/`（見 3.3）。下表是沒開專案時的舊方式，跟程式放同一層，
 程式用相對路徑讀寫，不要搬動位置。
 
-> 除了 `test_cases/` 之外，下表的檔案和 `workspace/` 都列在 `.gitignore` 裡，**不會進
+> 下表的檔案和 `workspace/` 都列在 `.gitignore` 裡，**不會進
 > git**：圖片體積大且可以重新產生；地圖 JSON 和截圖則會記錄畫面上的文字，
 > 可能包含帳號、金額等敏感資訊。要保留的話請另外備份。
 
@@ -470,7 +470,7 @@ workspace/projects/mbroker-demo-ios/
 | `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
 | `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `cleanup_images.py` 清掉沒有地圖在用的 |
 | `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `cleanup_images.py --all_crops` 清掉 |
-| `test_cases/` | 幾份範例測試案例 JSON（`generate_test_case.py`/LLM對話產生的格式），給 `run_test_case.py` 執行 |
+| `test_cases/` | `run_test_case.py --screen_name xxx` 讀的 `test_cases/xxx.json`。測案含特定 App 的畫面和操作，不放進工具 repo；網頁用的測案放在專案的 `cases/`，舊的用 `workspace.py import-legacy --cases` 搬進去 |
 | `test_results/` | 範例：執行測案後存下來的截圖 |
 
 ### 4.6 docs/（文件）
