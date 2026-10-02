@@ -9,8 +9,8 @@
 - Mac + Xcode、Node.js + Appium 3（含 XCUITest driver）
 - **uv**（管理 Python 版本與套件）：`uv sync` 一個指令建好環境。系統內建的
   Python 3.9 跑不起來，專案固定用 Python 3.12
-- 環境變數 `GEMINI_API_KEY`（LLM 描述/定位/測案/情境產生都要用到，沒設定
-  的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
+- Gemini API key：填在 `config.toml` 的 `[llm] api_key`，或環境變數 `GEMINI_API_KEY`
+  （LLM 描述/定位/測案/情境產生都要用到，沒設定的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
 - iOS 實機：USB 接 Mac、開發者模式、Xcode 登入 Apple ID 並簽署過
   WebDriverAgent；`config.toml`（從 `config.example.toml` 複製）的 `udid`／
   `xcode_org_id`／`wda_bundle_id` 要填你自己的
@@ -112,19 +112,22 @@ uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')
 
 ### 2.3 設定 Gemini API Key
 
-寫進 `~/.zshrc`，之後開新的終端機都會自動生效（程式從環境變數讀取，
-不會寫在程式碼或 `config.toml` 裡）：
+兩種方式擇一（都有設的話用環境變數）：
+
+- **寫進 `config.toml`**（建議，`config.toml` 不進 git）：先做完 2.6 建立 `config.toml`，
+  在 `[llm]` 填 `api_key = "你的key"`。注意這個檔案含 key，不要傳給別人
+- **環境變數**：寫進 `~/.zshrc`，之後開新的終端機都會自動生效
+  ```
+  echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
+  ```
+
+確認（不會印出 key 本身）：
 
 ```
-echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
-```
-
-確認（只會顯示有沒有設定，不會印出 key 本身）：
-
-```
-echo ${GEMINI_API_KEY:+已設定}
 uv run python -c "import test_config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
 ```
+
+沒設 key 的話只有 LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，看地圖、點擊、爬蟲照常能跑。
 
 ### 2.4 準備 iPhone
 

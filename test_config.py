@@ -3,7 +3,7 @@
 
 - 裝置、簽署這類「這台電腦」的設定在 config.toml（不進 git，範本是 config.example.toml）
 - App 的 bundle id／package 在各專案的 project.json（workspace.py），換 App 不用改設定
-- Gemini API key 用環境變數 GEMINI_API_KEY
+- Gemini API key 在 config.toml 的 [llm] api_key，或環境變數 GEMINI_API_KEY（環境變數優先）
 
 沒有 config.toml 也能 import：只看地圖、編輯測案這類不碰手機的功能照常能用，
 要連手機時（ios_capabilities()／android_capabilities()）才會說缺了什麼。
@@ -108,14 +108,22 @@ LLM_MODEL_PRO = _section("llm").get("model_pro") or "gemini-pro-latest"
 _llm_client = None
 
 
+def _api_key() -> str | None:
+    # 環境變數優先：方便臨時換一把 key 測試，不用改檔案
+    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            or str(_section("llm").get("api_key") or "").strip() or None)
+
+
 def get_llm_client():
     """第一次用到 LLM 才建立連線：沒設 API key 時，不用 LLM 的功能（看地圖、點擊、爬蟲）照常能跑。"""
     global _llm_client
     if _llm_client is None:
-        if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
-            raise ConfigError("沒有設定環境變數 GEMINI_API_KEY，LLM 相關功能（描述、AI定位、測案／情境產生）無法使用（README 2.3）")
+        api_key = _api_key()
+        if not api_key:
+            raise ConfigError(f"沒有設定 Gemini API key（{CONFIG_PATH} 的 [llm] api_key，或環境變數 GEMINI_API_KEY），"
+                              "LLM 相關功能（描述、AI定位、測案／情境產生）無法使用（README 2.3）")
         from google import genai
-        _llm_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        _llm_client = genai.Client(api_key=api_key)
     return _llm_client
 
 
