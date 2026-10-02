@@ -10,6 +10,9 @@ __pycache__/
 crops/
 test_results/
 
+# 專案資料夾（workspace.py）：地圖、截圖、測案，各團隊只拿自己 App 的專案 zip
+workspace/
+
 # 掃描資料：含 App 畫面上的文字與截圖，可能有帳號、金額等敏感資訊
 screenshots/
 app_map_tree.json
