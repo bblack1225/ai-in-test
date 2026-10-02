@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import re
+from contextlib import contextmanager
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -105,12 +106,34 @@ def try_dismiss_dialogs(platform, driver) -> list[str]:
     return dismissed
 
 
-def with_dismiss_note(outcome: str, dismissed: list[str]) -> str:
-    """在結果文字最後補上「先關掉了哪些彈窗」，網頁上看得到這一步是重試後才通過的"""
-    note = f"已先關掉非預期彈窗（按了「{'」「'.join(dismissed)}」）"
+def with_note(outcome: str, note: str) -> str:
+    """在結果文字最後的括號裡補一段說明"""
     if outcome.endswith("）"):
         return outcome[:-1] + f"；{note}）"
     return f"{outcome}（{note}）"
+
+
+def with_dismiss_note(outcome: str, dismissed: list[str]) -> str:
+    """在結果文字最後補上「先關掉了哪些彈窗」，網頁上看得到這一步是重試後才通過的"""
+    return with_note(outcome, f"已先關掉非預期彈窗（按了「{'」「'.join(dismissed)}」）")
+
+
+@contextmanager
+def idle_wait_disabled(driver):
+    """暫時把 waitForIdleTimeout 設 0（UiAutomator2、XCUITest 都有這個設定），結束後還原"""
+    try:
+        original = driver.get_settings().get("waitForIdleTimeout")
+        driver.update_settings({"waitForIdleTimeout": 0})
+    except Exception:
+        original = None
+    try:
+        yield
+    finally:
+        if original is not None:
+            try:
+                driver.update_settings({"waitForIdleTimeout": original})
+            except Exception:
+                pass
 
 
 def set_stop_checker(checker) -> None:
@@ -526,6 +549,11 @@ def banner_texts(step: dict) -> list[str]:
     return [t for t in texts if t]
 
 
+# 跑馬燈監看的錄影狀態：run_step_in_case 在觸發的那一步之前開錄、記下開始時間，
+# run_banner_group 監看完停止（有 FAIL 才存檔），用開始時間把「第幾秒抓到什麼」對到影片上
+_banner_capture = {"started": None}
+
+
 def run_banner_group(platform, driver, group: list) -> list[str]:
     """
     把連續好幾個 assert_banner 步驟合併成「一次監看」，回傳每一步各自的結果文字。
@@ -546,7 +574,20 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
 
     texts = list(dict.fromkeys(t for step in group for t in banner_texts(step)))
     timeout = sum(step.get("timeout", 10) for step in group)
-    found, seen_at, note = platform.watch_banner(driver, texts, timeout) if texts else ({}, {}, "")
+    watch_started = time.time()
+    try:
+        found, seen_at, note = platform.watch_banner(driver, texts, timeout) if texts else ({}, {}, "")
+    finally:
+        rec_started, _banner_capture["started"] = _banner_capture["started"], None
+    if rec_started is not None:
+        missed = not texts or not all(found.get(t) for t in texts)
+        video = platform.stop_capture(
+            driver, f"test_results/banner_fail_{time.strftime('%Y%m%d_%H%M%S')}.mp4" if missed else None)
+        if video:
+            timeline = "、".join(f"「{t}」在第 {seen_at[t] - rec_started:.1f} 秒抓到" for t in texts if t in seen_at)
+            note = (note + "，" if note else "") + (
+                f"錄影存在 {video}（監看從影片第 {watch_started - rec_started:.1f} 秒開始"
+                + (f"；{timeline}" if timeline else "") + "）")
 
     outcomes = []
     order_violations = []  # (後一步的 k, 早了幾秒)
@@ -636,7 +677,23 @@ def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, ban
         return banner_outcomes.pop(i)
     step = steps[i - 1]
     if step.get("action") != "assert_banner":
-        return execute_step_dismissing_dialogs(platform, driver, step, el)
+        if not (platform.supports_banner and next_is_banner_check(steps, i)):
+            return execute_step_dismissing_dialogs(platform, driver, step, el)
+        # 下一步要驗跑馬燈：這一步（通常是送出委託的 tap）也不能等 App 靜止。UiAutomator2／XCUITest
+        # 點擊後預設會等畫面靜止才回傳（最多 waitForIdleTimeout，預設 10 秒），報價一直跳的
+        # 下單頁永遠不會靜止，點擊要等好幾秒才回來，第一個跑馬燈就在這段時間出現又消失了
+        # 跑馬燈偶爾漏看、又不好重現：從觸發的這一步之前就開始錄影，監看完沒抓到才留檔
+        platform.prepare_banner_watch(driver)
+        if platform.start_capture(driver):
+            time.sleep(0.5)  # 等錄影程式真的開始錄，免得錄不到按下去那一刻
+            _banner_capture["started"] = time.time()
+        started = time.time()
+        with idle_wait_disabled(driver):
+            outcome = execute_step_dismissing_dialogs(platform, driver, step, el)
+        elapsed = time.time() - started
+        if elapsed > 1.5:
+            outcome = with_note(outcome, f"這一步花了 {elapsed:.1f} 秒，跑馬燈可能在這段時間就出現了")
+        return outcome
     end = i
     while end < len(steps) and steps[end].get("action") == "assert_banner":
         end += 1

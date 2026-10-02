@@ -368,6 +368,44 @@
   .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; }
   .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: 11px; }
 
+  .seg-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--paper); }
+  .seg-switch button { border: none; background: transparent; color: var(--ink-soft); font: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 14px; cursor: pointer; }
+  .seg-switch button + button { border-left: 1px solid var(--line-strong); }
+  .seg-switch button:hover { color: var(--ink); }
+  .seg-switch button[aria-selected="true"] { background: var(--accent); color: #fff; }
+  #runModeSingle[hidden], #runModeBatch[hidden] { display: none !important; }
+  .batch-group { border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .batch-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .batch-group-head h3 { font-size: 12.5px; margin: 0; margin-right: auto; }
+  .batch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .batch-row .lbl { color: var(--ink-soft); min-width: 64px; }
+  .batch-cases { display: flex; flex-direction: column; gap: 4px; }
+  .batch-case { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 12px; }
+  .batch-case .idx { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
+  .batch-case .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .batch-case .meta { color: var(--ink-soft); font-size: 11px; margin-right: auto; }
+  .batch-case .warn { color: var(--gold); font-size: 11px; }
+  .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: 11px; cursor: pointer; }
+  .icon-btn:hover { border-color: var(--accent); }
+  .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status-chip { display: inline-block; min-width: 44px; text-align: center; padding: 2px 8px; border-radius: 99px; font-size: 10.5px; font-weight: 700; background: var(--grey-soft); color: var(--ink-soft); }
+  .status-chip.pass { background: var(--accent-soft); color: var(--accent-ink); }
+  .status-chip.fail { background: var(--danger-soft); color: var(--danger); }
+  .status-chip.skip { background: var(--gold-soft); color: var(--gold); }
+  .status-chip.running { background: var(--accent); color: #fff; }
+  .batch-result-case { border: 1px solid var(--line); border-radius: 8px; background: var(--paper-raised); margin-bottom: 6px; }
+  .batch-result-case > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-size: 12px; list-style: none; }
+  .batch-result-case > summary::-webkit-details-marker { display: none; }
+  .batch-result-case > summary .name { font-weight: 600; margin-right: auto; }
+  .batch-result-case > summary .meta { color: var(--ink-soft); font-size: 11px; }
+  .batch-result-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+  .batch-nav-log { margin: 0; padding-left: 18px; color: var(--ink-soft); }
+  .batch-step-line { display: flex; gap: 6px; }
+  .batch-step-line .no { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
+  .batch-step-line.pass .out { color: var(--accent-ink); }
+  .batch-step-line.fail .out { color: var(--danger); }
+  .batch-step-line.skip .out { color: var(--gold); }
+
   .script-step-card { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--paper-raised); }
   .script-step-card.pass { border-left: 4px solid var(--accent); }
   .script-step-card.fail { border-left: 4px solid var(--danger); }
@@ -567,8 +605,21 @@
 
   <section class="tab-panel" id="tab-runscript">
     <section class="panel">
-      <div class="panel-head"><h2>測案執行</h2></div>
-      <div class="detail-body" style="max-height:none;">
+      <div class="panel-head">
+        <h2>測案執行</h2>
+        <div class="seg-switch" role="tablist" aria-label="執行方式">
+          <button role="tab" id="runModeSingleBtn" aria-selected="true" aria-controls="runModeSingle">單份執行</button>
+          <button role="tab" id="runModeBatchBtn" aria-selected="false" aria-controls="runModeBatch">批次執行</button>
+        </div>
+      </div>
+      <div class="detail-body" style="max-height:none;display:flex;flex-direction:column;gap:10px;">
+        <div class="conn-bar">
+          <span>裝置橋接：</span>
+          <input type="text" id="runscriptServerUrl" value="http://127.0.0.1:8767">
+          <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
+          <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
+        </div>
+        <div id="runModeSingle" role="tabpanel" style="display:flex;flex-direction:column;gap:10px;">
         <div class="field-row">
           <span>資料來源：預設用目前載入的地圖；也可以另外上傳</span>
           <label class="file-btn-label">📂 element_map.json<input type="file" id="runscriptElmapInput" accept="application/json"></label>
@@ -576,12 +627,6 @@
         </div>
         <div class="source-line" id="runscriptMapSourceLine"></div>
         <div class="source-line" id="runscriptCaseSourceLine"></div>
-        <div class="conn-bar">
-          <span>裝置橋接：</span>
-          <input type="text" id="runscriptServerUrl" value="http://127.0.0.1:8767">
-          <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
-          <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
-        </div>
         <div class="btn-row">
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
@@ -589,6 +634,26 @@
           <label class="field-row" style="gap:4px;" title="步驟失敗時，先關掉擋在前面的彈窗（稍後再說／不用了／關閉…）再重試一次；只在失敗時才檢查，不會誤關測案本來要操作的對話框"><input type="checkbox" id="runscriptDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試（行銷／評分／推播邀請…）</label>
         </div>
         <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
+        </div>
+        <div id="runModeBatch" role="tabpanel" hidden style="display:flex;flex-direction:column;gap:10px;">
+        <div class="script-note">一次跑多份測案：每一組選一張地圖，再加入用這張地圖的一份或多份測案。每份測案開始前會自動回到它的起始畫面（先辨識目前在哪一頁 → 按返回或往下點 → 都不行才重開 App）。重開 App 後要登入的話，請在該組指定「登入測案」，登入頁也要在同一張地圖裡。</div>
+        <div class="btn-row">
+          <button class="btn" id="batchAddGroupBtn">＋ 新增一組地圖</button>
+          <label class="file-btn-label" title="匯入之前匯出的批次設定（內含地圖跟測案）">📂 匯入批次設定<input type="file" id="batchImportInput" accept="application/json"></label>
+          <button class="btn" id="batchExportBtn" disabled>⬇ 匯出批次設定</button>
+        </div>
+        <div id="batchGroups" style="display:flex;flex-direction:column;gap:10px;"></div>
+        <div class="btn-row">
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchAutoNavigate" checked> 每份測案開始前自動回到起始畫面</label>
+          <label class="field-row" style="gap:4px;" title="辨識不出目前畫面、按返回也回不去時，關掉 App 再打開，從首頁照地圖點過去；重開後要登入的話需要指定登入測案"><input type="checkbox" id="batchAllowRestart" checked> 回不去時允許重開 App</label>
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="batchRunBtn" disabled>▶ 執行批次</button>
+          <button class="btn danger" id="batchStopBtn" hidden>⏹ 停止</button>
+        </div>
+        <div id="batchResults"></div>
+        </div>
       </div>
     </section>
   </section>
@@ -894,13 +959,16 @@
   //     crawl_app_tree.py 重新爬到同一個畫面，不會認得這是同一個節點，
   //     只能靠人工核對、合併。
   function shortElToFullElement(el) {
-    return {
+    var out = {
       unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c,
       label: el.l, value: el.v, bounds: el.b, enabled: true, accessible: !!el.a,
       fingerprint: el.fp || null,
       description: el.d || "", description_source: el.d ? "llm_generated" : "skipped",
       status: "active"
     };
+    // 人工自訂的 XPath 也要匯出，不然匯出→載入（或拿匯出的地圖去批次執行）就不見了
+    if (el.custom_xpath) out.custom_xpath = el.custom_xpath;
+    return out;
   }
   function shortScreenToFull(s) {
     return {
@@ -1171,7 +1239,9 @@
   }
 
   function toShortEl(el) {
-    return { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds, fp: el.fingerprint };
+    var out = { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds, fp: el.fingerprint };
+    if (el.custom_xpath) out.custom_xpath = el.custom_xpath;  // 匯出再載入時保留人工自訂的 XPath
+    return out;
   }
 
   function rememberMapPlatform(screenData) {
@@ -2650,6 +2720,7 @@
     runscriptTestCase = llmgenLatestCase;
     runscriptTestCaseSource = { kind: "LLM測案產生的測案", name: llmgenLatestCase.test_name || "（未命名）" };
     renderRunscriptPreview();
+    setRunMode("single");
     document.querySelector('.tab-btn[data-tab="runscript"]').click();
   });
 
@@ -2847,6 +2918,304 @@
       runscriptStopBtn.textContent = "⏹ 停止";
     }
   });
+
+  // ================= 批次執行 =================
+  // 單份執行／批次執行二選一顯示，裝置橋接兩邊共用；上次用哪個記在這個瀏覽器（只是個人偏好，讀寫失敗就用單份）
+  var runModeSingleBtn = document.getElementById("runModeSingleBtn");
+  var runModeBatchBtn = document.getElementById("runModeBatchBtn");
+  function setRunMode(mode) {
+    var batch = mode === "batch";
+    document.getElementById("runModeSingle").hidden = batch;
+    document.getElementById("runModeBatch").hidden = !batch;
+    runModeSingleBtn.setAttribute("aria-selected", String(!batch));
+    runModeBatchBtn.setAttribute("aria-selected", String(batch));
+    try { localStorage.setItem("runMode", batch ? "batch" : "single"); } catch (e) { /* 無痕模式等情況存不了，不影響使用 */ }
+  }
+  runModeSingleBtn.addEventListener("click", function () { setRunMode("single"); });
+  runModeBatchBtn.addEventListener("click", function () { setRunMode("batch"); });
+  try { if (localStorage.getItem("runMode") === "batch") setRunMode("batch"); } catch (e) { /* 照預設用單份 */ }
+
+  // batchGroups：[{ mapName, map（全名格式）, setup: {name, case} | null, cases: [{name, case}] }]
+  // 地圖、測案都整份存在這裡（匯出的批次設定檔也是），之後只要匯入就能重跑同一組回歸測試，
+  // 不用再一個一個找檔案；代價是地圖改版後，批次設定要重新選一次地圖。
+  var batchGroups = [];
+  var batchGroupsEl = document.getElementById("batchGroups");
+  var batchRunBtn = document.getElementById("batchRunBtn");
+  var batchStopBtn = document.getElementById("batchStopBtn");
+  var batchExportBtn = document.getElementById("batchExportBtn");
+  var batchResultsEl = document.getElementById("batchResults");
+  var batchAutoNavigate = document.getElementById("batchAutoNavigate");
+  var batchAllowRestart = document.getElementById("batchAllowRestart");
+  var batchDismissDialogs = document.getElementById("batchDismissDialogs");
+  var batchRunning = false;
+  // 使用者手動展開／收合過的結果列（key = 組-份）；沒點過的照狀態決定：執行中、FAIL、SKIP 自動展開
+  var batchUserOpen = {};
+
+  function currentMapAsFull() {
+    return { app: app, screens: screens.map(shortScreenToFull), edges: edges, skipped: skipped };
+  }
+  function readJsonFile(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        try { resolve(JSON.parse(reader.result)); } catch (err) { reject(new Error(file.name + " 不是合法 JSON：" + err.message)); }
+      };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsText(file);
+    });
+  }
+  function mapScreenNames(map) {
+    return (map && map.screens || []).map(function (s) { return s.screen_name || s.name; });
+  }
+  function caseStartScreen(testCase) {
+    var first = (testCase.steps || []).find(function (s) { return s.action !== "assert_banner"; });
+    return first ? first.screen_name : null;
+  }
+  // 測案用到、但地圖裡沒有的畫面（執行時這些步驟會找不到元件）
+  function caseMissingScreens(testCase, map) {
+    var names = mapScreenNames(map), missing = [];
+    (testCase.steps || []).forEach(function (s) {
+      if (s.action !== "assert_banner" && s.screen_name && names.indexOf(s.screen_name) < 0 && missing.indexOf(s.screen_name) < 0) missing.push(s.screen_name);
+    });
+    return missing;
+  }
+  function caseRowHtml(gi, ci, item, map, isSetup) {
+    var start = caseStartScreen(item.case);
+    var missing = map ? caseMissingScreens(item.case, map) : [];
+    var n = (item.case.steps || []).length;
+    return '<div class="batch-case">' +
+      '<span class="idx">' + (isSetup ? "🔑" : ci + 1) + "</span>" +
+      '<span class="name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.case.test_name || item.name) + "</span>" +
+      '<span class="meta">' + n + " 步・起點「" + escapeHtml(start || "—") + "」</span>" +
+      (missing.length ? '<span class="warn" title="這些畫面不在這組的地圖裡，執行時會找不到元件">⚠️ 地圖缺少：' + escapeHtml(missing.join("、")) + "</span>" : "") +
+      (isSetup ? "" :
+        '<button class="icon-btn" data-act="up" data-g="' + gi + '" data-c="' + ci + '" title="往上移"' + (ci === 0 ? " disabled" : "") + ">↑</button>" +
+        '<button class="icon-btn" data-act="down" data-g="' + gi + '" data-c="' + ci + '" title="往下移"' + (ci === batchGroups[gi].cases.length - 1 ? " disabled" : "") + ">↓</button>") +
+      '<button class="icon-btn" data-act="' + (isSetup ? "remove-setup" : "remove-case") + '" data-g="' + gi + '" data-c="' + ci + '" title="移除">✕</button>' +
+      "</div>";
+  }
+  function renderBatchGroups() {
+    if (!batchGroups.length) {
+      batchGroupsEl.innerHTML = '<div class="empty-state">還沒有任何一組。按「＋ 新增一組地圖」開始，或匯入之前匯出的批次設定。</div>';
+    } else {
+      batchGroupsEl.innerHTML = batchGroups.map(function (g, gi) {
+        var mapInfo = g.map ? escapeHtml(g.mapName) + "（" + mapScreenNames(g.map).length + " 個畫面）" : '<span class="warn">尚未選擇地圖</span>';
+        return '<div class="batch-group">' +
+          '<div class="batch-group-head"><h3>第 ' + (gi + 1) + " 組</h3>" +
+          '<button class="icon-btn" data-act="remove-group" data-g="' + gi + '" title="移除這一組">✕ 移除這組</button></div>' +
+          '<div class="batch-row"><span class="lbl">地圖</span><span>' + mapInfo + "</span>" +
+          '<button class="icon-btn" data-act="use-current-map" data-g="' + gi + '">使用目前地圖</button>' +
+          '<label class="icon-btn">📂 上傳地圖<input type="file" hidden accept="application/json" data-act="map-file" data-g="' + gi + '"></label></div>' +
+          '<div class="batch-row"><span class="lbl">登入測案</span>' +
+          (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
+          '<label class="icon-btn">📂 選擇<input type="file" hidden accept="application/json" data-act="setup-file" data-g="' + gi + '"></label></div>' +
+          (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, g.map, true) + "</div>" : "") +
+          '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
+          '<label class="icon-btn">📂 加入測案（可多選）<input type="file" hidden multiple accept="application/json" data-act="case-files" data-g="' + gi + '"></label></div>' +
+          '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
+            '<div style="font-size:11.5px;color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
+          "</div>";
+      }).join("");
+    }
+    var ready = batchGroups.length > 0 && batchGroups.every(function (g) { return g.map && g.cases.length; });
+    batchRunBtn.disabled = !ready || batchRunning;
+    batchExportBtn.disabled = !batchGroups.length;
+  }
+  function addBatchGroup(useCurrentMap) {
+    batchGroups.push({ mapName: useCurrentMap ? currentMapSourceName() : null, map: useCurrentMap ? currentMapAsFull() : null, setup: null, cases: [] });
+    renderBatchGroups();
+  }
+  document.getElementById("batchAddGroupBtn").addEventListener("click", function () {
+    addBatchGroup(screens.length > 0);
+  });
+  batchGroupsEl.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn || batchRunning) return;
+    var gi = Number(btn.dataset.g), ci = Number(btn.dataset.c), g = batchGroups[gi];
+    var act = btn.dataset.act;
+    if (act === "remove-group") batchGroups.splice(gi, 1);
+    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); }
+    else if (act === "remove-case") g.cases.splice(ci, 1);
+    else if (act === "remove-setup") g.setup = null;
+    else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
+    else if (act === "down" && ci < g.cases.length - 1) g.cases.splice(ci + 1, 0, g.cases.splice(ci, 1)[0]);
+    renderBatchGroups();
+  });
+  batchGroupsEl.addEventListener("change", async function (e) {
+    var input = e.target.closest("input[type=file][data-act]");
+    if (!input) return;
+    var g = batchGroups[Number(input.dataset.g)], files = Array.prototype.slice.call(input.files);
+    input.value = "";
+    try {
+      if (input.dataset.act === "map-file") {
+        var map = await readJsonFile(files[0]);
+        if (!Array.isArray(map.screens)) throw new Error("找不到 screens 陣列，請用「地圖檢視」匯出的地圖或 app_map_tree.json");
+        g.map = map; g.mapName = files[0].name;
+      } else {
+        for (var i = 0; i < files.length; i++) {
+          var tc = await readJsonFile(files[i]);
+          if (!Array.isArray(tc.steps)) throw new Error(files[i].name + " 不是測試案例（找不到 steps 陣列）");
+          var item = { name: files[i].name, case: tc };
+          if (input.dataset.act === "setup-file") g.setup = item; else g.cases.push(item);
+        }
+      }
+    } catch (err) { alert(err.message); }
+    renderBatchGroups();
+  });
+  function batchOptions() {
+    return { auto_navigate: batchAutoNavigate.checked, allow_restart: batchAllowRestart.checked, dismiss_dialogs: batchDismissDialogs.checked };
+  }
+  batchExportBtn.addEventListener("click", function () {
+    var data = { batch_version: 1, exported_at: new Date().toISOString(), options: batchOptions(),
+      groups: batchGroups.map(function (g) { return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases }; }) };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "batch_" + new Date().toISOString().slice(0, 10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  document.getElementById("batchImportInput").addEventListener("change", async function (e) {
+    var file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    try {
+      var data = await readJsonFile(file);
+      if (!Array.isArray(data.groups)) throw new Error("這不是批次設定檔（找不到 groups）");
+      if (batchGroups.length && !confirm("匯入會取代目前的批次設定，確定嗎？")) return;
+      batchGroups = data.groups.map(function (g) {
+        return { mapName: g.map_name, map: g.map, setup: g.setup_case || null, cases: g.cases || [] };
+      });
+      var o = data.options || {};
+      if (o.auto_navigate !== undefined) batchAutoNavigate.checked = o.auto_navigate;
+      if (o.allow_restart !== undefined) batchAllowRestart.checked = o.allow_restart;
+      if (o.dismiss_dialogs !== undefined) batchDismissDialogs.checked = o.dismiss_dialogs;
+      batchResultsEl.innerHTML = "";
+      renderBatchGroups();
+    } catch (err) { alert(err.message); }
+  });
+
+  var BATCH_STATUS_LABEL = { pass: "PASS", fail: "FAIL", skip: "SKIP", running: "執行中", pending: "等待中" };
+  function outcomeClass(outcome) {
+    return outcome.indexOf("PASS") === 0 ? "pass" : outcome.indexOf("FAIL") === 0 ? "fail" : "skip";
+  }
+  function renderBatchResults(progress) {
+    var all = [];
+    progress.groups.forEach(function (g) { all = all.concat(g.cases); });
+    var count = function (st) { return all.filter(function (c) { return c.status === st; }).length; };
+    var totalSec = all.reduce(function (sum, c) { return sum + (c.duration || 0); }, 0);
+    var html = '<div class="compare-summary">' +
+      '<div class="summary-card confirmed"><div class="num">' + count("pass") + '</div><div class="label">PASS</div></div>' +
+      '<div class="summary-card missing"><div class="num">' + count("fail") + '</div><div class="label">FAIL</div></div>' +
+      '<div class="summary-card needs_review"><div class="num">' + count("skip") + '</div><div class="label">SKIP</div></div>' +
+      "</div>" +
+      '<div class="script-note">共 ' + all.length + " 份測案・已花 " + Math.round(totalSec) + " 秒" +
+      (progress.app_id ? "・App：" + escapeHtml(progress.app_id) : "") + (progress.stopped ? "・⏹ 已手動停止" : "") + "</div>";
+    progress.groups.forEach(function (g, gi) {
+      html += '<div class="section-label">第 ' + (gi + 1) + " 組：" + escapeHtml(g.map_name) +
+        (g.setup_name ? "（登入測案：" + escapeHtml(g.setup_name) + "）" : "") + "</div>";
+      g.cases.forEach(function (c, ci) {
+        var key = gi + "-" + ci;
+        var passed = c.results.filter(function (r) { return r.outcome.indexOf("PASS") === 0; }).length;
+        var open = batchUserOpen[key] !== undefined ? batchUserOpen[key] : (c.status === "running" || c.status === "fail" || c.status === "skip");
+        html += '<details class="batch-result-case" data-key="' + key + '"' + (open ? " open" : "") + ">" +
+          '<summary><span class="status-chip ' + c.status + '">' + (BATCH_STATUS_LABEL[c.status] || c.status) + "</span>" +
+          '<span class="name">' + escapeHtml(c.test_name || c.name) + "</span>" +
+          '<span class="meta">' + passed + "/" + c.total + " 步通過" + (c.duration != null ? "・" + c.duration + " 秒" : "") + "</span></summary>" +
+          '<div class="batch-result-body">' +
+          (c.reason ? '<div class="script-note warn">' + escapeHtml(c.reason) + "</div>" : "") +
+          (c.navigation.length ? '<div><b>回到起始畫面</b><ol class="batch-nav-log">' +
+            c.navigation.map(function (line) { return "<li>" + escapeHtml(line) + "</li>"; }).join("") + "</ol></div>" : "") +
+          (c.precheck ? '<div><b>第0步：</b>' + escapeHtml(c.precheck.message) + "</div>" : "") +
+          (c.results.length ? "<div><b>步驟</b>" + c.results.map(function (r) {
+            return '<div class="batch-step-line ' + outcomeClass(r.outcome) + '"><span class="no">' + r.index + "</span>" +
+              "<span>" + escapeHtml((r.action || "") + (r.note ? "｜" + r.note : "")) + '</span><span class="out">' + escapeHtml(r.outcome) + "</span></div>";
+          }).join("") + "</div>" : "") +
+          "</div></details>";
+      });
+    });
+    batchResultsEl.innerHTML = html;
+  }
+  batchResultsEl.addEventListener("click", function (e) {
+    var summary = e.target.closest("summary");
+    if (!summary) return;
+    var details = summary.parentElement;
+    batchUserOpen[details.dataset.key] = !details.open;  // click 發生在展開/收合之前
+  });
+  batchRunBtn.addEventListener("click", async function () {
+    var total = batchGroups.reduce(function (sum, g) { return sum + g.cases.length; }, 0);
+    var warnings = [];
+    batchGroups.forEach(function (g, gi) {
+      g.cases.concat(g.setup ? [g.setup] : []).forEach(function (c) {
+        var missing = caseMissingScreens(c.case, g.map);
+        if (missing.length) warnings.push("第 " + (gi + 1) + " 組「" + (c.case.test_name || c.name) + "」：地圖缺少 " + missing.join("、"));
+      });
+    });
+    var msg = "即將依序執行 " + batchGroups.length + " 組、共 " + total + " 份測案，會實際操作模擬器/裝置" +
+      (batchAllowRestart.checked ? "，必要時會重開 App" : "") + "。";
+    if (warnings.length) msg += "\n\n⚠️ 以下測案用到的畫面不在地圖裡，那些步驟會失敗：\n" + warnings.join("\n");
+    if (!confirm(msg + "\n\n確定要執行嗎？")) return;
+
+    var base = runscriptServerUrl.value.replace(/\/$/, "");
+    batchRunning = true;
+    batchUserOpen = {};
+    batchRunBtn.disabled = true;
+    batchRunBtn.textContent = "執行中...";
+    batchStopBtn.hidden = false;
+    batchStopBtn.disabled = false;
+    batchStopBtn.textContent = "⏹ 停止";
+    var timer = null, finished = false, polling = false;
+    try {
+      for (var i = 0; i < batchGroups.length; i++) await assertPlatformMatches(base, elementMapPlatform(batchGroups[i].map));
+      timer = setInterval(async function () {
+        if (polling || finished) return;
+        polling = true;
+        try {
+          var pr = await (await fetch(base + "/batch_progress")).json();
+          if (pr.running && !finished) {
+            var done = 0;
+            pr.groups.forEach(function (g) { g.cases.forEach(function (c) { if (["pass", "fail", "skip"].indexOf(c.status) >= 0) done++; }); });
+            batchRunBtn.textContent = "執行中（" + done + "/" + total + "）...";
+            renderBatchResults(pr);
+          }
+        } catch (e) { /* 輪詢失敗不影響主流程 */ }
+        polling = false;
+      }, 1000);
+      var res = await fetch(base + "/run_batch", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ options: batchOptions(), groups: batchGroups.map(function (g) {
+          return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases };
+        }) }),
+      });
+      finished = true;
+      var data = await res.json();
+      if (data.error) alert("批次執行失敗：" + data.error);
+      else renderBatchResults(data);
+    } catch (err) {
+      alert(failText("連線失敗", err, "（請確認 viewer_server.py 已啟動）"));
+    } finally {
+      finished = true;
+      if (timer) clearInterval(timer);
+      batchRunning = false;
+      batchRunBtn.textContent = "▶ 執行批次";
+      batchStopBtn.hidden = true;
+      renderBatchGroups();
+    }
+  });
+  batchStopBtn.addEventListener("click", async function () {
+    batchStopBtn.disabled = true;
+    batchStopBtn.textContent = "停止中（等目前步驟跑完）...";
+    try {
+      var data = await (await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      })).json();
+      if (data.error || !data.stopped) throw new Error(data.error || data.message);
+    } catch (err) {
+      alert("停止失敗：" + err.message);
+      batchStopBtn.disabled = false;
+      batchStopBtn.textContent = "⏹ 停止";
+    }
+  });
+  renderBatchGroups();
 
   initScenarioFromCurrentMap();
   initLlmgenFromCurrentMap();

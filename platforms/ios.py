@@ -628,6 +628,24 @@ class IOSPlatform:
         element.send_keys(value)
         return "PASS"
 
+    def prepare_banner_watch(self, driver) -> None:
+        pass  # iOS 的 predicate 查詢看得到所有視窗，不用事先準備
+
+    def start_capture(self, driver) -> bool:
+        return False  # XCUITest 錄影需要電腦裝 ffmpeg，目前沒用到 iOS，先不錄
+
+    def stop_capture(self, driver, save_path: str | None) -> str | None:
+        return None
+
+    # --- 批次執行的導航（navigator.py）---
+    def go_back(self, driver) -> None:
+        """iOS 沒有系統返回鍵，沿用爬蟲猜返回鈕的做法（導覽列返回鍵 → 左上角按鈕 → 左緣右滑）"""
+        from crawl_app_tree import go_back
+        go_back(driver)
+
+    def app_id(self, driver) -> str | None:
+        return DESIRED_CAPS.get("bundleId")
+
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
         永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""

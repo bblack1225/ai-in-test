@@ -21,6 +21,7 @@ Android（UiAutomator2）平台：執行測案、橋接伺服器用到的 Androi
 無 native id 元件的定位順序見 locate_generated_element()。
 """
 
+import base64
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -485,8 +486,51 @@ def _texts_in_source(xml_source: str) -> list[str]:
     return texts
 
 
+def _window_count(xml_source: str) -> int:
+    """page source 最上層有幾個視窗（開了 enableMultiWindows 才會有多個：狀態列、App、浮動層…）"""
+    try:
+        return len(ET.fromstring(xml_source))
+    except ET.ParseError:
+        return 0
+
+
+def _near_miss_selector(texts: list[str]) -> str | None:
+    """預期文字裡每兩個連續的中英數字當片段，組成一個 textMatches 查詢"""
+    grams = []
+    for t in texts:
+        chars = [c for c in t if c.isalnum()]
+        grams += ["".join(chars[i:i + 2]) for i in range(len(chars) - 1)]
+    grams = list(dict.fromkeys(grams))
+    if not grams:
+        return None
+    return f'new UiSelector().textMatches("(?s).*({"|".join(grams)}).*")'
+
+
+# prepare_banner_watch() 提早打開 enableMultiWindows 前的原始設定，watch_banner 結束時用它還原
+_pre_watch_settings = None
+
+
+def prepare_banner_watch(driver) -> None:
+    """
+    觸發跑馬燈的那一步（送出委託）之前先打開 enableMultiWindows。
+
+    實測（錄影對照）：有一次兩個跑馬燈在畫面上各停了 2 秒、5 秒，20 秒內抓了 26 次 page source
+    卻一次都沒看到，page source 最多只有 2 個視窗（狀態列＋App），跑馬燈那個視窗整個沒被回報。
+    推測是監看開始那一刻才打開 enableMultiWindows，無障礙服務重新設定還沒好、跑馬燈的視窗
+    剛好在這段時間建立就沒被追蹤到；所以提早在點擊前打開，讓它有時間準備
+    """
+    global _pre_watch_settings
+    try:
+        current = driver.get_settings()
+        if _pre_watch_settings is None:
+            _pre_watch_settings = {k: current[k] for k in ("enableMultiWindows",) if k in current}
+        driver.update_settings({"enableMultiWindows": True})
+    except Exception as e:
+        print(f"    [跑馬燈] 提早打開 enableMultiWindows 失敗：{type(e).__name__}")
+
+
 def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval: float = 0.1,
-                 source_interval: float = 2.0) -> tuple[dict, dict, str]:
+                 slow_source: float = 0.3) -> tuple[dict, dict, str]:
     """
     盯著畫面等跑馬燈/通知橫幅，比照 iOS 版（platforms/ios.watch_banner），回傳
     ({每段文字: 抓到它的那段文字，沒抓到是 None}, {每段文字: 第一次看到的時間}, 補充說明)。每段文字只要在
@@ -505,13 +549,33 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
       - UiSelector 只能比對單一節點、而且是原字比對，文字被拆成好幾個 TextView 或
         破折號全半形不同就抓不到；所以每隔 source_interval 秒另外抓一次整份 page
         source 做寬鬆比對（見 _texts_in_source、_normalize_banner_text）。
-        抓 page source 比較慢，只當備援，不拿來當主要輪詢
+      - **page source 不只是備援**：實測國泰證券的「買進-委託處理中」跑馬燈畫在另一個視窗，
+        UiSelector（包括 textMatches）完全查不到，只有開了 enableMultiWindows 的 page source
+        看得到（它由「買進-委託處理中」「｜」「陳○玲」三個 TextView 組成，比對到的是接起來的
+        那串）。跑馬燈只出現兩三秒，所以 page source 每一輪都抓、從一開始就抓；實測一次約
+        0.1 秒。只有單次超過 slow_source 秒（畫面很重）才拉長間隔（耗時的 3 倍），免得
+        UiAutomator2 一直忙著吐 page source、其他查詢排不進去。
+        （曾經改成「前 3 秒不抓、之後每 3 秒一次」，結果第一個跑馬燈每次都錯過）
     有文字沒抓到時，會把最後一次抓到的 page source 存到 test_results/，路徑放在
     補充說明裡，用來確認跑馬燈在畫面結構裡實際長什麼樣子。
     """
     found = {t: None for t in texts}
     seen_at = {}
     wanted = {t: _normalize_banner_text(t) for t in texts}
+    # 診斷用：預期文字拆成兩個字的片段（「買進-委託處理中」→ 買進、委託、處理…），監看期間另外記下
+    # 「新出現、含這些片段」的文字。沒抓到時列出來，就看得到實際跳的是不是別的字（例如委託失敗）
+    near_selector = _near_miss_selector(texts)
+    near_baseline, near_misses = None, []
+    # 診斷用：監看期間畫面上「新出現」的所有文字（不限相似）＋所有 Toast。委託被拒時 App 可能只跳
+    # 「餘額不足」這類完全不含預期字眼的提示，只看相似文字會漏掉。含數字的（報價、數量）一直在跳，排除
+    source_baseline, new_texts = None, []
+
+    def note_new(labels):
+        for label in labels:
+            label = label.strip()
+            if (label and not any(ch.isdigit() for ch in label) and label not in new_texts
+                    and (source_baseline is None or label not in source_baseline)):
+                new_texts.append(label)
     selectors = [f"new UiSelector().{method}({uiautomator_string_literal(t)})"
                  for t in texts for method in ("textContains", "descriptionContains")]
 
@@ -527,13 +591,24 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
                     found[t] = label
                     seen_at[t] = when
 
+    global _pre_watch_settings
     original = driver.get_settings()
+    if _pre_watch_settings is not None:  # 點擊前就打開了，還原成打開之前的值
+        original.update(_pre_watch_settings)
+        _pre_watch_settings = None
     driver.update_settings({"waitForIdleTimeout": 0, "enableMultiWindows": True})
+    window_refreshes, next_refresh_at = 0, None
     last_source = None
+    polls, source_times = 0, []
+    # 診斷用：抓到幾種不同的畫面結構、裡面最多有幾個視窗。報價頁一直跳價，正常每次都不一樣；
+    # 幾乎都一樣代表讀到的畫面結構凍住了（無障礙服務沒更新），跟「跑馬燈的視窗沒被列進來」分得開
+    source_hashes, max_windows = set(), 0
     try:
-        deadline = time.time() + timeout
-        next_source_at = time.time()
+        started = time.time()
+        deadline = started + timeout
+        next_source_at = started
         while time.time() < deadline:
+            polls += 1
             for selector in selectors:
                 try:
                     record(read_texts(driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, selector)), time.time())
@@ -541,32 +616,73 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
                     # 元素剛好在讀屬性時消失（stale），下一輪再查
                     pass
             try:
-                record(read_texts(driver.find_elements(AppiumBy.XPATH, "//android.widget.Toast")), time.time())
+                toasts = read_texts(driver.find_elements(AppiumBy.XPATH, "//android.widget.Toast"))
+                record(toasts, time.time())
+                note_new(f"Toast：{t.strip()}" for t in toasts if t.strip())
             except Exception:
                 pass
+            if near_selector and not all(found.values()):
+                try:
+                    labels = read_texts(driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, near_selector))
+                except Exception:
+                    labels = []
+                if near_baseline is None:
+                    near_baseline = set(labels)  # 一開始畫面上就有的（買進按鈕、看委託…）不算
+                else:
+                    near_misses += [l for l in labels if l and l not in near_baseline and l not in near_misses]
             if not all(found.values()) and time.time() >= next_source_at:
                 try:
                     # 時間記「開始抓」的那一刻：page source 可能要抓一兩秒，記抓完的時間會讓順序判斷偏晚
                     source_started = time.time()
                     last_source = driver.page_source
-                    record(_texts_in_source(last_source), source_started)
+                    source_times.append(time.time() - source_started)
+                    source_hashes.add(hash(last_source))
+                    max_windows = max(max_windows, _window_count(last_source))
+                    source_texts = _texts_in_source(last_source)
+                    record(source_texts, source_started)
+                    if source_baseline is None:
+                        source_baseline = set(t.strip() for t in source_texts)
+                    else:
+                        note_new(source_texts)
                 except Exception:
                     pass
-                next_source_at = time.time() + source_interval
+                last = source_times[-1] if source_times else 0
+                next_source_at = time.time() + (3 * last if last > slow_source else 0)
             if all(found.values()):
                 break
+            # 監看超過 1 秒還只看到狀態列＋App 兩個視窗：視窗清單可能沒更新（見 prepare_banner_watch），
+            # 把 enableMultiWindows 關掉再打開，逼無障礙服務重新回報視窗；之後每 2 秒一次
+            now = time.time()
+            if max_windows <= 2 and now - started > 1.0 and (next_refresh_at is None or now >= next_refresh_at):
+                try:
+                    driver.update_settings({"enableMultiWindows": False})
+                    driver.update_settings({"enableMultiWindows": True})
+                    window_refreshes += 1
+                except Exception:
+                    pass
+                next_refresh_at = now + 2.0
             time.sleep(poll_interval)
     finally:
         driver.update_settings({key: original[key] for key in ("waitForIdleTimeout", "enableMultiWindows")
                                 if key in original})
 
     note = ""
+    if not all(found.values()):
+        # 診斷用：快查做了幾輪、抓 page source 花多久——抓得很慢、快查輪數很少，就是跑馬燈出現時正在等 page source
+        note = (f"快查 {polls} 輪，抓整頁畫面結構 {len(source_times)} 次"
+                + (f"（最久 {max(source_times):.1f} 秒、內容不同的有 {len(source_hashes)} 種、"
+                   f"最多 {max_windows} 個視窗）" if source_times else "")
+                + (f"，重新整理視窗清單 {window_refreshes} 次" if window_refreshes else ""))
+        note += ("，監看期間新出現的相似文字：" + "、".join(f"「{l.strip()}」" for l in near_misses[:8])
+                 if near_misses else "，監看期間沒有新出現任何相似文字")
+        note += ("，畫面上新出現過的文字（不含數字）：" + "、".join(f"「{t[:30]}」" for t in new_texts[:12])
+                 if new_texts else "，畫面上沒有新出現過任何文字")
     if last_source and not all(found.values()):
         debug_path = f"test_results/banner_debug_{time.strftime('%Y%m%d_%H%M%S')}.xml"
         try:
             with open(debug_path, "w", encoding="utf-8") as f:
                 f.write(last_source)
-            note = f"最後一次的畫面結構存在 {debug_path}"
+            note += f"，最後一次的畫面結構存在 {debug_path}"
         except OSError:
             pass
     return found, seen_at, note
@@ -699,8 +815,42 @@ class AndroidPlatform:
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
 
+    def prepare_banner_watch(self, driver) -> None:
+        prepare_banner_watch(driver)
+
     def input_text(self, driver, element, value: str) -> str:
         return input_text(driver, element, value)
+
+    # --- 跑馬燈監看的錄影（除錯用，見 run_test_case.run_banner_group）---
+    def start_capture(self, driver) -> bool:
+        """開始錄手機畫面（UiAutomator2 內建，底層是 adb screenrecord，不用另外安裝）"""
+        try:
+            driver.start_recording_screen(timeLimit=180, bitRate=4000000, forceRestart=True)
+            return True
+        except Exception as e:
+            print(f"    [錄影] 開始錄影失敗，這次不錄：{type(e).__name__}：{e}")
+            return False
+
+    def stop_capture(self, driver, save_path: str | None) -> str | None:
+        """停止錄影；save_path 有給才存成 mp4（PASS 時不留檔），回傳存好的路徑"""
+        try:
+            data = driver.stop_recording_screen()
+        except Exception as e:
+            print(f"    [錄影] 停止錄影失敗：{type(e).__name__}：{e}")
+            return None
+        if not save_path or not data:
+            return None
+        with open(save_path, "wb") as f:
+            f.write(base64.b64decode(data))
+        return save_path
+
+    # --- 批次執行的導航（navigator.py）---
+    def go_back(self, driver) -> None:
+        driver.back()
+
+    def app_id(self, driver) -> str | None:
+        """capabilities 沒指定 appPackage（目前是接上已經開著的 App），用當下前景的 App"""
+        return ANDROID_DESIRED_CAPS.get("appPackage") or driver.current_package
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、

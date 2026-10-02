@@ -46,6 +46,7 @@ import base64
 import binascii
 import json
 import threading
+import time
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -55,6 +56,7 @@ from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
 from capture_screen_map import scan_screen
+from navigator import MapIndex, Navigator
 from platforms import PLATFORMS, get_platform
 from run_test_case import (
     StopRequested,
@@ -91,6 +93,8 @@ _stop_requested = threading.Event()
 # GET /test_progress 讓 viewer 執行中輪詢，看到目前跑到第幾步、已完成步驟的結果。
 # results 跟 run_test_script 共用同一個 list，_run_steps 每做完一步就會 append。
 _progress = {"running": False, "current": None, "total": 0, "results": [], "precheck": None}
+# 批次執行（/run_batch）的即時進度，GET /batch_progress 輪詢用；結構見 run_batch()
+_batch_progress = {"running": False, "groups": [], "current": None}
 # 讓捲動搜尋這類長迴圈也能被停止中斷（見 run_test_case.raise_if_stopped）
 set_stop_checker(_stop_requested.is_set)
 
@@ -693,6 +697,116 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
             wait_after_action(PLATFORM, d)
 
 
+# ---------------------------------------------------------------------------
+# /run_batch：一次跑多份測案。payload 是好幾組「一張地圖 → 一份或多份測案」：
+#   {"groups": [{"map_name", "map", "setup_case": {"name", "case"} | null,
+#                "cases": [{"name", "case"}, ...]}, ...],
+#    "options": {"auto_navigate", "allow_restart", "dismiss_dialogs"}}
+# 每份測案開始前用 navigator 把手機帶到它的起始畫面（見 navigator.py）；
+# setup_case 是「重開 App 後要先跑的登入測案」，畫面要在同一張地圖裡。
+# 一份測案失敗或回不到起點不會中斷整批，標成 FAIL／SKIP 後接著跑下一份。
+# ---------------------------------------------------------------------------
+
+def _case_status(results: list, stopped: bool) -> str:
+    outcomes = [r["outcome"] for r in results]
+    if any(o.startswith("FAIL") for o in outcomes):
+        return "fail"
+    if stopped or not outcomes or all(o.startswith("SKIP") for o in outcomes):
+        return "skip"
+    return "pass"
+
+
+def _first_screen(steps: list) -> str | None:
+    first = next((s for s in steps if s.get("action") != "assert_banner"), None)
+    return first.get("screen_name") if first else None
+
+
+def run_batch(payload: dict) -> dict:
+    groups_in = payload.get("groups") or []
+    options = payload.get("options") or {}
+    auto_navigate = options.get("auto_navigate", True)
+
+    d = get_driver()
+    app_id = payload.get("app_id") or PLATFORM.app_id(d)
+    groups = [{
+        "map_name": g.get("map_name") or "（未命名地圖）",
+        "setup_name": (g.get("setup_case") or {}).get("name"),
+        "cases": [{"name": c.get("name") or c.get("case", {}).get("test_name") or "（未命名測案）",
+                   "test_name": c.get("case", {}).get("test_name"), "status": "pending",
+                   "navigation": [], "precheck": None, "results": [],
+                   "total": len(c.get("case", {}).get("steps", [])), "duration": None, "reason": None}
+                  for c in g.get("cases") or []],
+    } for g in groups_in]
+
+    _stop_requested.clear()
+    _batch_progress.update(running=True, groups=groups, current=None, app_id=app_id)
+    _test_running.set()
+    set_dismiss_dialogs(options.get("dismiss_dialogs", False))
+    print(f"[批次執行] 開始：{len(groups)} 組地圖、{sum(len(g['cases']) for g in groups)} 份測案，App：{app_id}")
+    try:
+        with PLATFORM.page_source_context(d):
+            for gi, (g_in, g_out) in enumerate(zip(groups_in, groups)):
+                _run_batch_group(d, gi, g_in, g_out, app_id, auto_navigate, options.get("allow_restart", True))
+    finally:
+        set_dismiss_dialogs(False)
+        _test_running.clear()
+        _batch_progress.update(running=False, current=None)
+    return {"groups": groups, "stopped": _stop_requested.is_set(), "app_id": app_id}
+
+
+def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate: bool, allow_restart: bool):
+    index = MapIndex(g_in.get("map") or {})
+    screens_by_name = index.screens_for_execution()
+    setup = g_in.get("setup_case")
+
+    def run_setup():
+        steps = (setup.get("case") or {}).get("steps", [])
+        results = []
+        _run_steps(d, steps, screens_by_name, results)
+        failed = [r for r in results if r["outcome"].startswith("FAIL")]
+        summary = f"{len(results) - len(failed)}/{len(results)} 步通過"
+        if failed:
+            summary += f"，第 {failed[0]['index']} 步失敗：{failed[0]['outcome']}"
+        return not failed, summary
+
+    navigator = Navigator(PLATFORM, d, app_id, run_setup=run_setup if setup else None,
+                          setup_start=_first_screen((setup or {}).get("case", {}).get("steps", [])) if setup else None,
+                          allow_restart=allow_restart)
+
+    for ci, (c_in, c_out) in enumerate(zip(g_in.get("cases") or [], g_out["cases"])):
+        steps = (c_in.get("case") or {}).get("steps", [])
+        if _stop_requested.is_set():
+            c_out.update(status="skip", reason="使用者已停止")
+            continue
+        _batch_progress["current"] = {"group": gi, "case": ci}
+        c_out["status"] = "running"
+        started = time.time()
+        print(f"[批次執行] 第 {gi + 1} 組第 {ci + 1} 份：{c_out['name']}")
+
+        start_screen = _first_screen(steps)
+        try:
+            if auto_navigate and start_screen:
+                if not navigator.navigate_to(index, start_screen, c_out["navigation"]):
+                    c_out.update(status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」",
+                                 duration=round(time.time() - started, 1))
+                    continue
+            else:
+                c_out["precheck"] = _precheck_screen(d, steps, screens_by_name)
+                if c_out["precheck"]["status"] == "fail":
+                    c_out.update(status="skip", reason="第0步畫面檢查沒通過",
+                                 duration=round(time.time() - started, 1))
+                    continue
+            _run_steps(d, steps, screens_by_name, c_out["results"])
+        except StopRequested:
+            c_out["reason"] = "使用者已停止"
+        except Exception as e:
+            # 導航途中 Appium 出錯之類的：只影響這一份，記下原因接著跑下一份
+            c_out["reason"] = f"執行時發生錯誤：{type(e).__name__}：{e}"
+        crashed = (c_out["reason"] or "").startswith("執行時發生錯誤")
+        c_out["status"] = "fail" if crashed else _case_status(c_out["results"], _stop_requested.is_set())
+        c_out["duration"] = round(time.time() - started, 1)
+
+
 def stop_test_script() -> dict:
     if not _test_running.is_set():
         return {"stopped": False, "message": "目前沒有執行中的測試"}
@@ -748,6 +862,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/test_progress":
             self._send_json(200, {**_progress, "results": list(_progress["results"])})
             return
+        if self.path == "/batch_progress":
+            self._send_json(200, json.loads(json.dumps(_batch_progress, ensure_ascii=False, default=str)))
+            return
         if self.path == "/llm_scenarios_prompt":
             self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
             return
@@ -756,6 +873,7 @@ class Handler(BaseHTTPRequestHandler):
     KNOWN_PATHS = (
         "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
         "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
+        "/run_batch",
     )
     # 純 LLM 的代理不操作裝置，不需要Appium session存活，讓使用者就算手機
     # 還沒接好也能先設計測試案例
@@ -804,6 +922,8 @@ class Handler(BaseHTTPRequestHandler):
             return run_llm_chat(payload)
         if path == "/run_test_script":
             return run_test_script(payload)
+        if path == "/run_batch":
+            return run_batch(payload)
         if path == "/stop_test_script":
             return stop_test_script()
         if path == "/scan_screen":
