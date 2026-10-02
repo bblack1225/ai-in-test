@@ -25,20 +25,27 @@
        uv run python cleanup_images.py --delete
   3. crops/ 就算還被地圖引用也沒有程式會讀，確定不需要人工核對的話可以整批清掉：
        uv run python cleanup_images.py --all_crops --delete
+  4. workspace 專案：加 --project，清的是專案資料夾裡的 screenshots/、crops/，
+     引用從專案的 maps/（所有地圖）、backups/（爬蟲覆蓋前的備份）、cases/、batches/ 找；
+     網頁開著專案時地圖會自動存檔，不用先匯出：
+       uv run python cleanup_images.py --project mbroker-demo-ios
 """
 
 import argparse
 import re
 from pathlib import Path
 
+from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+
 PROJECT_DIR = Path(__file__).resolve().parent
 IMAGE_DIRS = ("screenshots", "crops")
 REF_PATTERN = re.compile(r"(screenshots|crops)/([^\"'\s\\?#]+\.png)")
 
 
-def reference_files(extra: list[str]) -> list[Path]:
-    files = sorted(PROJECT_DIR.glob("*.json")) + sorted(PROJECT_DIR.glob("*.html"))
-    files += sorted((PROJECT_DIR / "test_cases").glob("*.json"))
+def reference_files(base: Path, extra: list[str]) -> list[Path]:
+    files = sorted(base.glob("*.json")) + sorted(base.glob("*.html"))
+    for sub in ("test_cases", "maps", "backups", "cases", "batches"):
+        files += sorted((base / sub).glob("*.json"))
     for item in extra:
         path = Path(item).expanduser()
         if path.is_dir():
@@ -75,15 +82,25 @@ def main():
     parser.add_argument("--delete", action="store_true",
                         help="真的刪除（預設只列出清單）")
     parser.add_argument("--list", action="store_true", help="列出每個要刪除的檔名")
+    parser.add_argument("--project", default=None, help="清 workspace 這個專案資料夾裡的圖片")
+    parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="workspace 資料夾（預設 ./workspace）")
     args = parser.parse_args()
 
-    files = reference_files(args.refs)
+    base = PROJECT_DIR
+    if args.project:
+        try:
+            ws = Workspace(args.workspace)
+            ws.get_project(args.project)  # 確認專案存在（舊專案的 map.json 也會在這裡搬成 maps/main.json）
+            base = ws.project_dir(args.project)
+        except WorkspaceError as e:
+            raise SystemExit(f"錯誤：{e}")
+    files = reference_files(base, args.refs)
     refs = collect_references(files)
     print(f"檢查了 {len(files)} 個檔案裡的圖片引用")
 
     to_delete: list[Path] = []
     for folder in IMAGE_DIRS:
-        folder_path = PROJECT_DIR / folder
+        folder_path = base / folder
         images = sorted(folder_path.glob("*.png")) if folder_path.is_dir() else []
         if folder == "crops" and args.all_crops:
             unused = images

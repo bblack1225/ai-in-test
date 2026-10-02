@@ -27,14 +27,17 @@
 - `test_config.py` — Appium連線設定＋Gemini LLM設定，**換裝置/App先改這裡**
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 - `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
+- `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
 
 **瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
 - `app_map_viewer.html` — **目前主力工具**：地圖檢視、手動建樹、改版比對、
   測試情境產生、LLM測案產生、測案執行，全部整合在這一頁
 - `viewer.html` — 較早期的單畫面工具，Android測試目前還在用
 
-**資料檔案（跟程式同層，不要搬動，程式用相對路徑讀寫）**
-- `app_map_tree.json` — 爬蟲產出的樹狀地圖，`app_map_viewer.html`主要吃這個
+**資料檔案**
+- `workspace/projects/<專案>/` — **建議的存放方式**：`maps/`（地圖，可以依功能分好幾張）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
+- 以下是沒開專案時的舊方式（跟程式同層，程式用相對路徑讀寫，不要搬動）
+- `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
 - `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
 - `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
 - `test_cases/`／`test_results/` — 範例測試案例／執行結果截圖
@@ -284,8 +287,8 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 3. **視窗 2**：`uv run python viewer_server.py --platform ios`（一直開著），看到
    `用瀏覽器打開 http://127.0.0.1:8767/` 就代表成功
 4. 用瀏覽器打開 http://127.0.0.1:8767/ （**不要雙擊 HTML 檔**：用 `file://`
-   開的話截圖顯示不出來、也連不到伺服器，頁面頂端會出現提醒），按「📂 載入地圖
-   JSON」選 `app_map_tree.json`
+   開的話截圖顯示不出來、也連不到伺服器，頁面頂端會出現提醒），在頁首「專案」
+   選你的專案（上次開的專案會自動開啟）。還沒有專案的話見 3.3
 5. 按「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了（網頁跟 API
    同源，不用再填伺服器網址）
 
@@ -304,14 +307,65 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    ```
    跑完會看到 `element_map.json` 多一筆 `my_first_screen`，`screenshots/`
    多一張截圖
-3. 試跑自動爬蟲（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
+3. 建一個專案（見 3.3），試跑自動爬蟲寫進這個專案（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
    ```
-   uv run python crawl_app_tree.py --root_name my_first_screen --max_depth 1 --max_screens 5
+   uv run python crawl_app_tree.py --project my-app-ios --map main --root_name my_first_screen --max_depth 1 --max_screens 5
    ```
-   跑完會產生/更新 `app_map_tree.json`。注意：爬蟲預設**會點擊所有元件**，
-   「下單、送出、確認」這類風險關鍵字的黑名單要加 `--safe_keywords` 才會
-   啟用，連到正式環境或真實帳號時一定要加
-4. 照 3.1 啟動橋接伺服器和網頁，載入剛產生的 `app_map_tree.json`
+   跑完會更新 `workspace/projects/my-app-ios/maps/main.json`（這張地圖原本有畫面的話先備份到
+   `backups/main-<時間>.json`）。依功能分開爬就換 `--map` 名稱，例如 `--map trading`，
+   不會蓋到其他地圖。不加 `--project` 的話照舊寫 `app_map_tree.json`。
+   注意：爬蟲預設**會點擊所有元件**，「下單、送出、確認」這類風險關鍵字的黑名單
+   要加 `--safe_keywords` 才會啟用，連到正式環境或真實帳號時一定要加
+4. 照 3.1 啟動橋接伺服器和網頁，選剛才的專案
+
+### 3.3 專案（workspace）
+
+地圖、截圖、測案、批次設定都存在 `workspace/projects/<專案代號>/`，一支 App 的一個
+平台一個專案（iOS 和 Android 畫面結構不同，地圖不能共用）。一個專案可以有很多張地圖，
+通常是依功能分開爬（例如交易、帳務各一張），彼此不會互相覆蓋。`workspace/` 不進 git
+（含畫面資料），交付給其他團隊時用「⬇ 匯出專案 zip」，對方用「📂 匯入專案 zip」。
+
+```
+workspace/projects/mbroker-demo-ios/
+├── project.json     專案設定：名稱、平台、bundle_id（爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個）
+├── maps/            地圖（跟 app_map_tree.json 同格式），預設 main，依功能可以有很多張
+│   ├── main.json
+│   └── trading.json
+├── backups/         爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
+├── screenshots/     所有地圖共用
+├── cases/*.json     測案（不綁地圖）
+└── batches/*.json   批次設定（地圖、測案都用名稱引用，執行時用最新版）
+```
+
+- **建立專案**：
+  ```
+  uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" --bundle_id com.cathay.securities.tw.mBroker.Demo
+  ```
+- **把舊資料搬進專案**（複製，原檔不動；截圖會一起複製、路徑會改成相對專案資料夾）：
+  ```
+  uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
+  ```
+  地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
+  第一次被讀到時會自動搬成 `maps/main.json`
+- **修改專案設定**（名稱、bundle id／package；平台不能改，地圖是照那個平台掃出來的）：
+  ```
+  uv run python workspace.py update mbroker-demo-ios --bundle_id com.cathay.securities.tw.mBroker.Demo
+  ```
+  bundle id 留空的話，iOS 用 `test_config.py` 的 `bundleId`、Android 用當下前景的 App；
+  兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到
+- **網頁上的行為**：
+  - 頁首「地圖」切換專案裡的地圖（記住每個專案上次開哪張），旁邊可以「＋ 新地圖」「⧉ 複製」
+    「✎ 改名」（專案裡存的批次會跟著改）「🗑 刪除地圖」（最後一張不能刪）
+  - 地圖（手動建樹、刪節點、重新掃描、自訂 XPath）改了**自動存檔**到目前這張，頁首顯示存檔狀態；
+    掃描的截圖直接存進專案資料夾
+  - 「📂 匯入地圖檔成新地圖」：開著專案時載入地圖檔會新增一張，不會蓋掉現有的
+  - 地圖同時被別的地方改過（另一個分頁、爬蟲）會擋下來不覆蓋，頁首提示重新載入
+  - 「LLM測案產生」按「💾 存到專案」存測案，「📁 從專案開啟…」載入來修改
+  - 「測案執行」可以直接從下拉選單選專案測案；批次每一組可以「📁 選專案地圖」、「📁 從專案加入」測案，
+    整份批次按「💾 存到專案」，之後從「📁 開啟專案裡的批次」叫回來
+  - 原本的檔案載入／匯出都還在，給沒有專案的人交換單一檔案用
+- 伺服器預設讀 `./workspace`，要放別的地方用 `viewer_server.py --workspace <路徑>`
+  （`crawl_app_tree.py`、`workspace.py`、`cleanup_images.py` 也都有 `--workspace`）
 
 ---
 
@@ -337,6 +391,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
 | `test_config.py` | Appium 連線設定（iOS/Android 各一組 `DESIRED_CAPS`）＋ Gemini LLM 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `generate_content_with_retry()`（503錯誤自動重試）。**換裝置/App 主要改這裡** |
+| `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次的讀寫，以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面）；`viewer_server.py` 的 `/api/projects/...`、`crawl_app_tree.py --project` 都透過它。CLI：`list`／`create`／`import-legacy` |
 | `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**，`app_map_viewer.html`「改版比對」分頁裡的 JS 是從這支移植的展示版，兩邊邏輯要保持一致，但正式流程以這支 Python 版為準 |
 
 ### 4.4 瀏覽器工具（由 `viewer_server.py` 提供）
@@ -349,7 +404,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 | 檔案 | 用途 |
 |---|---|
-| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。**這個頁面本身沒有寫檔案的權限**，靠「⬇️匯出／📂載入」JSON 檔案的方式手動存檔，重新整理頁面不會保留手動編輯的內容 |
+| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
 | `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，Android 現在也能用 `app_map_viewer.html`，這支之後會退役 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
@@ -361,9 +416,12 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 > （原本在 `手機測試/` 資料夾裡，如果你拿到的是連同原始資料夾一起交接，
 > 這支應該還在；如果只拿到這個交接包本身，這支就沒有隨附）。
 
-### 4.5 資料檔案（跟程式放同一層，程式用相對路徑讀寫，不要搬動位置）
+### 4.5 資料檔案
 
-> 除了 `test_cases/` 之外，下表的檔案都列在 `.gitignore` 裡，**不會進
+建議用 `workspace/projects/<專案>/`（見 3.3）。下表是沒開專案時的舊方式，跟程式放同一層，
+程式用相對路徑讀寫，不要搬動位置。
+
+> 除了 `test_cases/` 之外，下表的檔案和 `workspace/` 都列在 `.gitignore` 裡，**不會進
 > git**：圖片體積大且可以重新產生；地圖 JSON 和截圖則會記錄畫面上的文字，
 > 可能包含帳號、金額等敏感資訊。要保留的話請另外備份。
 
@@ -396,7 +454,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 2. `docs/CRAWLER_TREE_HANDOFF.md` — 了解自動爬蟲目前的完成度跟已知問題
 3. `docs/JUDGMENT_LOGIC_REFERENCE.md` — 了解解析/定位邏輯的設計依據
 4. `docs/AUTOMATION_ARCHITECTURE_FLOW.md` — 了解整體資料流程
-5. 啟動 `viewer_server.py`、打開 http://127.0.0.1:8767/ ，載入 `app_map_tree.json`，實際操作一輪
+5. 啟動 `viewer_server.py`、打開 http://127.0.0.1:8767/ ，選一個專案（沒有的話照 3.3 建立或匯入），實際操作一輪
    熟悉介面（地圖檢視→手動建樹→情境產生→測案產生→測案執行）
 6. 需要時再查 `docs/TROUBLESHOOTING.md`
 
@@ -415,8 +473,11 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    捲動前最頂部那張，捲動後各輪的座標是相對那一輪自己的畫面，不是相對
    代表截圖）——這是已知限制，介面上有提示文字，預設不勾選這個選項
 3. **手動建樹產生的節點沒有真正的 `skeleton` 簽章**：`app_map_viewer.html`
-   匯出成全名格式給 `app_map_tree.json` 用時，`skeleton` 欄位會是
-   `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章）。
+   手動新增的節點存檔／匯出成全名格式時，`skeleton` 欄位會是
+   `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章；爬蟲
+   產生的節點會保留原本的 `skeleton`）。另外 `crawl_app_tree.py --project`
+   對同一張地圖是整份重爬、會蓋掉那張地圖（覆蓋前會先備份到 `backups/<地圖>-<時間>.json`），
+   手動建樹的節點要自己從備份補回來；想保留的話爬到另一張（換 `--map` 名稱）。
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
    多長出重複節點，需要人工核對合併
 4. **`gemini-flash-latest`／`gemini-pro-latest` 是會自動換版本的別名**，

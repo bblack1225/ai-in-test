@@ -32,11 +32,16 @@ iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊�
 
 輸出：app_map_tree.json（獨立檔，不動 element_map.json）。每掃完一個畫面就
 立刻整份重寫一次，中途中止也不會遺失已爬到的部分。
+加 --project <專案代號> 的話改寫進 workspace/projects/<專案>/maps/<地圖>.json（地圖名稱用
+--map 指定，預設 main；依功能分開爬就各取一個名稱，例如 --map trading），截圖存到專案資料夾，
+網頁開同一個專案就看得到；平台、bundle id 預設用專案設定的。同名地圖已經有畫面的話，
+會先備份到 backups/<地圖>-<時間>.json 再覆蓋。
 
 使用方式：
   1. 手動把 App 導航到子樹根畫面（例如某個 tab 的 landing），保持登入、螢幕解鎖
   2. python crawl_app_tree.py --root_name cathaysec_accounting --max_depth 3 --max_screens 40
      Android 加 --platform android（App 會用啟動當下前景的那一支）
+     寫進專案：加 --project cathaysec-ios --map accounting
      先 dry-run 看會點什麼：加 --dry_run（只掃根畫面、列候選、不點）
   3. 爬蟲期間不要開著 viewer_server.py，同一台裝置同時只能有一條 Appium 連線
 
@@ -57,6 +62,7 @@ from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
+from workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
 from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
 from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 from run_test_case import xpath_literal
@@ -615,8 +621,8 @@ def save_map(state: dict, meta: dict) -> None:
         "edges": state["edges"],
         "skipped": state["skipped"],
     }
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    # 先寫暫存檔再改名：網頁可能剛好在讀這張地圖，不會讀到寫一半的 JSON
+    _write_json_atomic(OUTPUT_PATH, payload)
 
 
 def _screen_name(skeleton: dict, suggested: str, existing_names: set[str]) -> str:
@@ -990,7 +996,7 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
     print(f"\n[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
           f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
     screen_data = scan_screen(RULES.platform, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
-                               page_source=src)
+                               page_source=src, out_dir=cfg.get("out_dir"))
 
     record = {
         "screen_uid": uid,
@@ -1230,16 +1236,42 @@ def main():
     parser.add_argument("--sample_per_pattern", type=int, default=3,
                          help="同 name pattern（如 QuoteDataCell_*）點過 N 個都導到同一畫面，"
                               "就跳過其餘同 pattern 的候選（預設 3；設 0 關閉取樣）")
-    parser.add_argument("--platform", choices=sorted(CRAWL_RULES), default="ios", help="裝置平台（預設 ios）")
+    parser.add_argument("--platform", choices=sorted(CRAWL_RULES), default=None,
+                         help="裝置平台（預設：有 --project 用專案的平台，否則 ios）")
     parser.add_argument("--bundle_id", default=None,
                          help="App 的 bundle id（iOS）／package（Android），用來判斷有沒有跑出 App；"
-                              "預設 iOS 讀 test_config，Android 用啟動當下前景的 App")
+                              "預設用專案設定的，沒有的話 iOS 讀 test_config，Android 用啟動當下前景的 App")
+    parser.add_argument("--project", default=None,
+                         help="寫進 workspace 的這個專案（maps/<地圖>.json＋截圖），不寫 app_map_tree.json")
+    parser.add_argument("--map", default=DEFAULT_MAP,
+                         help=f"搭配 --project：寫進專案的哪張地圖（預設 {DEFAULT_MAP}；新名稱就新增一張）")
+    parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="workspace 資料夾（預設 ./workspace）")
     args = parser.parse_args()
 
-    global RULES
+    global RULES, OUTPUT_PATH
+    out_dir = None
+    project_bundle_id = None
+    if args.project:
+        ws = Workspace(args.workspace)
+        try:
+            project = ws.get_project(args.project)
+            OUTPUT_PATH = ws.map_path(args.project, args.map)
+        except WorkspaceError as e:
+            raise SystemExit(f"錯誤：{e}（專案要先用 workspace.py create 建立）")
+        if args.platform and args.platform != project["platform"]:
+            raise SystemExit(f"錯誤：專案「{args.project}」是 {project['platform']}，跟 --platform {args.platform} 不一致")
+        args.platform = project["platform"]
+        project_bundle_id = project.get("bundle_id") or None
+        out_dir = ws.project_dir(args.project)
+        backup = ws.backup_map(args.project, args.map)
+        if backup:
+            print(f"[爬蟲] 地圖「{args.map}」原本的內容已備份到 {backup}")
+        print(f"[爬蟲] 寫進專案「{args.project}」的地圖「{args.map}」：{OUTPUT_PATH}")
+    args.platform = args.platform or "ios"
+
     RULES = CRAWL_RULES[args.platform]()
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=RULES.platform.make_options())
-    bundle_id = args.bundle_id or RULES.default_app_id(driver)
+    bundle_id = args.bundle_id or project_bundle_id or RULES.default_app_id(driver)
     print(f"[爬蟲] 平台：{RULES.platform.name}，App：{bundle_id}")
 
     cfg = {
@@ -1252,6 +1284,7 @@ def main():
         "include_nav": args.include_nav,
         "sample_per_pattern": args.sample_per_pattern if args.sample_per_pattern > 0 else 10 ** 9,
         "bundle_id": bundle_id,
+        "out_dir": out_dir,
         "meta": {
             # app_map_viewer.html 讀這個欄位判斷地圖是哪個平台
             "platform": RULES.platform.name,
