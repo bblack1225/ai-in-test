@@ -400,8 +400,9 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    }}
 2. action 只能是這{action_count}種：
    - tap：點擊
-   - input_text：輸入文字，只對有 {PLATFORM.native_id_name} 的 native 元件有效
-     （沒有native id的輸入框無法可靠定位，不要對這種元件用input_text）。
+   - input_text：輸入文字。target 是使用者要輸入的那個欄位就好，有沒有 native id 都可以；
+     畫面上顯示數值、點了才跳出輸入列的元件（例如顯示「0 股」的 TextView）也直接對它用
+     input_text，執行時會自動先點開、輸入到跳出來的輸入框再送出，不要另外加 tap 步驟。
      帳號、密碼、身分證字號這類登入資料**不要寫真的值**，一律用環境變數代號：
      帳號 "${{LOGIN_ID}}"、密碼 "${{LOGIN_PASSWORD}}"，其他的照 "${{大寫英文名稱}}" 命名，
      執行時會從環境變數讀入；使用者在對話裡給了真的密碼也不要照抄進 JSON

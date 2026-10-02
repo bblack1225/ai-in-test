@@ -493,6 +493,36 @@ def ensure_visible(driver, element):
     return element
 
 
+_INPUT_TYPES = ("XCUIElementTypeTextField", "XCUIElementTypeSecureTextField",
+                "XCUIElementTypeTextView", "XCUIElementTypeSearchField")
+
+
+def focus_input(driver, element, timeout: float = 3.0):
+    """
+    回傳 (真正能打字的輸入框, 是不是點開後才出現的)。元件本身是（或包著）輸入框就直接用；
+    不是的話先點一下，再等鍵盤焦點落在某個輸入框上。點了也等不到就回傳 (None, True)
+    """
+    if element.get_attribute("type") in _INPUT_TYPES:
+        return element, False
+    inner = element.find_elements(AppiumBy.XPATH, " | ".join(f".//{t}" for t in _INPUT_TYPES))
+    if inner:
+        return inner[0], False
+    element.click()
+    deadline = time.time() + timeout
+    while True:
+        raise_if_stopped()
+        try:
+            active = driver.switch_to.active_element
+            if active is not None and active.get_attribute("type") in _INPUT_TYPES:
+                print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 name={active.get_attribute('name')!r}")
+                return active, True
+        except Exception:
+            pass
+        if time.time() >= deadline:
+            return None, True
+        time.sleep(0.3)
+
+
 def watch_banner(driver, texts: list[str], timeout: float = 10.0,
                  poll_interval: float = 0.1) -> tuple[dict, dict, str]:
     """
@@ -624,8 +654,16 @@ class IOSPlatform:
     def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
 
-    def input_text(self, driver, element, value: str) -> str:
+    def focus_input(self, driver, element):
+        return focus_input(driver, element)
+
+    def input_text(self, driver, element, value: str, submit: bool = False) -> str:
         element.send_keys(value)
+        if submit:
+            try:
+                driver.hide_keyboard()
+            except Exception as e:
+                print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
         return "PASS"
 
     def prepare_banner_watch(self, driver) -> None:

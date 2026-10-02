@@ -712,16 +712,51 @@ def _find_edit_text(element):
     return inner[0] if inner else element
 
 
-def input_text(driver, element, value: str) -> str:
+def focus_input(driver, element, timeout: float = 3.0):
+    """
+    回傳 (真正能打字的輸入框, 是不是點開後才出現的)。元件本身是（或包著）EditText 就直接用；
+    不是的話（例如顯示股數的 TextView，點了才從底部跳出輸入列）先點一下，再等取得焦點的
+    EditText 出現。點了也等不到就回傳 (None, True)
+    """
+    target = _find_edit_text(element)
+    if (target.get_attribute("class") or "").endswith("EditText"):
+        return target, False
+    element.click()
+    deadline = time.time() + timeout
+    while True:
+        raise_if_stopped()
+        focused = driver.find_elements(AppiumBy.XPATH, "//android.widget.EditText[@focused='true']")
+        if focused:
+            print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
+                  f"{focused[0].get_attribute('resource-id')!r}")
+            return focused[0], True
+        if time.time() >= deadline:
+            return None, True
+        time.sleep(0.3)
+
+
+def _submit_input(driver) -> None:
+    """按鍵盤的「完成」送出，讓點開後才跳出的輸入列把值寫回畫面並收起來"""
+    try:
+        driver.execute_script("mobile: performEditorAction", {"action": "done"})
+    except Exception as e:
+        print(f"    [輸入] 鍵盤「完成」送出失敗，改按 Enter: {e}")
+        driver.press_keycode(66)  # KEYCODE_ENTER
+
+
+def input_text(driver, element, value: str, submit: bool = False) -> str:
     """
     輸入文字。帳號密碼欄位常常擋掉 UiAutomator2 預設的「直接設定文字」（ACTION_SET_TEXT，
     錯誤是 InvalidElementStateException: Cannot set the element to ...），但還是接受
     一個鍵一個鍵的按鍵事件，所以被擋時改成先點一下取得焦點、再逐字模擬按鍵。
     App 自己畫的安全鍵盤（數字／亂序鍵盤）連按鍵事件都不收的話，這裡也打不進去，會回報 FAIL。
+    submit=True 時打完按鍵盤的「完成」送出（點開後才跳出的輸入列要送出才會寫回畫面）。
     """
     target = _find_edit_text(element)
     try:
         target.send_keys(value)
+        if submit:
+            _submit_input(driver)
         return "PASS"
     except InvalidElementStateException:
         pass
@@ -735,7 +770,10 @@ def input_text(driver, element, value: str) -> str:
         code = _KEYCODES[c]
         keycode, meta = code if isinstance(code, tuple) else (code, 0)
         driver.press_keycode(keycode, metastate=meta or None)
-    driver.hide_keyboard() if driver.is_keyboard_shown() else None
+    if submit:
+        _submit_input(driver)
+    elif driver.is_keyboard_shown():
+        driver.hide_keyboard()
     return "PASS（輸入框不接受直接設定文字，改用模擬按鍵逐字輸入）"
 
 
@@ -818,8 +856,11 @@ class AndroidPlatform:
     def prepare_banner_watch(self, driver) -> None:
         prepare_banner_watch(driver)
 
-    def input_text(self, driver, element, value: str) -> str:
-        return input_text(driver, element, value)
+    def focus_input(self, driver, element):
+        return focus_input(driver, element)
+
+    def input_text(self, driver, element, value: str, submit: bool = False) -> str:
+        return input_text(driver, element, value, submit)
 
     # --- 跑馬燈監看的錄影（除錯用，見 run_test_case.run_banner_group）---
     def start_capture(self, driver) -> bool:

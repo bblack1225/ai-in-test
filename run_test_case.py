@@ -20,8 +20,9 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
      錨點消歧義（見 TROUBLESHOOTING #36），各平台的細節見
      platforms/*.py 的 locate_generated_element()
   3. 都找不到、或 label 本身是空的，才退回用 bounds 座標點擊
-  4. input_text 只支援 native 元件——沒有 native id 的輸入框，代表這個
-     App 本身測試友善度不足，不適合硬用座標點擊+輸入解決，建議回報給開發團隊
+  4. input_text 定位跟 tap 一樣走 0~2，但不退回座標（打字打錯地方比點錯更難收拾）。
+     定位到的元件不是輸入框時（例如顯示數量的 TextView，點了才從底部跳出輸入列），
+     先點它、再對取得焦點的輸入框打字，打完送出（見 platforms/*.py 的 focus_input）
 
 使用方式：
   python run_test_case.py --screen_name 我的頁面               （預設 iOS）
@@ -245,22 +246,51 @@ def resolve_env_placeholders(value: str) -> tuple[str, list[str]]:
     return _ENV_PLACEHOLDER.sub(replace, value or ""), missing
 
 
+def _locate_input_element(platform, driver, el: dict):
+    """input_text 用的定位：自訂XPath → native id → 自動定位，回傳 (元件, 定位方式)，找不到元件是 None"""
+    custom = _locate_by_custom_xpath(driver, el)
+    if custom is not None:
+        return custom, "人工自訂XPath定位"
+    if el["id_source"] == "native":
+        try:
+            return driver.find_element(platform.native_by, el["native_id"]), f"{platform.native_id_name} 定位"
+        except NoSuchElementException:
+            return None, f"找不到元件: {el['native_id']}"
+    matched = platform.locate_generated_element(driver, el)
+    if matched is not None:
+        return matched, platform.generated_locate_label
+    return None, "無 native id 且自動定位查無唯一結果，不用座標盲點輸入"
+
+
 def run_input_text(platform, driver, el: dict, value: str) -> str:
-    if el["id_source"] != "native":
-        return f"SKIP（無 native id 的輸入框無法可靠定位，建議回報開發團隊補上 {platform.native_id_name}）"
     resolved, missing = resolve_env_placeholders(value)
     if missing:
         return (f"FAIL（環境變數沒設定：{'、'.join(missing)}，請在啟動 viewer_server 的視窗先 "
                 f"export {missing[0]}=... 再重新啟動）")
-    try:
-        element = driver.find_element(platform.native_by, el["native_id"])
-    except NoSuchElementException:
-        return f"FAIL（找不到元件: {el['native_id']}）"
+
+    element, how = _locate_input_element(platform, driver, el)
+    dismissed = []
+    if element is None:
+        raise_if_stopped()
+        dismissed = try_dismiss_dialogs(platform, driver)
+        if dismissed:
+            element, how = _locate_input_element(platform, driver, el)
+    if element is None:
+        return with_dismiss_note(f"FAIL（{how}）", dismissed) if dismissed else f"FAIL（{how}）"
+
+    platform.ensure_visible(driver, element)
+    target, opened = platform.focus_input(driver, element)
+    if target is None:
+        return f"FAIL（{how}；元件不是輸入框，點了之後也沒有出現取得焦點的輸入框）"
     try:
         # 結果文字不帶輸入的值：可能是密碼
-        return platform.input_text(driver, element, resolved)
+        outcome = platform.input_text(driver, target, resolved, submit=opened)
     except InvalidElementStateException as e:
         return f"FAIL（輸入框不接受輸入：{e.msg.splitlines()[0] if e.msg else type(e).__name__}）"
+    outcome = with_note(outcome, how)
+    if opened:
+        outcome = with_note(outcome, "先點開元件、輸入到跳出來的輸入框後送出")
+    return with_dismiss_note(outcome, dismissed) if dismissed else outcome
 
 
 def run_tap(platform, driver, el: dict) -> str:

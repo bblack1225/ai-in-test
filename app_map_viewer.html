@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root {
+    --font-scale: 1.15; /* 整頁字級倍率，1 = 原本大小 */
     --ink: #14181a;
     --ink-soft: #4b5459;
     --paper: #eef1ee;
@@ -71,7 +72,7 @@
     background: var(--paper);
     color: var(--ink);
     font-family: "IBM Plex Sans", -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-    font-size: 14px;
+    font-size: calc(14px * var(--font-scale));
     line-height: 1.5;
     padding-inline: max(16px, env(safe-area-inset-left, 0px));
     padding-block: 20px 40px;
@@ -87,11 +88,11 @@
   }
   .title-block { display: flex; flex-direction: column; gap: 4px; }
   .eyebrow {
-    font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--accent); font-weight: 600;
   }
-  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-  .meta-line { font-size: 12.5px; color: var(--ink-soft); }
+  h1 { font-size: calc(22px * var(--font-scale)); font-weight: 700; letter-spacing: -0.01em; }
+  .meta-line { font-size: calc(12.5px * var(--font-scale)); color: var(--ink-soft); }
   .meta-line .mono { color: var(--ink-soft); }
 
   .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -99,8 +100,8 @@
     background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 8px 14px; min-width: 84px; box-shadow: var(--shadow);
   }
-  .stat-tile .num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 600; line-height: 1.1; }
-  .stat-tile .lbl { font-size: 10.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+  .stat-tile .num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: calc(20px * var(--font-scale)); font-weight: 600; line-height: 1.1; }
+  .stat-tile .lbl { font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
 
   /* ---------- workspace ---------- */
   .workspace { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr); gap: 16px; align-items: start; }
@@ -114,8 +115,8 @@
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding: 12px 16px; border-bottom: 1px solid var(--line);
   }
-  .panel-head h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
-  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); }
+  .panel-head h2 { font-size: calc(13px * var(--font-scale)); font-weight: 600; letter-spacing: 0.02em; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 
@@ -146,7 +147,7 @@
   }
   .shot-frame img { display: block; width: 100%; height: auto; }
   .shot-frame::after {
-    content: "🔍 點圖放大操作"; position: absolute; inset: auto 0 0 0; padding: 3px 4px; font-size: 9px;
+    content: "🔍 點圖放大操作"; position: absolute; inset: auto 0 0 0; padding: 3px 4px; font-size: calc(9px * var(--font-scale));
     text-align: center; background: rgba(0,0,0,0.55); color: #fff;
   }
 
@@ -160,21 +161,21 @@
     width: 100%; max-width: 1100px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;
   }
   .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .modal-head h3 { font-size: 14px; font-weight: 600; }
-  .modal-close { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--ink-soft); padding: 4px 8px; border-radius: 6px; }
+  .modal-head h3 { font-size: calc(14px * var(--font-scale)); font-weight: 600; }
+  .modal-close { background: none; border: none; font-size: calc(16px * var(--font-scale)); cursor: pointer; color: var(--ink-soft); padding: 4px 8px; border-radius: 6px; }
   .modal-close:hover { background: var(--grey-soft); color: var(--ink); }
   .modal-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr); gap: 0; overflow: hidden; flex: 1; min-height: 0; }
   @media (max-width: 760px) { .modal-grid { grid-template-columns: 1fr; overflow-y: auto; } }
   .modal-stage-col { padding: 14px; overflow-y: auto; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .modal-list-col { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 
-  .conn-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--grey-soft); border-radius: 9px; font-size: 11.5px; width: 100%; }
-  .conn-bar input[type="text"] { flex: 1 1 180px; min-width: 140px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-raised); color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
-  .conn-status { font-weight: 700; padding: 2px 8px; border-radius: 99px; font-size: 10.5px; }
+  .conn-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--grey-soft); border-radius: 9px; font-size: calc(11.5px * var(--font-scale)); width: 100%; }
+  .conn-bar input[type="text"] { flex: 1 1 180px; min-width: 140px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-raised); color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: calc(11.5px * var(--font-scale)); }
+  .conn-status { font-weight: 700; padding: 2px 8px; border-radius: 99px; font-size: calc(10.5px * var(--font-scale)); }
   .conn-status.online { background: var(--accent-soft); color: var(--accent-ink); }
   .conn-status.offline { background: var(--danger-soft); color: var(--danger); }
   .conn-status.unknown { background: var(--grey-soft); color: var(--ink-soft); border: 1px solid var(--line); }
-  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-family: inherit; font-size: calc(11.5px * var(--font-scale)); font-weight: 600; cursor: pointer; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn.danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
@@ -191,44 +192,44 @@
   .el-box.picked { border-width: 2.5px; background: rgba(154,70,52,0.18); border-color: var(--danger); z-index: 2; }
 
   .picked-panel { display: flex; flex-direction: column; gap: 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--grey-soft); width: 100%; }
-  .picked-panel .pk-row { font-size: 11.5px; display: flex; gap: 6px; }
+  .picked-panel .pk-row { font-size: calc(11.5px * var(--font-scale)); display: flex; gap: 6px; }
   .picked-panel .pk-row b { color: var(--ink-soft); font-weight: 600; min-width: 56px; flex: 0 0 auto; }
-  .tap-result { font-size: 11.5px; padding: 6px 9px; border-radius: 7px; font-family: "IBM Plex Mono", monospace; }
+  .tap-result { font-size: calc(11.5px * var(--font-scale)); padding: 6px 9px; border-radius: 7px; font-family: "IBM Plex Mono", monospace; }
   .tap-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
   .tap-result.fail { background: var(--danger-soft); color: var(--danger); }
   .tap-result.pending { background: var(--grey-soft); color: var(--ink-soft); }
 
   .modal-list-row {
-    padding: 7px 9px; border-radius: 8px; background: var(--grey-soft); font-size: 11.5px; cursor: pointer; border: 1.5px solid transparent;
+    padding: 7px 9px; border-radius: 8px; background: var(--grey-soft); font-size: calc(11.5px * var(--font-scale)); cursor: pointer; border: 1.5px solid transparent;
   }
   .modal-list-row:hover { border-color: var(--line-strong); }
   .modal-list-row.picked { border-color: var(--danger); background: var(--danger-soft); }
-  .modal-list-row .row-top { display: flex; gap: 6px; align-items: center; font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); font-size: 10.5px; }
+  .modal-list-row .row-top { display: flex; gap: 6px; align-items: center; font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); font-size: calc(10.5px * var(--font-scale)); }
   .modal-list-row .row-desc { margin-top: 2px; color: var(--ink); }
   .screen-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .screen-id .name { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 15px; }
-  .screen-id .uid { font-size: 11px; color: var(--ink-soft); }
-  .breadcrumb { font-size: 12px; color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .screen-id .name { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: calc(15px * var(--font-scale)); }
+  .screen-id .uid { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); }
+  .breadcrumb { font-size: calc(12px * var(--font-scale)); color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .breadcrumb b { color: var(--ink); font-weight: 600; }
   .breadcrumb .sep { color: var(--line-strong); }
 
   .mini-stats { display: flex; gap: 8px; flex-wrap: wrap; }
   .mini-stat {
-    background: var(--grey-soft); border-radius: 8px; padding: 6px 10px; font-size: 11.5px; color: var(--ink-soft);
+    background: var(--grey-soft); border-radius: 8px; padding: 6px 10px; font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft);
     display: flex; gap: 5px; align-items: baseline;
   }
-  .mini-stat b { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .mini-stat b { font-family: "IBM Plex Mono", monospace; font-size: calc(13px * var(--font-scale)); color: var(--ink); font-variant-numeric: tabular-nums; }
 
   .section-label {
-    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft);
+    font-size: calc(11px * var(--font-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft);
     margin-bottom: 6px; display: block;
   }
   .edge-list { display: flex; flex-direction: column; gap: 5px; }
   .edge-row {
-    display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 8px; border-radius: 7px; background: var(--grey-soft);
+    display: flex; align-items: center; gap: 7px; font-size: calc(12px * var(--font-scale)); padding: 6px 8px; border-radius: 7px; background: var(--grey-soft);
   }
   .kind-tag {
-    font-size: 10px; font-weight: 700; padding: 1.5px 7px; border-radius: 99px; letter-spacing: 0.02em; flex: 0 0 auto;
+    font-size: calc(10px * var(--font-scale)); font-weight: 700; padding: 1.5px 7px; border-radius: 99px; letter-spacing: 0.02em; flex: 0 0 auto;
   }
   .kind-tree { background: var(--accent-soft); color: var(--accent-ink); }
   .kind-cross-link { background: var(--gold-soft); color: var(--gold); }
@@ -237,22 +238,22 @@
   .kind-chrome { background: var(--grey-soft); color: var(--grey-mid); border: 1px solid var(--line); }
   .edge-row .via { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .edge-row .to { color: var(--ink); font-weight: 500; flex: 0 0 auto; }
-  .empty-hint { font-size: 12px; color: var(--ink-soft); font-style: italic; }
+  .empty-hint { font-size: calc(12px * var(--font-scale)); color: var(--ink-soft); font-style: italic; }
 
   .search-box {
     width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper);
-    color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 12.5px;
+    color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: calc(12.5px * var(--font-scale));
   }
   .search-box:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  table.el-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.el-table { width: 100%; border-collapse: collapse; font-size: calc(11.5px * var(--font-scale)); }
   table.el-table th {
     position: sticky; top: 0; background: var(--paper-raised); text-align: left; font-weight: 600; color: var(--ink-soft);
-    padding: 5px 6px; border-bottom: 1px solid var(--line); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em;
+    padding: 5px 6px; border-bottom: 1px solid var(--line); font-size: calc(10.5px * var(--font-scale)); text-transform: uppercase; letter-spacing: 0.03em;
   }
   table.el-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.el-table td.cls { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); white-space: nowrap; }
   table.el-table td.lbl { color: var(--ink); word-break: break-word; }
-  table.el-table td.lbl .native { display: block; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ink-soft); }
+  table.el-table td.lbl .native { display: block; font-family: "IBM Plex Mono", monospace; font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); }
   .table-scroll { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .dot-tree { background: var(--accent); }
@@ -261,48 +262,48 @@
   .dot-chrome { background: var(--danger); opacity: 0.75; }
   .dot-none { background: var(--line-strong); }
 
-  footer.note { font-size: 11.5px; color: var(--ink-soft); padding-top: 4px; }
+  footer.note { font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); padding-top: 4px; }
   a { color: var(--accent); }
 
   /* ---------- 分頁系統（整合自 viewer.html） ---------- */
   .tab-bar { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 0; }
   .tab-btn {
     padding: 9px 14px; border: none; background: none; color: var(--ink-soft); font-family: inherit;
-    font-size: 13px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-size: calc(13px * var(--font-scale)); font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
   .tab-btn:hover { color: var(--ink); }
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-panel { display: none; flex-direction: column; gap: 16px; }
   .tab-panel.active { display: flex; }
 
-  .field-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
+  .field-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: calc(12.5px * var(--font-scale)); }
   .file-btn-label {
     display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 7px;
-    border: 1px solid var(--line-strong); background: var(--paper-raised); font-size: 11.5px; font-weight: 600;
+    border: 1px solid var(--line-strong); background: var(--paper-raised); font-size: calc(11.5px * var(--font-scale)); font-weight: 600;
     cursor: pointer;
   }
   .file-btn-label:hover { border-color: var(--accent); }
   .file-btn-label input[type="file"] { display: none; }
   textarea.xpath-input {
-    width: 100%; min-height: 56px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px;
+    width: 100%; min-height: 56px; font-family: "IBM Plex Mono", monospace; font-size: calc(11.5px * var(--font-scale));
     padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
     resize: vertical;
   }
   select.plain-select {
     padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper-raised);
-    color: var(--ink); font-family: inherit; font-size: 11.5px; max-width: 100%;
+    color: var(--ink); font-family: inherit; font-size: calc(11.5px * var(--font-scale)); max-width: 100%;
   }
-  .xpath-editor-result { font-size: 11px; padding: 5px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); }
+  .xpath-editor-result { font-size: calc(11px * var(--font-scale)); padding: 5px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); }
   .xpath-editor-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
   .xpath-editor-result.fail, .xpath-editor-result.error { background: var(--danger-soft); color: var(--danger); }
-  .el-locator { font-size: 11px; padding: 4px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); word-break: break-all; }
+  .el-locator { font-size: calc(11px * var(--font-scale)); padding: 4px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); word-break: break-all; }
   .el-locator .locator-type { font-weight: 700; margin-right: 6px; color: var(--ink); }
   .el-locator.custom { background: var(--gold-soft); color: var(--gold); }
 
   .compare-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
   .summary-card { background: var(--grey-soft); border-radius: 10px; padding: 10px 12px; text-align: center; }
-  .summary-card .num { font-family: "IBM Plex Mono", monospace; font-size: 22px; font-weight: 700; }
-  .summary-card .label { font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; }
+  .summary-card .num { font-family: "IBM Plex Mono", monospace; font-size: calc(22px * var(--font-scale)); font-weight: 700; }
+  .summary-card .label { font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); margin-top: 2px; }
   .summary-card.confirmed .num { color: var(--accent); }
   .summary-card.needs_review .num { color: var(--gold); }
   .summary-card.new .num { color: var(--ink-soft); }
@@ -313,92 +314,92 @@
   .match-card.needs_review { border-left: 4px solid var(--gold); }
   .match-card.new { border-left: 4px solid var(--line-strong); }
   .match-card.missing { border-left: 4px solid var(--danger); }
-  .match-verdict { font-size: 10.5px; font-weight: 700; padding: 1.5px 8px; border-radius: 99px; }
+  .match-verdict { font-size: calc(10.5px * var(--font-scale)); font-weight: 700; padding: 1.5px 8px; border-radius: 99px; }
   .match-verdict.confirmed { background: var(--accent-soft); color: var(--accent-ink); }
   .match-verdict.needs_review { background: var(--gold-soft); color: var(--gold); }
   .match-verdict.new { background: var(--grey-soft); color: var(--ink-soft); }
   .match-verdict.missing { background: var(--danger-soft); color: var(--danger); }
-  .match-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin-top: 6px; font-size: 12px; }
+  .match-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin-top: 6px; font-size: calc(12px * var(--font-scale)); }
   .match-arrow { color: var(--ink-soft); }
-  .mc-id { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--ink-soft); word-break: break-all; }
+  .mc-id { font-family: "IBM Plex Mono", monospace; font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); word-break: break-all; }
   .mc-desc { margin-top: 2px; }
-  .score-breakdown { font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
+  .score-breakdown { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); margin-top: 6px; }
   .score-total { font-weight: 700; color: var(--ink); }
   .match-apply-row { margin-top: 6px; }
-  .match-apply-btn { font-size: 11px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
-  .match-applied-note { font-size: 11px; color: var(--accent); font-weight: 600; }
-  .source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); }
+  .match-apply-btn { font-size: calc(11px * var(--font-scale)); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
+  .match-applied-note { font-size: calc(11px * var(--font-scale)); color: var(--accent); font-weight: 600; }
+  .source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: calc(12px * var(--font-scale)); padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); }
   .source-line .source-kind { font-weight: 600; }
   .source-line .source-name { font-family: "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
-  .source-line .btn { margin-left: auto; padding: 3px 9px; font-size: 11px; }
+  .source-line .btn { margin-left: auto; padding: 3px 9px; font-size: calc(11px * var(--font-scale)); }
   .source-line.empty { background: var(--grey-soft); color: var(--ink-soft); }
-  .script-note { font-size: 11px; color: var(--ink-soft); margin-top: 6px; padding: 6px 8px; background: var(--grey-soft); border-radius: 6px; }
+  .script-note { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); margin-top: 6px; padding: 6px 8px; background: var(--grey-soft); border-radius: 6px; }
   .script-note.warn { background: var(--gold-soft); color: var(--gold); }
 
-  .filter-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 99px; background: var(--grey-soft); font-size: 11px; cursor: pointer; }
+  .filter-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 99px; background: var(--grey-soft); font-size: calc(11px * var(--font-scale)); cursor: pointer; }
   .chat-box { display: flex; flex-direction: column; gap: 10px; }
   .chat-messages { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
-  .chat-msg { max-width: 80%; padding: 8px 11px; border-radius: 10px; font-size: 12.5px; white-space: pre-wrap; }
+  .chat-msg { max-width: 80%; padding: 8px 11px; border-radius: 10px; font-size: calc(12.5px * var(--font-scale)); white-space: pre-wrap; }
   .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
   .chat-msg.model { align-self: flex-start; background: var(--grey-soft); color: var(--ink); }
-  .chat-msg.system-note { align-self: center; background: var(--danger-soft); color: var(--danger); font-size: 11px; }
+  .chat-msg.system-note { align-self: center; background: var(--danger-soft); color: var(--danger); font-size: calc(11px * var(--font-scale)); }
   .chat-input-row { display: flex; gap: 8px; align-items: stretch; }
   .chat-box.drag-over .chat-messages { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
-  .attach-btn { padding: 6px 10px; font-size: 15px; }
+  .attach-btn { padding: 6px 10px; font-size: calc(15px * var(--font-scale)); }
   .attach-tray { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
   .attach-tray[hidden] { display: none; }
   .attach-item { position: relative; display: flex; align-items: center; gap: 8px; height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); overflow: visible; }
   .attach-item.image { width: 56px; }
   .attach-item.image img { width: 100%; height: 100%; object-fit: cover; border-radius: 9px; display: block; }
   .attach-item.doc { padding: 0 10px 0 6px; max-width: 200px; }
-  .attach-doc-icon { flex: none; width: 36px; height: 42px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; color: #fff; background: var(--grey-mid); }
+  .attach-doc-icon { flex: none; width: 36px; height: 42px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: calc(9.5px * var(--font-scale)); font-weight: 700; letter-spacing: 0.04em; color: #fff; background: var(--grey-mid); }
   .attach-doc-icon.pdf { background: var(--danger); }
-  .attach-doc-meta { display: flex; flex-direction: column; min-width: 0; font-size: 11px; line-height: 1.35; }
+  .attach-doc-meta { display: flex; flex-direction: column; min-width: 0; font-size: calc(11px * var(--font-scale)); line-height: 1.35; }
   .attach-doc-name { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .attach-doc-sub { color: var(--ink-soft); }
-  .attach-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-size: 12px; line-height: 1; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
+  .attach-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-size: calc(12px * var(--font-scale)); line-height: 1; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
   .attach-remove:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
   .chat-msg .attach-tray { padding: 0; border: none; background: transparent; margin-bottom: 6px; }
   .chat-msg.user .attach-item { border-color: transparent; }
-  .attach-hint { font-size: 11px; color: var(--ink-soft); }
+  .attach-hint { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); }
   .attach-hint.warn { color: var(--gold); }
-  .chat-input-row textarea { flex: 1; min-height: 44px; font-family: inherit; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); resize: vertical; }
-  pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
-  textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: 11px; background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
-  .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; }
-  .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: 11px; }
+  .chat-input-row textarea { flex: 1; min-height: 44px; font-family: inherit; font-size: calc(12.5px * var(--font-scale)); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); resize: vertical; }
+  pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
+  .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: calc(11px * var(--font-scale)); }
+  .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: calc(11px * var(--font-scale)); }
 
   .seg-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--paper); }
-  .seg-switch button { border: none; background: transparent; color: var(--ink-soft); font: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 14px; cursor: pointer; }
+  .seg-switch button { border: none; background: transparent; color: var(--ink-soft); font: inherit; font-size: calc(11.5px * var(--font-scale)); font-weight: 600; padding: 5px 14px; cursor: pointer; }
   .seg-switch button + button { border-left: 1px solid var(--line-strong); }
   .seg-switch button:hover { color: var(--ink); }
   .seg-switch button[aria-selected="true"] { background: var(--accent); color: #fff; }
   #runModeSingle[hidden], #runModeBatch[hidden] { display: none !important; }
   .batch-group { border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
   .batch-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .batch-group-head h3 { font-size: 12.5px; margin: 0; margin-right: auto; }
-  .batch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .batch-group-head h3 { font-size: calc(12.5px * var(--font-scale)); margin: 0; margin-right: auto; }
+  .batch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: calc(12px * var(--font-scale)); }
   .batch-row .lbl { color: var(--ink-soft); min-width: 64px; }
   .batch-cases { display: flex; flex-direction: column; gap: 4px; }
-  .batch-case { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 12px; }
+  .batch-case { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: calc(12px * var(--font-scale)); }
   .batch-case .idx { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
   .batch-case .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .batch-case .meta { color: var(--ink-soft); font-size: 11px; margin-right: auto; }
-  .batch-case .warn { color: var(--gold); font-size: 11px; }
-  .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: 11px; cursor: pointer; }
+  .batch-case .meta { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); margin-right: auto; }
+  .batch-case .warn { color: var(--gold); font-size: calc(11px * var(--font-scale)); }
+  .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: calc(11px * var(--font-scale)); cursor: pointer; }
   .icon-btn:hover { border-color: var(--accent); }
   .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .status-chip { display: inline-block; min-width: 44px; text-align: center; padding: 2px 8px; border-radius: 99px; font-size: 10.5px; font-weight: 700; background: var(--grey-soft); color: var(--ink-soft); }
+  .status-chip { display: inline-block; min-width: 44px; text-align: center; padding: 2px 8px; border-radius: 99px; font-size: calc(10.5px * var(--font-scale)); font-weight: 700; background: var(--grey-soft); color: var(--ink-soft); }
   .status-chip.pass { background: var(--accent-soft); color: var(--accent-ink); }
   .status-chip.fail { background: var(--danger-soft); color: var(--danger); }
   .status-chip.skip { background: var(--gold-soft); color: var(--gold); }
   .status-chip.running { background: var(--accent); color: #fff; }
   .batch-result-case { border: 1px solid var(--line); border-radius: 8px; background: var(--paper-raised); margin-bottom: 6px; }
-  .batch-result-case > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-size: 12px; list-style: none; }
+  .batch-result-case > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-size: calc(12px * var(--font-scale)); list-style: none; }
   .batch-result-case > summary::-webkit-details-marker { display: none; }
   .batch-result-case > summary .name { font-weight: 600; margin-right: auto; }
-  .batch-result-case > summary .meta { color: var(--ink-soft); font-size: 11px; }
-  .batch-result-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
+  .batch-result-case > summary .meta { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); }
+  .batch-result-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; font-size: calc(11.5px * var(--font-scale)); }
   .batch-nav-log { margin: 0; padding-left: 18px; color: var(--ink-soft); }
   .batch-step-line { display: flex; gap: 6px; }
   .batch-step-line .no { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
@@ -414,11 +415,11 @@
   .script-step-outcome.running { color: var(--accent); }
   .script-step-index { font-family: "IBM Plex Mono", monospace; font-weight: 700; color: var(--ink-soft); }
   .script-step-top { display: flex; gap: 8px; align-items: center; }
-  .script-step-action { font-weight: 700; font-size: 12px; }
-  .script-step-screen { font-size: 11px; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
-  .script-step-note { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
-  .script-step-target { font-size: 11px; font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); margin-top: 2px; word-break: break-all; }
-  .script-step-outcome { font-size: 11px; font-weight: 700; margin-top: 4px; }
+  .script-step-action { font-weight: 700; font-size: calc(12px * var(--font-scale)); }
+  .script-step-screen { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
+  .script-step-note { font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); margin-top: 2px; }
+  .script-step-target { font-size: calc(11px * var(--font-scale)); font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); margin-top: 2px; word-break: break-all; }
+  .script-step-outcome { font-size: calc(11px * var(--font-scale)); font-weight: 700; margin-top: 4px; }
   .script-step-outcome.pass { color: var(--accent); }
   .script-step-outcome.fail { color: var(--danger); }
   .script-step-outcome.skip { color: var(--gold); }
@@ -467,7 +468,7 @@
       <div class="btn-row" style="padding:0 16px 10px;align-items:center;">
         <button class="btn" id="exportMapBtn">⬇️ 匯出目前地圖（含手動新增的節點）</button>
         <label class="file-btn-label">📂 載入之前匯出的地圖<input type="file" id="importMapInput" accept="application/json"></label>
-        <span class="mono" id="mapSaveStatus" style="font-size:11px;color:var(--ink-soft);"></span>
+        <span class="mono" id="mapSaveStatus" style="font-size: calc(11px * var(--font-scale));color:var(--ink-soft);"></span>
       </div>
       <div class="diagram-scroll"><svg id="tree" xmlns="http://www.w3.org/2000/svg"></svg></div>
     </section>
@@ -524,7 +525,7 @@
         <div class="field-row">
           <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
           <button class="btn" id="scenarioSelectNoneBtn">全部取消</button>
-          <span class="mono" id="scenarioScreensCount" style="font-size:11.5px;color:var(--ink-soft);"></span>
+          <span class="mono" id="scenarioScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
         </div>
         <div id="scenarioScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
         <div class="conn-bar">
@@ -561,7 +562,7 @@
         <div class="field-row">
           <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
           <button class="btn" id="llmgenSelectNoneBtn">全部取消</button>
-          <span class="mono" id="llmgenScreensCount" style="font-size:11.5px;color:var(--ink-soft);"></span>
+          <span class="mono" id="llmgenScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
         </div>
         <div id="llmgenScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
         <div class="conn-bar">
@@ -677,8 +678,8 @@
         <div id="modalPickedHost" style="width:100%;"></div>
       </div>
       <div class="modal-list-col">
-        <input class="search-box" type="text" id="modalSearch" placeholder="搜尋 class／label／描述…" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size:12.5px;">
-        <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-soft);margin:6px 0;"><input type="checkbox" id="modalClickableOnly"> 只顯示可點擊元件</label>
+        <input class="search-box" type="text" id="modalSearch" placeholder="搜尋 class／label／描述…" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">
+        <label style="display:flex;align-items:center;gap:5px;font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);margin:6px 0;"><input type="checkbox" id="modalClickableOnly"> 只顯示可點擊元件</label>
         <div id="modalListHost" style="display:flex;flex-direction:column;gap:6px;overflow-y:auto;"></div>
       </div>
     </div>
@@ -1209,8 +1210,8 @@
     var html = "";
     html += '<div class="empty-hint">目前地圖沒有任何畫面。輸入名稱、把手機導到你想當作起點的畫面，按下面按鈕建立主節點（會直接掃描App目前畫面）。</div>';
     html += '<div class="field-row" style="margin-top:10px;flex-direction:column;align-items:stretch;">';
-    html += '<label style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">主節點名稱</label>';
-    html += '<input type="text" id="rootNodeName" value="root_screen" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size:12.5px;">';
+    html += '<label style="font-size: calc(12px * var(--font-scale));color:var(--ink-soft);margin-bottom:4px;">主節點名稱</label>';
+    html += '<input type="text" id="rootNodeName" value="root_screen" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">';
     html += "</div>";
     html += '<div class="btn-row" style="margin-top:8px;"><button class="btn primary" id="createRootBtn">🌱 建立主節點</button></div>';
     html += '<div class="empty-hint" style="margin-top:16px;">——或者，如果你手上已經有地圖 JSON（這個工具之前匯出的存檔，或專案正式的 app_map_tree.json）：</div>';
@@ -1343,7 +1344,7 @@
 
     html += '<div><span class="section-label">元件明細（' + s.els.length + '，可搜尋）</span>';
     html += '<input class="search-box" type="text" placeholder="搜尋 class / native_id / label…" id="elSearch">';
-    html += '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft);margin-top:6px;">' +
+    html += '<label style="display:flex;align-items:center;gap:5px;font-size: calc(12px * var(--font-scale));color:var(--ink-soft);margin-top:6px;">' +
       '<input type="checkbox" id="elClickableOnly"> 只顯示可點擊元件（iOS accessible／Android clickable=true，跟畫面上實際可互動的元件大致相符，但不是100%精準）</label>';
     html += '<div id="elTableHost" style="margin-top:6px;">' + renderElementTable(s, "", false) + "</div>";
     html += "</div>";
@@ -1645,8 +1646,8 @@
       '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(el.n || "—") + "</span></div>" +
       '<div class="pk-row"><b>描述</b><span>' + escapeHtml(el.d || "—") + "</span></div>" +
       '<div class="field-row" style="margin-top:8px;flex-direction:column;align-items:stretch;">' +
-      '<label style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">新畫面名稱</label>' +
-      '<input type="text" id="addNodeScreenName" value="' + escapeHtml(suggestedName) + '" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size:12.5px;">' +
+      '<label style="font-size: calc(12px * var(--font-scale));color:var(--ink-soft);margin-bottom:4px;">新畫面名稱</label>' +
+      '<input type="text" id="addNodeScreenName" value="' + escapeHtml(suggestedName) + '" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">' +
       "</div>" +
       '<div class="btn-row" style="margin-top:8px;"><button class="btn primary" id="addNodeSubmitBtn">🌱 執行點擊並建立節點</button></div>' +
       '<div class="tap-result pending" id="addNodeResult">還沒送出</div>' +
@@ -3013,7 +3014,7 @@
           '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
           '<label class="icon-btn">📂 加入測案（可多選）<input type="file" hidden multiple accept="application/json" data-act="case-files" data-g="' + gi + '"></label></div>' +
           '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
-            '<div style="font-size:11.5px;color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
+            '<div style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
           "</div>";
       }).join("");
     }
