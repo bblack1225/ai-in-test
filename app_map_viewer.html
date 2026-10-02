@@ -317,25 +317,6 @@
   .summary-card.new .num { color: var(--ink-soft); }
   .summary-card.missing .num { color: var(--danger); }
 
-  .match-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--paper-raised); }
-  .match-card.confirmed { border-left: 4px solid var(--accent); }
-  .match-card.needs_review { border-left: 4px solid var(--gold); }
-  .match-card.new { border-left: 4px solid var(--line-strong); }
-  .match-card.missing { border-left: 4px solid var(--danger); }
-  .match-verdict { font-size: calc(10.5px * var(--font-scale)); font-weight: 700; padding: 1.5px 8px; border-radius: 99px; }
-  .match-verdict.confirmed { background: var(--accent-soft); color: var(--accent-ink); }
-  .match-verdict.needs_review { background: var(--gold-soft); color: var(--gold); }
-  .match-verdict.new { background: var(--grey-soft); color: var(--ink-soft); }
-  .match-verdict.missing { background: var(--danger-soft); color: var(--danger); }
-  .match-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin-top: 6px; font-size: calc(12px * var(--font-scale)); }
-  .match-arrow { color: var(--ink-soft); }
-  .mc-id { font-family: "IBM Plex Mono", monospace; font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); word-break: break-all; }
-  .mc-desc { margin-top: 2px; }
-  .score-breakdown { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); margin-top: 6px; }
-  .score-total { font-weight: 700; color: var(--ink); }
-  .match-apply-row { margin-top: 6px; }
-  .match-apply-btn { font-size: calc(11px * var(--font-scale)); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
-  .match-applied-note { font-size: calc(11px * var(--font-scale)); color: var(--accent); font-weight: 600; }
   .source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: calc(12px * var(--font-scale)); padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); }
   .source-line .source-kind { font-weight: 600; }
   .source-line .source-name { font-family: "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
@@ -478,7 +459,6 @@
 
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="map">地圖檢視</button>
-    <button class="tab-btn" data-tab="compare">改版比對</button>
     <button class="tab-btn" data-tab="scenario">測試情境產生</button>
     <button class="tab-btn" data-tab="llmgen">LLM測案產生</button>
     <button class="tab-btn" data-tab="runscript">測案執行</button>
@@ -518,30 +498,6 @@
     有標色代表這個元件在爬蟲跑的當下實際被歸類過（點過導向新畫面／noop／被列為常駐 chrome 排除）；
     沒有標色代表這次跑爬蟲時根本沒輪到它（畫面候選很多、或中途 <span class="mono">recover_to</span> 失敗提早放棄）。
   </footer>
-  </section>
-
-  <section class="tab-panel" id="tab-compare">
-    <section class="panel">
-      <div class="panel-head"><h2>改版比對：相似度計分 + 人工確認識別碼延續</h2></div>
-      <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <label class="file-btn-label">📂 舊版 element_map.json<input type="file" id="oldJsonInput" accept="application/json"></label>
-          <select class="plain-select" id="oldScreenSelect" disabled></select>
-        </div>
-        <div class="field-row">
-          <label class="file-btn-label">📂 新版 element_map.json<input type="file" id="newJsonInput" accept="application/json"></label>
-          <select class="plain-select" id="newScreenSelect" disabled></select>
-        </div>
-        <div class="field-row">
-          <label class="file-btn-label">📂（選填）舊版測試腳本 JSON<input type="file" id="scriptJsonInput" accept="application/json"></label>
-        </div>
-        <div class="btn-row">
-          <button class="btn primary" id="compareBtn" disabled>執行比對</button>
-          <button class="btn" id="compareExportBtn" disabled>⬇ 匯出套用後的新版 JSON</button>
-        </div>
-        <div id="compareResults"></div>
-      </div>
-    </section>
   </section>
 
   <section class="tab-panel" id="tab-scenario">
@@ -1411,15 +1367,7 @@
     html += "</div>";
 
     html += '<div class="btn-row"><button class="btn" id="addNodeBtn" title="開啟視窗：在這個畫面選一個元件點擊，把點出來的畫面建成子節點（手動建樹）">🌱 從這裡點出新畫面…</button>' +
-      '<button class="btn" id="rescanToggleBtn">🔄 重新掃描這個畫面</button>' +
       '<button class="btn danger" id="deleteNodeBtn">🗑 刪除節點（含所有子節點）</button></div>';
-    html += '<div id="rescanPanel" hidden style="margin-top:8px;">' +
-      '<div class="field-row"><label><input type="checkbox" id="rescanDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>' +
-      '<div class="field-row"><label><input type="checkbox" id="rescanScroll"> 同時捲動收集完整清單（捲動後抓到的元件座標跟這裡的截圖對不上，疊圖會錯位、點擊定位也可能點錯地方，不確定要不要開就先不要勾）</label></div>' +
-      '<div class="btn-row"><button class="btn primary" id="rescanBtn">開始重新掃描</button></div>' +
-      '<div class="tap-result pending" id="rescanResult">還沒掃描</div>' +
-      "</div>";
-
     html += '<div><span class="section-label">如何抵達這個畫面</span>';
     html += inEdges.length
       ? '<div class="edge-list">' + inEdges.map(function (e) { return renderEdgeRow(e, "in"); }).join("") + "</div>"
@@ -1451,69 +1399,6 @@
     if (shotFrame) shotFrame.addEventListener("click", function () { openModal(s); });
     document.getElementById("addNodeBtn").addEventListener("click", function () { openModal(s, { addNode: true }); });
     document.getElementById("deleteNodeBtn").addEventListener("click", function () { deleteNode(s.uid); });
-    document.getElementById("rescanToggleBtn").addEventListener("click", function () {
-      var panel = document.getElementById("rescanPanel");
-      panel.hidden = !panel.hidden;
-    });
-    document.getElementById("rescanBtn").addEventListener("click", function () { runRescanScreen(s); });
-  }
-
-  async function runRescanScreen(s) {
-    var btn = document.getElementById("rescanBtn");
-    var resultEl = document.getElementById("rescanResult");
-    var base = API_BASE;
-    var describe = document.getElementById("rescanDescribe").checked;
-    var scroll = document.getElementById("rescanScroll").checked;
-    btn.disabled = true;
-    resultEl.className = "tap-result pending";
-    resultEl.textContent = "掃描中，元件多或畫面有可捲動內容時可能要等一段時間…";
-    try {
-      await assertPlatformMatches(base, mapPlatform());
-      var res = await fetch(base + "/scan_screen", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll, project: currentProject ? currentProject.id : null })
-      });
-      var data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
-
-      var newEls = (data.screen_data.elements || []).map(toShortEl);
-      var newIds = {};
-      newEls.forEach(function (el) { newIds[el.u] = true; });
-
-      var children = screens.filter(function (c) { return c.parent === s.uid; });
-      var brokenChildren = children.filter(function (c) { return c.entry && !newIds[c.entry]; });
-
-      var msg = "重新掃描完成：原本 " + s.els.length + " 個元件 → 新掃到 " + newEls.length + " 個元件。\n\n";
-      if (brokenChildren.length) {
-        msg += "⚠️ 以下 " + brokenChildren.length + " 個子節點的入口元件在新掃描結果裡消失了，套用後會變成點不進去這些子節點（子節點本身不會被自動刪除，需要你之後手動處理）：\n";
-        msg += brokenChildren.map(function (c) { return "・" + c.name; }).join("\n");
-        msg += "\n\n";
-      }
-      msg += "要用這次掃描結果覆蓋現有的畫面資料嗎？";
-
-      if (!confirm(msg)) {
-        resultEl.textContent = "已取消，維持原本資料";
-        resultEl.className = "tap-result pending";
-        btn.disabled = false;
-        return;
-      }
-
-      rememberMapPlatform(data.screen_data);
-      s.els = newEls;
-      s.screenshot = data.screen_data.screenshot || null;
-      s.w = data.screen_data.screen_width || null;
-      s.h = data.screen_data.screen_height || null;
-      s._scannedAt = Date.now();
-      rememberScanMeta(s, data.screen_data);
-
-      rebuildAll();
-      selectScreen(s.uid);
-      markMapDirty();
-    } catch (err) {
-      resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個畫面？）");
-      resultEl.className = "tap-result fail";
-      btn.disabled = false;
-    }
   }
 
   // ---------------------------------------------------------------
@@ -1924,209 +1809,6 @@
     });
     onChange();
   }
-
-  // ================= 改版比對：相似度計分＋人工確認識別碼延續（整合自 viewer.html）=================
-  var oldData = null, newData = null, oldScreen = null, newScreen = null, scriptData = null;
-  var oldJsonInput = document.getElementById("oldJsonInput");
-  var newJsonInput = document.getElementById("newJsonInput");
-  var oldScreenSelect = document.getElementById("oldScreenSelect");
-  var newScreenSelect = document.getElementById("newScreenSelect");
-  var scriptJsonInput = document.getElementById("scriptJsonInput");
-  var compareBtn = document.getElementById("compareBtn");
-  var compareExportBtn = document.getElementById("compareExportBtn");
-  var compareResults = document.getElementById("compareResults");
-  var lastCompareResults = null;
-  var appliedMerges = new Set();
-
-  function loadCompareJson(file, onLoaded) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        var data = JSON.parse(reader.result);
-        if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列。"); return; }
-        onLoaded(data);
-      } catch (err) { alert("JSON 解析失敗：" + err.message); }
-    };
-    reader.readAsText(file);
-  }
-  function populateCompareScreenSelect(select, data) {
-    select.innerHTML = "";
-    data.screens.forEach(function (s, i) {
-      var opt = document.createElement("option");
-      opt.value = i;
-      opt.textContent = s.screen_name + "（" + (s.elements || []).length + " 個元件）";
-      select.appendChild(opt);
-    });
-    select.disabled = false;
-    select.selectedIndex = 0;
-  }
-  oldJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    loadCompareJson(file, function (data) {
-      oldData = data;
-      populateCompareScreenSelect(oldScreenSelect, oldData);
-      compareBtn.disabled = !(oldData && newData);
-    });
-  });
-  newJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    loadCompareJson(file, function (data) {
-      newData = data;
-      populateCompareScreenSelect(newScreenSelect, newData);
-      compareBtn.disabled = !(oldData && newData);
-    });
-  });
-  scriptJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { scriptData = JSON.parse(reader.result); } catch (err) { alert("測試腳本 JSON 解析失敗：" + err.message); }
-    };
-    reader.readAsText(file);
-  });
-
-  function nearbyTextOverlapRatio(a, b) {
-    a = a || []; b = b || [];
-    if (!a.length && !b.length) return 0;
-    var setA = new Set(a), setB = new Set(b);
-    var intersection = Array.from(setA).filter(function (x) { return setB.has(x); }).length;
-    var union = new Set(a.concat(b)).size;
-    return union === 0 ? 0 : intersection / union;
-  }
-  function computeSimilarity(newEl, oldEl) {
-    if (newEl.class !== oldEl.class) return null;
-    var newFp = newEl.fingerprint || {};
-    var oldFp = oldEl.fingerprint || {};
-    var breakdown = [];
-    var score = 0;
-    var newLabel = newFp.label_text != null ? newFp.label_text : (newEl.label || "");
-    var oldLabel = oldFp.label_text != null ? oldFp.label_text : (oldEl.label || "");
-    var overlap = nearbyTextOverlapRatio(newFp.nearby_text, oldFp.nearby_text);
-    if (newLabel && newLabel === oldLabel) { score += 40; breakdown.push("label_text 相同 +40"); }
-    else if (overlap >= 0.6) { score += 25; breakdown.push("nearby_text 高度重疊 " + Math.round(overlap * 100) + "% +25"); }
-    else if (overlap > 0) { var pts = Math.round(overlap * 10); score += pts; breakdown.push("nearby_text 部分重疊 " + Math.round(overlap * 100) + "% +" + pts); }
-    var newBucket = newFp.position_bucket != null ? newFp.position_bucket : newEl.position_bucket;
-    var oldBucket = oldFp.position_bucket != null ? oldFp.position_bucket : oldEl.position_bucket;
-    if (newBucket && newBucket === oldBucket) { score += 20; breakdown.push("position_bucket 相同 +20"); }
-    var newSib = newFp.sibling_index, oldSib = oldFp.sibling_index;
-    if (newSib !== undefined && newSib === oldSib) { score += 10; breakdown.push("sibling_index 相同 +10"); }
-    return { score: score, breakdown: breakdown };
-  }
-  function verdictOf(score) { return score >= 70 ? "confirmed" : score >= 30 ? "needs_review" : "new"; }
-  function verdictLabel(v) {
-    return { confirmed: "確定同一元件，沿用舊ID", needs_review: "疑似同一元件，需人工確認", new: "視為全新元件", missing: "舊元件已消失（畫面上找不到對應）" }[v];
-  }
-  function runComparison() {
-    var oldElements = oldScreen.elements || [];
-    var newElements = newScreen.elements || [];
-    var oldNativeById = new Map(oldElements.filter(function (e) { return e.id_source === "native"; }).map(function (e) { return [e.unique_id, e]; }));
-    var oldGenerated = oldElements.filter(function (e) { return e.id_source === "generated"; });
-    var matchedOldIds = new Set();
-    var results = [];
-    newElements.forEach(function (newEl) {
-      if (newEl.id_source === "native") {
-        if (oldNativeById.has(newEl.unique_id)) {
-          matchedOldIds.add(newEl.unique_id);
-          results.push({ verdict: "confirmed", newEl: newEl, oldEl: oldNativeById.get(newEl.unique_id), score: null, breakdown: ["native id 完全相同"] });
-        } else {
-          results.push({ verdict: "new", newEl: newEl, oldEl: null, score: null, breakdown: [] });
-        }
-        return;
-      }
-      var best = null;
-      oldGenerated.forEach(function (oldEl) {
-        var sim = computeSimilarity(newEl, oldEl);
-        if (sim && (!best || sim.score > best.score)) { best = Object.assign({}, sim, { oldEl: oldEl }); }
-      });
-      if (!best) { results.push({ verdict: "new", newEl: newEl, oldEl: null, score: null, breakdown: [] }); return; }
-      var verdict = verdictOf(best.score);
-      if (verdict !== "new") matchedOldIds.add(best.oldEl.unique_id);
-      results.push({ verdict: verdict, newEl: newEl, oldEl: best.oldEl, score: best.score, breakdown: best.breakdown });
-    });
-    var missing = oldElements.filter(function (e) { return !matchedOldIds.has(e.unique_id); });
-    return { results: results, missing: missing };
-  }
-  function findScriptStepsFor(uniqueId) {
-    if (!scriptData || !scriptData.steps) return [];
-    return scriptData.steps.map(function (step, i) { return { step: step, i: i }; }).filter(function (o) { return o.step.target === uniqueId; });
-  }
-  function renderScriptNote(oldUniqueId, verdict) {
-    if (!scriptData || !oldUniqueId) return "";
-    var steps = findScriptStepsFor(oldUniqueId);
-    if (steps.length === 0) return "";
-    var stepDesc = steps.map(function (o) { return "第" + (o.i + 1) + "步(" + o.step.action + ")"; }).join("、");
-    if (verdict === "confirmed") return '<div class="script-note">📜 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件——改版後已自動對應到新的 unique_id，腳本不用改就能繼續運作。</div>';
-    if (verdict === "needs_review") return '<div class="script-note warn">⚠️ 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件，比對結果是「疑似同一元件」，建議人工確認新對應正確後，腳本才能信任繼續使用。</div>';
-    return '<div class="script-note warn">⚠️ 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件，但改版後找不到對應，這幾個步驟需要人工複核腳本。</div>';
-  }
-  function renderMatchCard(r, idx) {
-    var verdict = r.verdict, newEl = r.newEl, oldEl = r.oldEl, score = r.score, breakdown = r.breakdown;
-    var oldColHtml = oldEl
-      ? '<div class="match-col"><div class="mc-id">' + escapeHtml(oldEl.unique_id) + '</div><div class="mc-desc">[' + escapeHtml(oldEl.class) + '] ' + escapeHtml(oldEl.description || oldEl.label || "") + '</div></div>'
-      : '<div class="match-col" style="color:var(--ink-soft);">（舊版沒有對應元件）</div>';
-    var scoreHtml = score !== null
-      ? '<div class="score-breakdown"><span class="score-total">分數: ' + score + '</span>　' + breakdown.join("、") + '</div>'
-      : (breakdown.length ? '<div class="score-breakdown">' + breakdown.join("、") + '</div>' : "");
-    var applyHtml = "";
-    if (oldEl && newEl.id_source === "generated") {
-      applyHtml = appliedMerges.has(idx)
-        ? '<div class="match-apply-row"><span class="match-applied-note">✓ 已套用，新版unique_id/fingerprint已改為舊版的</span></div>'
-        : '<div class="match-apply-row"><button class="match-apply-btn" data-result-index="' + idx + '" type="button">✅ 人工確認同一元件，套用舊ID</button></div>';
-    }
-    return '<div class="match-card ' + verdict + '"><span class="match-verdict ' + verdict + '">' + verdictLabel(verdict) + '</span>' +
-      '<div class="match-row">' + oldColHtml + '<div class="match-arrow">→</div>' +
-      '<div class="match-col"><div class="mc-id">' + escapeHtml(newEl.unique_id) + '</div><div class="mc-desc">[' + escapeHtml(newEl.class) + '] ' + escapeHtml(newEl.description || newEl.label || "") + '</div></div>' +
-      '</div>' + scoreHtml + applyHtml + renderScriptNote(oldEl ? oldEl.unique_id : null, verdict) + '</div>';
-  }
-  function applyMerge(idx) {
-    var r = lastCompareResults && lastCompareResults.results[idx];
-    if (!r || !r.oldEl || appliedMerges.has(idx)) return;
-    r.newEl.unique_id = r.oldEl.unique_id;
-    r.newEl.fingerprint = r.oldEl.fingerprint;
-    appliedMerges.add(idx);
-    compareExportBtn.disabled = false;
-    renderCompareResults(lastCompareResults);
-  }
-  function renderCompareResults(payload) {
-    var results = payload.results, missing = payload.missing;
-    var counts = { confirmed: 0, needs_review: 0, new: 0, missing: missing.length };
-    results.forEach(function (r) { counts[r.verdict]++; });
-    var html = '<div class="compare-summary">' +
-      '<div class="summary-card confirmed"><div class="num">' + counts.confirmed + '</div><div class="label">確定同一元件，沿用舊ID</div></div>' +
-      '<div class="summary-card needs_review"><div class="num">' + counts.needs_review + '</div><div class="label">疑似同一元件，需人工確認</div></div>' +
-      '<div class="summary-card new"><div class="num">' + counts.new + '</div><div class="label">全新元件</div></div>' +
-      '<div class="summary-card missing"><div class="num">' + counts.missing + '</div><div class="label">舊元件已消失</div></div>' +
-      '</div>';
-    var order = { confirmed: 0, needs_review: 1, new: 2 };
-    var indexed = results.map(function (r, idx) { return { r: r, idx: idx }; }).sort(function (a, b) { return order[a.r.verdict] - order[b.r.verdict]; });
-    indexed.forEach(function (o) { html += renderMatchCard(o.r, o.idx); });
-    missing.forEach(function (oldEl) {
-      html += '<div class="match-card missing"><span class="match-verdict missing">' + verdictLabel("missing") + '</span>' +
-        '<div class="match-row" style="grid-template-columns: 1fr;"><div class="match-col"><div class="mc-id">' + escapeHtml(oldEl.unique_id) + '</div>' +
-        '<div class="mc-desc">[' + escapeHtml(oldEl.class) + '] ' + escapeHtml(oldEl.description || oldEl.label || "") + '</div></div></div>' +
-        renderScriptNote(oldEl.unique_id, "missing") + '</div>';
-    });
-    compareResults.innerHTML = html || '<div class="empty-state">沒有元件資料可比對。</div>';
-    compareResults.querySelectorAll(".match-apply-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () { applyMerge(Number(btn.dataset.resultIndex)); });
-    });
-  }
-  compareBtn.addEventListener("click", function () {
-    oldScreen = oldData.screens[Number(oldScreenSelect.value)];
-    newScreen = newData.screens[Number(newScreenSelect.value)];
-    appliedMerges.clear();
-    compareExportBtn.disabled = true;
-    lastCompareResults = runComparison();
-    renderCompareResults(lastCompareResults);
-  });
-  compareExportBtn.addEventListener("click", function () {
-    if (!newData) return;
-    var blob = new Blob([JSON.stringify(newData, null, 2)], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url; a.download = "element_map.json"; a.click();
-    URL.revokeObjectURL(url);
-  });
 
   // ================= 測試情境產生 =================
   // 目的：先看過選定畫面的資料，推論出一批「值得測試的情境」描述清單，
