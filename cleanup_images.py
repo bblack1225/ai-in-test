@@ -26,7 +26,7 @@
   3. crops/ 就算還被地圖引用也沒有程式會讀，確定不需要人工核對的話可以整批清掉：
        uv run python cleanup_images.py --all_crops --delete
   4. workspace 專案：加 --project，清的是專案資料夾裡的 screenshots/、crops/，
-     引用從專案的 map.json（含爬蟲留下的 map.backup-*.json）、cases/、batches/ 找；
+     引用從專案的 maps/（所有地圖）、backups/（爬蟲覆蓋前的備份）、cases/、batches/ 找；
      網頁開著專案時地圖會自動存檔，不用先匯出：
        uv run python cleanup_images.py --project mbroker-demo-ios
 """
@@ -44,7 +44,7 @@ REF_PATTERN = re.compile(r"(screenshots|crops)/([^\"'\s\\?#]+\.png)")
 
 def reference_files(base: Path, extra: list[str]) -> list[Path]:
     files = sorted(base.glob("*.json")) + sorted(base.glob("*.html"))
-    for sub in ("test_cases", "cases", "batches"):
+    for sub in ("test_cases", "maps", "backups", "cases", "batches"):
         files += sorted((base / sub).glob("*.json"))
     for item in extra:
         path = Path(item).expanduser()
@@ -89,7 +89,9 @@ def main():
     base = PROJECT_DIR
     if args.project:
         try:
-            base = Workspace(args.workspace).map_path(args.project).parent
+            ws = Workspace(args.workspace)
+            ws.get_project(args.project)  # 確認專案存在（舊專案的 map.json 也會在這裡搬成 maps/main.json）
+            base = ws.project_dir(args.project)
         except WorkspaceError as e:
             raise SystemExit(f"錯誤：{e}")
     files = reference_files(base, args.refs)

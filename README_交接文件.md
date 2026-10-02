@@ -35,7 +35,7 @@
 - `viewer.html` — 較早期的單畫面工具，Android測試目前還在用
 
 **資料檔案**
-- `workspace/projects/<專案>/` — **建議的存放方式**：`map.json`（地圖）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
+- `workspace/projects/<專案>/` — **建議的存放方式**：`maps/`（地圖，可以依功能分好幾張）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
 - 以下是沒開專案時的舊方式（跟程式同層，程式用相對路徑讀寫，不要搬動）
 - `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
 - `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
@@ -309,10 +309,11 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    多一張截圖
 3. 建一個專案（見 3.3），試跑自動爬蟲寫進這個專案（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
    ```
-   uv run python crawl_app_tree.py --project my-app-ios --root_name my_first_screen --max_depth 1 --max_screens 5
+   uv run python crawl_app_tree.py --project my-app-ios --map main --root_name my_first_screen --max_depth 1 --max_screens 5
    ```
-   跑完會更新 `workspace/projects/my-app-ios/map.json`（原本有地圖的話先備份成
-   `map.backup-<時間>.json`）。不加 `--project` 的話照舊寫 `app_map_tree.json`。
+   跑完會更新 `workspace/projects/my-app-ios/maps/main.json`（這張地圖原本有畫面的話先備份到
+   `backups/main-<時間>.json`）。依功能分開爬就換 `--map` 名稱，例如 `--map trading`，
+   不會蓋到其他地圖。不加 `--project` 的話照舊寫 `app_map_tree.json`。
    注意：爬蟲預設**會點擊所有元件**，「下單、送出、確認」這類風險關鍵字的黑名單
    要加 `--safe_keywords` 才會啟用，連到正式環境或真實帳號時一定要加
 4. 照 3.1 啟動橋接伺服器和網頁，選剛才的專案
@@ -320,16 +321,20 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 ### 3.3 專案（workspace）
 
 地圖、截圖、測案、批次設定都存在 `workspace/projects/<專案代號>/`，一支 App 的一個
-平台一個專案（iOS 和 Android 畫面結構不同，地圖不能共用）。`workspace/` 不進 git
+平台一個專案（iOS 和 Android 畫面結構不同，地圖不能共用）。一個專案可以有很多張地圖，
+通常是依功能分開爬（例如交易、帳務各一張），彼此不會互相覆蓋。`workspace/` 不進 git
 （含畫面資料），交付給其他團隊時用「⬇ 匯出專案 zip」，對方用「📂 匯入專案 zip」。
 
 ```
 workspace/projects/mbroker-demo-ios/
 ├── project.json     專案設定：名稱、平台、bundle_id（爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個）
-├── map.json         地圖（跟 app_map_tree.json 同格式）
-├── screenshots/
-├── cases/*.json     測案
-└── batches/*.json   批次設定（測案用名稱引用，執行時用最新版）
+├── maps/            地圖（跟 app_map_tree.json 同格式），預設 main，依功能可以有很多張
+│   ├── main.json
+│   └── trading.json
+├── backups/         爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
+├── screenshots/     所有地圖共用
+├── cases/*.json     測案（不綁地圖）
+└── batches/*.json   批次設定（地圖、測案都用名稱引用，執行時用最新版）
 ```
 
 - **建立專案**：網頁頁首「＋ 新增專案」，或
@@ -340,15 +345,20 @@ workspace/projects/mbroker-demo-ios/
   ```
   uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
   ```
+  地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
+  第一次被讀到時會自動搬成 `maps/main.json`
 - **修改專案設定**：網頁頁首「⚙ 專案設定」可以改名稱、bundle id（iOS）／package（Android）。
   平台不能改（地圖是照那個平台掃出來的）。bundle id 留空的話，iOS 用 `test_config.py` 的
   `bundleId`、Android 用當下前景的 App；兩支以上 App 時建議一定要填
 - **網頁上的行為**：
-  - 地圖（手動建樹、刪節點、重新掃描、自訂 XPath）改了**自動存檔**，頁首顯示存檔狀態；
+  - 頁首「地圖」切換專案裡的地圖（記住每個專案上次開哪張），旁邊可以「＋ 新地圖」「⧉ 複製」
+    「✎ 改名」（專案裡存的批次會跟著改）「🗑 刪除地圖」（最後一張不能刪）
+  - 地圖（手動建樹、刪節點、重新掃描、自訂 XPath）改了**自動存檔**到目前這張，頁首顯示存檔狀態；
     掃描的截圖直接存進專案資料夾
+  - 「📂 匯入地圖檔成新地圖」：開著專案時載入地圖檔會新增一張，不會蓋掉現有的
   - 地圖同時被別的地方改過（另一個分頁、爬蟲）會擋下來不覆蓋，頁首提示重新載入
   - 「LLM測案產生」按「💾 存到專案」存測案，「📁 從專案開啟…」載入來修改
-  - 「測案執行」可以直接從下拉選單選專案測案；批次每一組可以「📁 從專案加入」，
+  - 「測案執行」可以直接從下拉選單選專案測案；批次每一組可以「📁 選專案地圖」、「📁 從專案加入」測案，
     整份批次按「💾 存到專案」，之後從「📁 開啟專案裡的批次」叫回來
   - 原本的檔案載入／匯出都還在，給沒有專案的人交換單一檔案用
 - 伺服器預設讀 `./workspace`，要放別的地方用 `viewer_server.py --workspace <路徑>`
@@ -463,8 +473,8 @@ workspace/projects/mbroker-demo-ios/
    手動新增的節點存檔／匯出成全名格式時，`skeleton` 欄位會是
    `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章；爬蟲
    產生的節點會保留原本的 `skeleton`）。另外 `crawl_app_tree.py --project`
-   是整份重爬、會蓋掉專案地圖（覆蓋前會先備份成 `map.backup-<時間>.json`），
-   手動建樹的節點要自己從備份補回來。
+   對同一張地圖是整份重爬、會蓋掉那張地圖（覆蓋前會先備份到 `backups/<地圖>-<時間>.json`），
+   手動建樹的節點要自己從備份補回來；想保留的話爬到另一張（換 `--map` 名稱）。
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
    多長出重複節點，需要人工核對合併
 4. **`gemini-flash-latest`／`gemini-pro-latest` 是會自動換版本的別名**，

@@ -1020,10 +1020,14 @@ class Handler(BaseHTTPRequestHandler):
           GET    /api/projects                          專案清單
           POST   /api/projects                          建立 {id, name, platform, bundle_id}
           POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
-          GET    /api/projects/<id>                     專案資訊＋地圖＋測案／批次清單
+          GET    /api/projects/<id>                     專案資訊＋地圖／測案／批次清單
           PUT    /api/projects/<id>                     改專案設定 {name?, bundle_id?}（平台不能改）
           GET    /api/projects/<id>/export              下載 zip
-          PUT    /api/projects/<id>/map                 存地圖 {map, base_version}，版本不符回 409
+          GET    /api/projects/<id>/maps/<name>         讀地圖 → {map, map_version}
+          POST   /api/projects/<id>/maps/<name>         新增地圖 {map?}（沒給就是空白），同名已存在回 409
+          PUT    /api/projects/<id>/maps/<name>         存地圖 {map, base_version}，版本不符回 409
+          POST   /api/projects/<id>/maps/<name>/rename  改名 {new_name}
+          DELETE /api/projects/<id>/maps/<name>         刪地圖（最後一張不能刪）
           GET    /api/projects/<id>/<kind>/<name>       讀一份
           PUT    /api/projects/<id>/<kind>/<name>[?overwrite=1]  存一份（已存在又沒 overwrite 回 409）
           DELETE /api/projects/<id>/<kind>/<name>       刪一份
@@ -1061,10 +1065,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            elif method == "PUT" and len(parts) == 2 and parts[1] == "map":
-                body = self._read_json_body() or {}
-                version = WORKSPACE.write_map(parts[0], body.get("map"), body.get("base_version"))
-                self._send_json(200, {"map_version": version})
+            elif len(parts) >= 3 and parts[1] == "maps":
+                self._handle_map_api(method, parts[0], parts[2], parts[3:])
             elif len(parts) == 3 and method == "GET":
                 self._send_json(200, {"data": WORKSPACE.read_item(*parts)})
             elif len(parts) == 3 and method == "PUT":
@@ -1080,6 +1082,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(e.status, {"error": str(e)})
         except Exception as e:
             self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def _handle_map_api(self, method: str, project_id: str, name: str, rest: list):
+        if method == "GET" and not rest:
+            map_data, version = WORKSPACE.read_map(project_id, name)
+            self._send_json(200, {"map": map_data, "map_version": version})
+        elif method == "POST" and not rest:
+            body = self._read_json_body() or {}
+            version = WORKSPACE.create_map(project_id, name, body.get("map"))
+            self._send_json(200, {"map_version": version, "maps": WORKSPACE.list_maps(project_id)})
+        elif method == "PUT" and not rest:
+            body = self._read_json_body() or {}
+            version = WORKSPACE.write_map(project_id, name, body.get("map"), body.get("base_version"))
+            self._send_json(200, {"map_version": version})
+        elif method == "POST" and rest == ["rename"]:
+            body = self._read_json_body() or {}
+            WORKSPACE.rename_map(project_id, name, str(body.get("new_name", "")).strip())
+            self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})
+        elif method == "DELETE" and not rest:
+            WORKSPACE.delete_map(project_id, name)
+            self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})
+        else:
+            self._send_json(404, {"error": "not found"})
 
     def _dispatch(self, path: str, payload: dict) -> dict:
         if path == "/tap":

@@ -268,8 +268,10 @@
   /* ---------- 分頁系統（整合自 viewer.html） ---------- */
   .project-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; padding: 8px 12px; background: var(--grey-soft); border-radius: 9px; font-size: calc(12px * var(--font-scale)); }
   .project-bar-label { font-weight: 700; }
+  .map-controls { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .map-controls[hidden] { display: none; }
   .project-bar select, .project-pick { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-raised); color: var(--ink); font-size: calc(12px * var(--font-scale)); max-width: 100%; }
-  .project-bar select { min-width: 220px; }
+  .project-bar select { min-width: 160px; }
   .project-save-status { color: var(--ink-soft); display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .project-save-status.warn { color: var(--danger); }
   .tab-bar { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 0; }
@@ -461,6 +463,14 @@
     <select id="projectSelect" title="地圖、截圖、測案、批次都存在 workspace/projects/<專案> 底下，改了會自動存檔">
       <option value="">（不使用專案：手動載入／匯出檔案）</option>
     </select>
+    <span class="map-controls" id="mapControls" hidden>
+      <span class="project-bar-label">地圖</span>
+      <select id="mapSelect" title="一個專案可以有很多張地圖（例如依功能分開爬），各自自動存檔"></select>
+      <button class="btn" id="mapNewBtn" title="新增一張空白地圖，再用手動建樹或爬蟲（--map 名稱）填內容">＋ 新地圖</button>
+      <button class="btn" id="mapCopyBtn" title="把目前地圖複製成新的一張">⧉ 複製</button>
+      <button class="btn" id="mapRenameBtn">✎ 改名</button>
+      <button class="btn" id="mapDeleteBtn">🗑 刪除地圖</button>
+    </span>
     <button class="btn" id="projectCreateBtn">＋ 新增專案</button>
     <button class="btn" id="projectSettingsBtn" disabled title="改專案名稱、App 的 bundle id／package">⚙ 專案設定</button>
     <button class="btn" id="projectExportBtn" disabled title="地圖、截圖、測案、批次打包成一個 zip，交給其他團隊匯入">⬇ 匯出專案 zip</button>
@@ -718,6 +728,8 @@
   // 目前開啟的 workspace 專案（{id, name, platform, bundle_id}），null＝沒用專案；
   // mapVersion 是上次讀到／存檔後的地圖版本，存檔時帶回去讓伺服器擋掉互相覆蓋
   var currentProject = null, mapVersion = null, projectList = [], projectCases = [], projectBatches = [];
+  // 專案裡目前開著的地圖（一個專案可以有很多張，依功能分開爬）
+  var currentMapName = null, projectMaps = [];
 
   // 各分頁的「目前使用」標示。kind 是來源類型（例如「目前地圖」「上傳檔案」），
   // name 是檔名或補充說明；kind 為 null 代表還沒有資料。
@@ -1106,15 +1118,14 @@
       try { data = JSON.parse(reader.result); } catch (err) { alert("JSON 解析失敗：" + err.message); return; }
       if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列（要用這個工具自己匯出的檔案，或專案正式的 app_map_tree.json）。"); return; }
       if (currentProject) {
-        // 開著專案時載入檔案＝取代專案的地圖（會自動存檔）。截圖不會跟著搬進專案，
-        // 舊地圖連同截圖要搬進來請用 workspace.py import-legacy
-        if (!confirm("目前開著專案「" + currentProject.name + "」，載入這個檔案會取代專案的地圖並自動存檔。\n\n" +
+        // 開著專案時載入檔案＝匯入成專案裡的一張新地圖，不會蓋掉現有的。截圖不會跟著
+        // 搬進專案，舊地圖連同截圖要搬進來請用 workspace.py import-legacy
+        var suggested = file.name.replace(/\.json$/i, "").replace(/[^\w一-鿿 .()（）-]+/g, "_");
+        var name = (prompt("匯入成專案「" + currentProject.name + "」的一張新地圖，地圖名稱：\n\n" +
           "注意：地圖用到的截圖不會一起搬進專案，畫面可能沒有截圖。舊地圖連同截圖搬進專案請用：\n" +
-          "uv run python workspace.py import-legacy " + currentProject.id + " --map " + file.name + "\n\n確定要取代嗎？")) return;
-        if (!data.app) data.app = {};
-        data.app.platform = data.app.platform || currentProject.platform;
-        applyMapData(data, "專案：" + currentProject.name);
-        markMapDirty();
+          "uv run python workspace.py import-legacy " + currentProject.id + " --map " + file.name + " --map_name 名稱", suggested) || "").trim();
+        if (!name) return;
+        createProjectMap(name, data);
         return;
       }
       applyMapData(data, file.name);
@@ -3026,7 +3037,7 @@
 
   // batchGroups：[{ mapName, map（全名格式）, mapRef, setup: {name, case, ref?} | null, cases: [{name, case, ref?}] }]
   // 匯出成檔案時地圖、測案整份存進去（給沒有專案的人也能重跑）；存到專案時，
-  // mapRef === "project" 的地圖、有 ref（專案測案名稱）的測案只存引用，開啟和執行
+  // 有 mapRef（專案地圖名稱）的地圖、有 ref（專案測案名稱）的測案只存引用，開啟和執行
   // 當下才抓最新版，地圖或測案改了不用重新設定批次。
   var batchGroups = [];
   var batchGroupsEl = document.getElementById("batchGroups");
@@ -3090,14 +3101,15 @@
       batchGroupsEl.innerHTML = '<div class="empty-state">還沒有任何一組。按「＋ 新增一組地圖」開始，或匯入之前匯出的批次設定。</div>';
     } else {
       batchGroupsEl.innerHTML = batchGroups.map(function (g, gi) {
-        var mapInfo = g.mapRef === "project" ? "專案地圖（執行時用最新版，" + screens.length + " 個畫面）"
+        if (g.mapRef && g.mapRef === currentMapName) g.map = currentMapAsFull();
+        var mapInfo = g.mapRef ? "📁 專案地圖「" + escapeHtml(g.mapRef) + "」（執行時用最新版，" + mapScreenNames(g.map).length + " 個畫面）"
           : g.map ? escapeHtml(g.mapName) + "（" + mapScreenNames(g.map).length + " 個畫面）" : '<span class="warn">尚未選擇地圖</span>';
-        if (g.mapRef === "project") g.map = currentMapAsFull();
         return '<div class="batch-group">' +
           '<div class="batch-group-head"><h3>第 ' + (gi + 1) + " 組</h3>" +
           '<button class="icon-btn" data-act="remove-group" data-g="' + gi + '" title="移除這一組">✕ 移除這組</button></div>' +
           '<div class="batch-row"><span class="lbl">地圖</span><span>' + mapInfo + "</span>" +
           '<button class="icon-btn" data-act="use-current-map" data-g="' + gi + '">使用目前地圖</button>' +
+          projectMapPickHtml(gi) +
           '<label class="icon-btn">📂 上傳地圖<input type="file" hidden accept="application/json" data-act="map-file" data-g="' + gi + '"></label></div>' +
           '<div class="batch-row"><span class="lbl">登入測案</span>' +
           (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
@@ -3119,7 +3131,7 @@
   }
   function addBatchGroup(useCurrentMap) {
     batchGroups.push({ mapName: useCurrentMap ? currentMapSourceName() : null, map: useCurrentMap ? currentMapAsFull() : null,
-      mapRef: useCurrentMap && currentProject ? "project" : null, setup: null, cases: [] });
+      mapRef: useCurrentMap && currentProject ? currentMapName : null, setup: null, cases: [] });
     renderBatchGroups();
   }
   document.getElementById("batchAddGroupBtn").addEventListener("click", function () {
@@ -3131,7 +3143,7 @@
     var gi = Number(btn.dataset.g), ci = Number(btn.dataset.c), g = batchGroups[gi];
     var act = btn.dataset.act;
     if (act === "remove-group") batchGroups.splice(gi, 1);
-    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); g.mapRef = currentProject ? "project" : null; }
+    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); g.mapRef = currentProject ? currentMapName : null; }
     else if (act === "remove-case") g.cases.splice(ci, 1);
     else if (act === "remove-setup") g.setup = null;
     else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
@@ -3144,6 +3156,12 @@
       var name = pick.value, pg = batchGroups[Number(pick.dataset.g)];
       pick.value = "";
       if (!name) return;
+      if (pick.dataset.act === "project-map") {
+        try { pg.map = await fetchProjectMap(name); pg.mapRef = name; pg.mapName = name; }
+        catch (err) { alert("讀取專案地圖失敗：" + err.message); }
+        renderBatchGroups();
+        return;
+      }
       try {
         var item = { name: name, ref: name, case: await fetchProjectCase(name) };
         if (pick.dataset.act === "project-setup") pg.setup = item; else pg.cases.push(item);
@@ -3213,15 +3231,20 @@
     var groups = [];
     for (var i = 0; i < data.groups.length; i++) {
       var g = data.groups[i];
-      var isProjectMap = g.map_ref === "project";
-      if (isProjectMap && !currentProject) throw new Error("這份批次設定引用專案的地圖，請先開啟專案");
+      var mapRef = g.map_ref || null;
+      if (mapRef && !currentProject) throw new Error("這份批次設定引用專案的地圖，請先開啟專案");
+      var refMap = null;
+      if (mapRef) {
+        try { refMap = await fetchProjectMap(mapRef); }
+        catch (err) { throw new Error("第 " + (i + 1) + " 組用的專案地圖「" + mapRef + "」讀不到（可能已改名或刪除）：" + err.message); }
+      }
       var cases = [];
       for (var j = 0; j < (g.cases || []).length; j++) {
         var c = await resolveItem(g.cases[j]);
         if (c) cases.push(c);
       }
-      groups.push({ mapName: isProjectMap ? currentMapSourceName() : g.map_name, map: isProjectMap ? currentMapAsFull() : g.map,
-        mapRef: isProjectMap ? "project" : null, setup: await resolveItem(g.setup_case), cases: cases });
+      groups.push({ mapName: mapRef || g.map_name, map: mapRef ? refMap : g.map,
+        mapRef: mapRef, setup: await resolveItem(g.setup_case), cases: cases });
     }
     batchGroups = groups;
     var o = data.options || {};
@@ -3236,7 +3259,7 @@
   async function refreshBatchRefs() {
     for (var i = 0; i < batchGroups.length; i++) {
       var g = batchGroups[i];
-      if (g.mapRef === "project") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); }
+      if (g.mapRef) g.map = await fetchProjectMap(g.mapRef);
       var items = g.cases.concat(g.setup ? [g.setup] : []);
       for (var j = 0; j < items.length; j++) {
         if (items[j].ref) items[j].case = await fetchProjectCase(items[j].ref);
@@ -3425,30 +3448,33 @@
     clearTimeout(mapSaveTimer);
     if (!currentProject || !mapDirty || mapConflict) return;
     if (mapSaving) { mapSaveTimer = setTimeout(saveMapNow, 300); return; }
-    var project = currentProject, failed = false;
+    var project = currentProject, mapName = currentMapName, failed = false;
+    function switched() { return project !== currentProject || mapName !== currentMapName; }
     mapSaving = true;
     mapDirty = false;
     setProjectStatus("儲存中…");
     try {
-      var data = await apiJson("PUT", projectApi("/map"), { map: currentMapAsFull(), base_version: mapVersion });
-      if (project !== currentProject) return;
+      var data = await apiJson("PUT", mapApi(mapName), { map: currentMapAsFull(), base_version: mapVersion });
+      if (switched()) return;
       mapVersion = data.map_version;
+      projectMaps.forEach(function (m) { if (m.name === mapName) m.screens = screens.length; });
+      renderMapPicker();
       if (!mapDirty) setProjectStatus("已自動儲存 " + new Date().toLocaleTimeString());
     } catch (err) {
-      if (project !== currentProject) return;
+      if (switched()) return;
       failed = true;
       mapDirty = true;
       if (err.status === 409) {
         mapConflict = true;
         setProjectStatus("⚠️ " + err.message + "。這次的修改還沒存進專案，需要的話先「⬇️ 匯出目前地圖」留一份。", true,
-          [{ label: "重新載入專案（放棄這次修改）", fn: function () { mapDirty = false; mapConflict = false; openProject(project.id); } }]);
+          [{ label: "重新載入地圖（放棄這次修改）", fn: function () { openMap(mapName, true); } }]);
       } else {
         setProjectStatus("⚠️ 存檔失敗：" + err.message, true, [{ label: "重試", fn: saveMapNow }]);
       }
     } finally {
       mapSaving = false;
       // 存檔途中又改了：再存一次（失敗的話等使用者按重試或下一次修改）
-      if (!failed && mapDirty && project === currentProject) mapSaveTimer = setTimeout(saveMapNow, 300);
+      if (!failed && mapDirty && !switched()) mapSaveTimer = setTimeout(saveMapNow, 300);
     }
   }
   // 切換／匯出專案前先把還沒存的地圖存掉；回傳 false 代表還有存不進去的修改
@@ -3486,21 +3512,26 @@
       }
     }
     currentProject = d ? d.project : null;
-    mapVersion = d ? d.map_version : null;
+    projectMaps = d ? d.maps : [];
     projectCases = d ? d.cases : [];
     projectBatches = d ? d.batches : [];
+    currentMapName = null; mapVersion = null;
     mapDirty = false; mapConflict = false;
     batchGroups = [];  // 批次設定引用的是上一個專案的地圖／測案，換專案就清掉
     batchResultsEl.innerHTML = "";
     try { localStorage.setItem("lastProject", id || ""); } catch (e) { /* 存不了就下次手動選 */ }
-    var map = d ? d.map : { app: {}, screens: [], edges: [], skipped: [] };
-    map.app = map.app || {};
-    if (d && !map.app.platform) map.app.platform = d.project.platform;
-    applyMapData(map, d ? "專案：" + d.project.name : null);
     projectSelect.value = id || "";
-    updateProjectUi();
-    if (!d) { setProjectStatus("沒有使用專案：地圖、測案改了要自己匯出存檔"); return; }
-    setProjectStatus("已開啟（" + screens.length + " 個畫面、" + projectCases.length + " 份測案）");
+    if (!d) {
+      applyMapData({ app: {}, screens: [], edges: [], skipped: [] }, null);
+      updateProjectUi();
+      setProjectStatus("沒有使用專案：地圖、測案改了要自己匯出存檔");
+      return;
+    }
+    // 開上次在這個專案開的地圖，沒有的話開 main，再沒有就開第一張
+    var names = projectMaps.map(function (m) { return m.name; }), lastMap = null;
+    try { lastMap = localStorage.getItem("lastMap:" + id); } catch (e) { /* 照預設 */ }
+    var mapName = names.indexOf(lastMap) >= 0 ? lastMap : names.indexOf("main") >= 0 ? "main" : names[0];
+    if (!(await openMap(mapName, true))) { updateProjectUi(); return; }
     try {
       var serverPlatform = await fetchServerPlatform(API_BASE);
       if (serverPlatform && serverPlatform !== currentProject.platform) {
@@ -3508,6 +3539,108 @@
           platformName(serverPlatform) + "：可以看地圖、編輯測案，但操作手機會被擋下來", true);
       }
     } catch (e) { /* 只是提醒，連不上不影響開專案 */ }
+  }
+
+  // ---- 專案裡的多張地圖 ----
+  function mapApi(name) { return projectApi("/maps/" + encodeURIComponent(name)); }
+  function mapSourceLabel() { return "專案：" + currentProject.name + "／地圖「" + currentMapName + "」"; }
+  // 批次用：目前開著的地圖拿記憶體裡的（可能還沒存檔），其他張去伺服器讀
+  async function fetchProjectMap(name) {
+    if (!currentProject) throw new Error("沒有開啟專案");
+    if (name === currentMapName) return currentMapAsFull();
+    return (await apiJson("GET", mapApi(name))).map;
+  }
+  // 切到專案裡的另一張地圖。discard=true 代表呼叫端已經處理過還沒存的修改。回傳 true＝有開成
+  async function openMap(name, discard) {
+    if (!discard && !(await flushMapSave()) &&
+        !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) {
+      renderMapPicker();
+      return false;
+    }
+    var d;
+    try { d = await apiJson("GET", mapApi(name)); }
+    catch (err) {
+      alert("開啟地圖「" + name + "」失敗：" + err.message);
+      renderMapPicker();
+      return false;
+    }
+    currentMapName = name;
+    mapVersion = d.map_version;
+    mapDirty = false; mapConflict = false;
+    clearTimeout(mapSaveTimer);
+    try { localStorage.setItem("lastMap:" + currentProject.id, name); } catch (e) { /* 下次開 main */ }
+    var map = d.map;
+    map.app = map.app || {};
+    if (!map.app.platform) map.app.platform = currentProject.platform;
+    applyMapData(map, mapSourceLabel());
+    updateProjectUi();
+    setProjectStatus("已開啟地圖「" + name + "」（" + screens.length + " 個畫面）・專案共 " + projectMaps.length + " 張地圖、" + projectCases.length + " 份測案");
+    return true;
+  }
+  function renderMapPicker() {
+    var on = !!currentProject;
+    document.getElementById("mapControls").hidden = !on;
+    var mapSelect = document.getElementById("mapSelect");
+    mapSelect.innerHTML = projectMaps.map(function (m) {
+      return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name + (m.screens != null ? "（" + m.screens + " 個畫面）" : "")) + "</option>";
+    }).join("");
+    mapSelect.value = currentMapName || "";
+    document.getElementById("mapDeleteBtn").disabled = projectMaps.length <= 1;
+  }
+  function askMapName(message, suggested) {
+    var name = (prompt(message + "\n（中英文、數字、空白、- _ . ( ) 都可以，例如 trading、帳務）", suggested || "") || "").trim();
+    if (name && projectMaps.some(function (m) { return m.name === name; })) { alert("已經有地圖叫「" + name + "」了，換一個名稱"); return null; }
+    return name || null;
+  }
+  // 新增一張地圖（map 沒給就是空白），成功就切過去
+  async function createProjectMap(name, map) {
+    if (!(await flushMapSave()) && !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) return;
+    try {
+      var res = await apiJson("POST", mapApi(name), map ? { map: map } : {});
+      projectMaps = res.maps;
+      await openMap(name, true);
+    } catch (err) { alert("新增地圖失敗：" + err.message); }
+  }
+  document.getElementById("mapSelect").addEventListener("change", function (e) { openMap(e.target.value); });
+  document.getElementById("mapNewBtn").addEventListener("click", function () {
+    var name = askMapName("新地圖的名稱：");
+    if (name) createProjectMap(name, null);
+  });
+  document.getElementById("mapCopyBtn").addEventListener("click", function () {
+    var name = askMapName("把地圖「" + currentMapName + "」複製成新的一張，名稱：", currentMapName + "_copy");
+    if (name) createProjectMap(name, currentMapAsFull());
+  });
+  document.getElementById("mapRenameBtn").addEventListener("click", async function () {
+    var oldName = currentMapName;
+    var name = askMapName("地圖「" + oldName + "」改名成：", oldName);
+    if (!name || name === oldName) return;
+    if (!(await flushMapSave())) { alert("地圖還有修改沒存進去，請先處理存檔問題再改名"); return; }
+    try {
+      var res = await apiJson("POST", mapApi(oldName) + "/rename", { new_name: name });
+      projectMaps = res.maps;
+      currentMapName = name;
+      currentMapFileName = mapSourceLabel();
+      try { localStorage.setItem("lastMap:" + currentProject.id, name); } catch (e) { /* 無所謂 */ }
+      batchGroups.forEach(function (g) { if (g.mapRef === oldName) { g.mapRef = name; g.mapName = name; } });
+      updateProjectUi();
+      setProjectStatus("地圖已改名為「" + name + "」（專案裡存的批次設定也一起改了）");
+    } catch (err) { alert("改名失敗：" + err.message); }
+  });
+  document.getElementById("mapDeleteBtn").addEventListener("click", async function () {
+    var name = currentMapName;
+    if (!confirm("確定要刪除地圖「" + name + "」嗎？無法復原（除非你之前有匯出過地圖或專案）。\n截圖不會刪，之後可以用 cleanup_images.py --project 清掉沒人用的。")) return;
+    try {
+      var res = await apiJson("DELETE", mapApi(name));
+      projectMaps = res.maps;
+      var names = projectMaps.map(function (m) { return m.name; });
+      await openMap(names.indexOf("main") >= 0 ? "main" : names[0], true);
+    } catch (err) { alert("刪除地圖失敗：" + err.message); }
+  });
+  // 批次每一組裡的「選專案地圖」下拉選單
+  function projectMapPickHtml(gi) {
+    if (!currentProject) return "";
+    return '<select class="project-pick" data-act="project-map" data-g="' + gi + '"><option value="">📁 選專案地圖…</option>' +
+      projectMaps.map(function (m) { return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name) + "</option>"; }).join("") + "</select>";
   }
 
   function caseOptionsHtml(placeholder) {
@@ -3540,7 +3673,8 @@
     document.title = on ? currentProject.name + "｜畫面地圖" : "畫面地圖";
     projectExportBtn.disabled = !on;
     document.getElementById("projectSettingsBtn").disabled = !on;
-    document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 用檔案取代專案地圖" : "📂 載入之前匯出的地圖";
+    document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 匯入地圖檔成新地圖" : "📂 載入之前匯出的地圖";
+    renderMapPicker();
     renderProjectPickers();
     updateLlmgenCaseControls();
     renderBatchGroups();
@@ -3594,7 +3728,7 @@
     try {
       var data = await apiJson("PUT", projectApi(), { name: name.trim(), bundle_id: bundleId.trim() });
       currentProject = data.project;
-      currentMapFileName = "專案：" + currentProject.name;
+      currentMapFileName = mapSourceLabel();
       await loadProjectList();
       updateProjectUi();
       setProjectStatus("專案設定已更新");
@@ -3668,7 +3802,7 @@
     if (!name) return;
     var data = { batch_version: 2, saved_at: new Date().toISOString(), options: batchOptions(),
       groups: batchGroups.map(function (g) {
-        var out = g.mapRef === "project" ? { map_ref: "project" } : { map_name: g.mapName, map: g.map };
+        var out = g.mapRef ? { map_ref: g.mapRef } : { map_name: g.mapName, map: g.map };
         out.setup_case = batchItemToSaved(g.setup);
         out.cases = g.cases.map(batchItemToSaved);
         return out;

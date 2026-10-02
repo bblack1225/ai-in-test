@@ -32,14 +32,16 @@ iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊�
 
 輸出：app_map_tree.json（獨立檔，不動 element_map.json）。每掃完一個畫面就
 立刻整份重寫一次，中途中止也不會遺失已爬到的部分。
-加 --project <專案代號> 的話改寫進 workspace/projects/<專案>/map.json，截圖也存到
-專案資料夾，網頁開同一個專案就看得到；平台、bundle id 預設用專案設定的。專案原本
-的地圖有畫面的話，會先備份成 map.backup-<時間>.json 再覆蓋。
+加 --project <專案代號> 的話改寫進 workspace/projects/<專案>/maps/<地圖>.json（地圖名稱用
+--map 指定，預設 main；依功能分開爬就各取一個名稱，例如 --map trading），截圖存到專案資料夾，
+網頁開同一個專案就看得到；平台、bundle id 預設用專案設定的。同名地圖已經有畫面的話，
+會先備份到 backups/<地圖>-<時間>.json 再覆蓋。
 
 使用方式：
   1. 手動把 App 導航到子樹根畫面（例如某個 tab 的 landing），保持登入、螢幕解鎖
   2. python crawl_app_tree.py --root_name cathaysec_accounting --max_depth 3 --max_screens 40
      Android 加 --platform android（App 會用啟動當下前景的那一支）
+     寫進專案：加 --project cathaysec-ios --map accounting
      先 dry-run 看會點什麼：加 --dry_run（只掃根畫面、列候選、不點）
   3. 爬蟲期間不要開著 viewer_server.py，同一台裝置同時只能有一條 Appium 連線
 
@@ -52,7 +54,6 @@ import argparse
 import hashlib
 import json
 import re
-import shutil
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -61,7 +62,7 @@ from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
 
 from capture_screen_map import scan_screen
-from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
 from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
 from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 from run_test_case import xpath_literal
@@ -620,8 +621,8 @@ def save_map(state: dict, meta: dict) -> None:
         "edges": state["edges"],
         "skipped": state["skipped"],
     }
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    # 先寫暫存檔再改名：網頁可能剛好在讀這張地圖，不會讀到寫一半的 JSON
+    _write_json_atomic(OUTPUT_PATH, payload)
 
 
 def _screen_name(skeleton: dict, suggested: str, existing_names: set[str]) -> str:
@@ -1241,7 +1242,9 @@ def main():
                          help="App 的 bundle id（iOS）／package（Android），用來判斷有沒有跑出 App；"
                               "預設用專案設定的，沒有的話 iOS 讀 test_config，Android 用啟動當下前景的 App")
     parser.add_argument("--project", default=None,
-                         help="寫進 workspace 的這個專案（map.json＋截圖），不寫 app_map_tree.json")
+                         help="寫進 workspace 的這個專案（maps/<地圖>.json＋截圖），不寫 app_map_tree.json")
+    parser.add_argument("--map", default=DEFAULT_MAP,
+                         help=f"搭配 --project：寫進專案的哪張地圖（預設 {DEFAULT_MAP}；新名稱就新增一張）")
     parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="workspace 資料夾（預設 ./workspace）")
     args = parser.parse_args()
 
@@ -1252,20 +1255,18 @@ def main():
         ws = Workspace(args.workspace)
         try:
             project = ws.get_project(args.project)
-            OUTPUT_PATH = ws.map_path(args.project)
+            OUTPUT_PATH = ws.map_path(args.project, args.map)
         except WorkspaceError as e:
-            raise SystemExit(f"錯誤：{e}（先用 workspace.py create 建立專案）")
+            raise SystemExit(f"錯誤：{e}（專案要先用 workspace.py create 建立）")
         if args.platform and args.platform != project["platform"]:
             raise SystemExit(f"錯誤：專案「{args.project}」是 {project['platform']}，跟 --platform {args.platform} 不一致")
         args.platform = project["platform"]
         project_bundle_id = project.get("bundle_id") or None
-        out_dir = OUTPUT_PATH.parent
-        if OUTPUT_PATH.exists():
-            with open(OUTPUT_PATH, encoding="utf-8") as f:
-                if json.load(f).get("screens"):
-                    backup = OUTPUT_PATH.with_name(f"map.backup-{time.strftime('%Y%m%d_%H%M%S')}.json")
-                    shutil.copy2(OUTPUT_PATH, backup)
-                    print(f"[爬蟲] 專案原本的地圖已備份到 {backup}")
+        out_dir = ws.project_dir(args.project)
+        backup = ws.backup_map(args.project, args.map)
+        if backup:
+            print(f"[爬蟲] 地圖「{args.map}」原本的內容已備份到 {backup}")
+        print(f"[爬蟲] 寫進專案「{args.project}」的地圖「{args.map}」：{OUTPUT_PATH}")
     args.platform = args.platform or "ios"
 
     RULES = CRAWL_RULES[args.platform]()
