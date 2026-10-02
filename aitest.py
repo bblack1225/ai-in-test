@@ -297,8 +297,13 @@ def check_config(r: Report, platforms: list[str]) -> None:
     else:
         r.warn("沒有 Gemini API key：LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，其他照常",
                "config.toml 的 [llm] api_key，或環境變數 GEMINI_API_KEY（README 2.3）")
-    if any(m.endswith("-latest") for m in (test_config.LLM_MODEL, test_config.LLM_MODEL_PRO)):
-        r.warn("Gemini 模型是會自動換版本的別名（*-latest）", "正式使用前在 config.toml 的 [llm] 改成固定版本號")
+    models = (test_config.LLM_MODEL, test_config.LLM_MODEL_PRO)
+    if any(m.endswith("-latest") for m in models):
+        r.warn("Gemini 模型是會自動換版本的別名（*-latest）", "在 config.toml 的 [llm] 改成固定版本號（範本見 config.example.toml）")
+    for m in models:
+        if "preview" in m:
+            r.warn(f"{m} 是預覽版，Google 可能提前下架或改變行為",
+                   "出現找不到模型的錯誤時，在 config.toml 的 [llm] 換成當下的正式版（README 六、第 4 點）")
 
 
 def check_appium(r: Report, platforms: list[str]) -> None:

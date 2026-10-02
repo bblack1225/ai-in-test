@@ -27,9 +27,10 @@ udid = "emulator-5554"
 [llm]
 # Gemini API key（README 2.3）。也可以改用環境變數 GEMINI_API_KEY，兩個都有的話用環境變數
 api_key = ""
-# 會自動換版本的別名，正式上線前建議改成寫死的版本號（README 六、第 4 點）
-model = "gemini-flash-latest"
-model_pro = "gemini-pro-latest"
+# 寫死版本，不用 *-latest 別名，避免 Google 換版本時行為／計費突然改變（README 六、第 4 點）。
+# model_pro 是預覽版，Google 下架時換成當下的正式版
+model = "gemini-3.8-flash"
+model_pro = "gemini-3.1-pro-preview"
 
 # 進階：額外的 Appium capabilities，原樣加進連線設定（會蓋掉上面算出來的同名欄位）。
 # 例如 WDA 建置失敗（xcodebuild code 65）要看詳細錯誤時：

@@ -519,10 +519,12 @@ workspace/projects/mbroker-demo-ios/
    手動建樹的節點要自己從備份補回來；想保留的話爬到另一張（換 `--map` 名稱）。
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
    多長出重複節點，需要人工核對合併
-4. **`gemini-flash-latest`／`gemini-pro-latest` 是會自動換版本的別名**，
-   API 回應不會告訴你實際解析到哪個確切版本，`config.example.toml` 預設沿用這個
-   設計但要注意：Google 更新別名指向的版本時可能導致行為/計費突然改變，
-   正式上線前建議在 `config.toml` 的 `[llm]` 改成寫死的版本號
+4. **Gemini 模型版本是寫死的，Pro 用的是預覽版**：`config.example.toml` 預設
+   `gemini-3.8-flash`／`gemini-3.1-pro-preview`（2026-10-02 當時 `gemini-flash-latest`／
+   `gemini-pro-latest` 別名實際指向的版本），避免 Google 更新別名時行為／計費突然改變。
+   `gemini-3.1-pro-preview` 是預覽版，Google 可能提前下架或改變行為，`aitest.py doctor`
+   會提醒；下架時在 `config.toml` 的 `[llm] model_pro` 換成當下的正式版。要換版本時，
+   回應物件的 `model_version` 會告訴你實際用到的是哪一版
 5. **`viewer_server.py` 同一時間只能服務一個 Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）
    又開著橋接伺服器對同一台裝置操作，會搶同一個連線
 
