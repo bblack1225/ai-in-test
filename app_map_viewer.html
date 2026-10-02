@@ -423,9 +423,14 @@
   .script-step-outcome.pass { color: var(--accent); }
   .script-step-outcome.fail { color: var(--danger); }
   .script-step-outcome.skip { color: var(--gold); }
+  .file-protocol-warning { margin-bottom: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--gold); color: var(--gold); background: var(--grey-soft); font-size: calc(13px * var(--font-scale)); line-height: 1.6; }
 </style>
 
 <div class="wrap">
+  <div class="file-protocol-warning" id="fileProtocolWarning" hidden>
+    ⚠️ 這個頁面要透過 viewer_server.py 開啟：先執行 <span class="mono">uv run python viewer_server.py --platform ios</span>，
+    再用瀏覽器打開 <span class="mono">http://127.0.0.1:8767/</span>。直接雙擊 HTML 檔開啟的話，截圖顯示不出來、也連不到手機和 LLM。
+  </div>
   <header class="top">
     <div class="title-block">
       <span class="eyebrow">crawl_app_tree.py 掃描結果</span>
@@ -528,10 +533,6 @@
           <span class="mono" id="scenarioScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
         </div>
         <div id="scenarioScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <div class="conn-bar">
-          <span>LLM代理連線：</span>
-          <input type="text" id="scenarioServerUrl" value="http://127.0.0.1:8767">
-        </div>
         <div class="btn-row">
           <button class="btn primary" id="scenarioGenerateBtn" disabled>🔍 分析並產生情境列表</button>
           <button class="btn" id="scenarioViewPromptBtn">📝 查看／編輯提示詞</button>
@@ -565,10 +566,6 @@
           <span class="mono" id="llmgenScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
         </div>
         <div id="llmgenScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <div class="conn-bar">
-          <span>LLM代理連線：</span>
-          <input type="text" id="llmgenServerUrl" value="http://127.0.0.1:8767">
-        </div>
         <div class="chat-box">
           <div class="chat-messages" id="llmgenMessages"><div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div></div>
           <div class="attach-tray" id="llmgenAttachTray" hidden></div>
@@ -616,7 +613,6 @@
       <div class="detail-body" style="max-height:none;display:flex;flex-direction:column;gap:10px;">
         <div class="conn-bar">
           <span>裝置橋接：</span>
-          <input type="text" id="runscriptServerUrl" value="http://127.0.0.1:8767">
           <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
           <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
         </div>
@@ -669,8 +665,7 @@
     <div class="modal-grid">
       <div class="modal-stage-col">
         <div class="conn-bar">
-          <span>裝置橋接（<span class="mono">python viewer_server.py</span>）：</span>
-          <input type="text" id="modalServerUrl" value="http://127.0.0.1:8767">
+          <span>裝置橋接（<span class="mono">viewer_server.py</span>）：</span>
           <button class="btn" id="modalServerCheckBtn">檢查連線</button>
           <span class="conn-status unknown" id="modalServerStatus">未檢查</span>
         </div>
@@ -753,6 +748,10 @@
     c = c || "";
     return c.indexOf("XCUIElementType") === 0 ? c.slice("XCUIElementType".length) : c.split(".").pop();
   }
+  // 網頁由 viewer_server.py 直接提供（http://127.0.0.1:8767/），API 跟網頁同源，
+  // 一律用相對路徑呼叫，不用再填伺服器網址
+  var API_BASE = "";
+  if (!/^https?:$/.test(location.protocol)) document.getElementById("fileProtocolWarning").hidden = false;
   // /ping 回傳伺服器目前接的平台（viewer_server.py --platform），舊版伺服器沒有這個欄位就是 null
   async function fetchServerPlatform(base) {
     var res = await fetch(base + "/ping");
@@ -1152,7 +1151,6 @@
     html += '<div class="breadcrumb">' + renderBreadcrumb(s) + "</div>";
     html += "</div>";
     html += '<div class="empty-hint" style="margin-top:10px;">這是手動新增的空白節點，剛才的點擊已經送到裝置——請先確認手機畫面已經停在這個新節點對應的畫面，再對「目前畫面」執行一次掃描。</div>';
-    html += '<div class="conn-bar" style="margin-top:10px;"><span>裝置橋接：</span><input type="text" id="blankScanServerUrl" value="http://127.0.0.1:8767"></div>';
     html += '<div class="field-row"><label><input type="checkbox" id="blankScanDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>';
     html += '<div class="field-row"><label><input type="checkbox" id="blankScanScroll"> 同時捲動收集完整清單（畫面有捲軸時可以抓到更多元件，但捲動後抓到的元件座標是相對「捲到那邊當下」的畫面，跟這裡顯示的截圖對不上、疊圖會顯示錯位／重疊，點擊定位也可能因此點錯地方——不確定要不要開就先不要勾）</label></div>';
     html += '<div class="btn-row"><button class="btn primary" id="blankScanBtn">🔍 掃描目前畫面</button><button class="btn danger" id="deleteNodeBtn">🗑 刪除節點</button></div>';
@@ -1262,7 +1260,7 @@
   async function runBlankScreenScan(s) {
     var btn = document.getElementById("blankScanBtn");
     var resultEl = document.getElementById("blankScanResult");
-    var base = document.getElementById("blankScanServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var describe = document.getElementById("blankScanDescribe").checked;
     var scroll = document.getElementById("blankScanScroll").checked;
     btn.disabled = true;
@@ -1323,7 +1321,6 @@
       '<button class="btn" id="rescanToggleBtn">🔄 重新掃描這個畫面</button>' +
       '<button class="btn danger" id="deleteNodeBtn">🗑 刪除節點（含所有子節點）</button></div>';
     html += '<div id="rescanPanel" hidden style="margin-top:8px;">' +
-      '<div class="conn-bar"><span>裝置橋接：</span><input type="text" id="rescanServerUrl" value="http://127.0.0.1:8767"></div>' +
       '<div class="field-row"><label><input type="checkbox" id="rescanDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>' +
       '<div class="field-row"><label><input type="checkbox" id="rescanScroll"> 同時捲動收集完整清單（捲動後抓到的元件座標跟這裡的截圖對不上，疊圖會錯位、點擊定位也可能點錯地方，不確定要不要開就先不要勾）</label></div>' +
       '<div class="btn-row"><button class="btn primary" id="rescanBtn">開始重新掃描</button></div>' +
@@ -1371,7 +1368,7 @@
   async function runRescanScreen(s) {
     var btn = document.getElementById("rescanBtn");
     var resultEl = document.getElementById("rescanResult");
-    var base = document.getElementById("rescanServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var describe = document.getElementById("rescanDescribe").checked;
     var scroll = document.getElementById("rescanScroll").checked;
     btn.disabled = true;
@@ -1560,7 +1557,7 @@
   async function loadAncestorsShort(el, selectEl, resultEl) {
     resultEl.textContent = "讀取中..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
@@ -1593,7 +1590,7 @@
     if (!xpath) { resultEl.textContent = "請先輸入 XPath"; resultEl.className = "xpath-editor-result error"; return; }
     resultEl.textContent = "測試中..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/test_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ xpath: xpath }) });
       var data = await res.json();
@@ -1610,7 +1607,7 @@
   async function callAgentXPathShort(el, resultEl, onApplied) {
     resultEl.textContent = "AI生成中，可能需要幾次嘗試，請稍候..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/agent_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
@@ -1669,7 +1666,7 @@
     btn.disabled = true;
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行點擊中…";
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
@@ -1766,7 +1763,7 @@
     btn.disabled = true;
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行中…";
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
@@ -1784,7 +1781,7 @@
   }
 
   document.getElementById("modalServerCheckBtn").addEventListener("click", async function () {
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     await renderServerStatus(base, document.getElementById("modalServerStatus"), mapPlatform());
   });
 
@@ -2042,7 +2039,6 @@
   var scenarioScreensCount = document.getElementById("scenarioScreensCount");
   var scenarioSelectAllBtn = document.getElementById("scenarioSelectAllBtn");
   var scenarioSelectNoneBtn = document.getElementById("scenarioSelectNoneBtn");
-  var scenarioServerUrl = document.getElementById("scenarioServerUrl");
   var scenarioGenerateBtn = document.getElementById("scenarioGenerateBtn");
   var scenarioResultHost = document.getElementById("scenarioResultHost");
   var scenarioViewPromptBtn = document.getElementById("scenarioViewPromptBtn");
@@ -2052,7 +2048,7 @@
   var scenarioData = null, scenarioDataSource = null, scenarioLastList = null;
 
   async function fetchScenarioDefaultPrompt() {
-    var base = scenarioServerUrl.value.replace(/\/$/, "");
+    var base = API_BASE;
     var res = await fetch(base + "/llm_scenarios_prompt");
     var data = await res.json();
     if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -2166,7 +2162,7 @@
     scenarioGenerateBtn.textContent = "分析中...";
     scenarioResultHost.innerHTML = '<div class="empty-state">LLM 分析中，請稍候…</div>';
     try {
-      var base = scenarioServerUrl.value.replace(/\/$/, "");
+      var base = API_BASE;
       var reqBody = { screens_context: buildScenarioScreensContext() };
       var customPrompt = scenarioPromptInput.value.trim();
       if (customPrompt) reqBody.prompt_template = customPrompt;
@@ -2214,7 +2210,6 @@
   var llmgenScreensCount = document.getElementById("llmgenScreensCount");
   var llmgenSelectAllBtn = document.getElementById("llmgenSelectAllBtn");
   var llmgenSelectNoneBtn = document.getElementById("llmgenSelectNoneBtn");
-  var llmgenServerUrl = document.getElementById("llmgenServerUrl");
   var llmgenMessages = document.getElementById("llmgenMessages");
   var llmgenInput = document.getElementById("llmgenInput");
   var llmgenSendBtn = document.getElementById("llmgenSendBtn");
@@ -2607,7 +2602,7 @@
     llmgenSendBtn.textContent = "傳送中...";
     var thinkingMsg = appendChatMessage("model", "思考中...");
     try {
-      var serverUrl = llmgenServerUrl.value.replace(/\/$/, "");
+      var serverUrl = API_BASE;
       var res = await fetch(serverUrl + "/llm_chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: llmgenChatHistory, screens_context: buildScreensContext() }),
@@ -2625,7 +2620,7 @@
       }
     } catch (err) {
       thinkingMsg.remove();
-      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動、上方連線網址正確；訊息和附件已放回輸入區）"));
+      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動；訊息和附件已放回輸入區）"));
       restoreUnsentMessage();
     } finally {
       llmgenInput.disabled = false;
@@ -2728,7 +2723,6 @@
   // ================= 測案執行（整合自 viewer.html）=================
   var runscriptElmapInput = document.getElementById("runscriptElmapInput");
   var runscriptCaseInput = document.getElementById("runscriptCaseInput");
-  var runscriptServerUrl = document.getElementById("runscriptServerUrl");
   var runscriptServerStatus = document.getElementById("runscriptServerStatus");
   var runscriptServerCheckBtn = document.getElementById("runscriptServerCheckBtn");
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
@@ -2849,7 +2843,7 @@
     return runscriptElementMap ? elementMapPlatform(runscriptElementMap) : mapPlatform();
   }
   async function checkRunscriptServer() {
-    await renderServerStatus(runscriptServerUrl.value.replace(/\/$/, ""), runscriptServerStatus, runscriptDataPlatform());
+    await renderServerStatus(API_BASE, runscriptServerStatus, runscriptDataPlatform());
   }
   runscriptServerCheckBtn.addEventListener("click", checkRunscriptServer);
   runscriptRunBtn.addEventListener("click", async function () {
@@ -2862,7 +2856,7 @@
     runscriptStopBtn.hidden = false;
     runscriptStopBtn.disabled = false;
     runscriptStopBtn.textContent = "⏹ 停止";
-    var progressBase = runscriptServerUrl.value.replace(/\/$/, "");
+    var progressBase = API_BASE;
     var progressTimer = null;
     try {
       await assertPlatformMatches(progressBase, runscriptDataPlatform());
@@ -2883,7 +2877,7 @@
         } catch (e) { /* 輪詢失敗不影響主流程 */ }
         polling = false;
       }, 1000);
-      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
+      var res = await fetch(API_BASE + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked }),
       });
@@ -2904,7 +2898,7 @@
     runscriptStopBtn.disabled = true;
     runscriptStopBtn.textContent = "停止中（等目前步驟跑完）...";
     try {
-      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+      var res = await fetch(API_BASE + "/stop_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       });
       var data = await res.json();
@@ -3156,7 +3150,7 @@
     if (warnings.length) msg += "\n\n⚠️ 以下測案用到的畫面不在地圖裡，那些步驟會失敗：\n" + warnings.join("\n");
     if (!confirm(msg + "\n\n確定要執行嗎？")) return;
 
-    var base = runscriptServerUrl.value.replace(/\/$/, "");
+    var base = API_BASE;
     batchRunning = true;
     batchUserOpen = {};
     batchRunBtn.disabled = true;
@@ -3206,7 +3200,7 @@
     batchStopBtn.disabled = true;
     batchStopBtn.textContent = "停止中（等目前步驟跑完）...";
     try {
-      var data = await (await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+      var data = await (await fetch(API_BASE + "/stop_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       })).json();
       if (data.error || !data.stopped) throw new Error(data.error || data.message);

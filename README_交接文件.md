@@ -28,7 +28,7 @@
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 - `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
 
-**瀏覽器工具（純前端HTML，離線可開）**
+**瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
 - `app_map_viewer.html` — **目前主力工具**：地圖檢視、手動建樹、改版比對、
   測試情境產生、LLM測案產生、測案執行，全部整合在這一頁
 - `viewer.html` — 較早期的單畫面工具，Android測試目前還在用
@@ -282,11 +282,12 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 1. iPhone 接上 USB、解鎖，打開待測 App
 2. **視窗 1**：`appium --address 127.0.0.1`（一直開著）
 3. **視窗 2**：`uv run python viewer_server.py --platform ios`（一直開著），看到
-   `已啟動（平台：ios）：http://127.0.0.1:8767` 就代表成功
-4. 用瀏覽器打開 `app_map_viewer.html`（雙擊檔案即可），按「📂 載入地圖
+   `用瀏覽器打開 http://127.0.0.1:8767/` 就代表成功
+4. 用瀏覽器打開 http://127.0.0.1:8767/ （**不要雙擊 HTML 檔**：用 `file://`
+   開的話截圖顯示不出來、也連不到伺服器，頁面頂端會出現提醒），按「📂 載入地圖
    JSON」選 `app_map_tree.json`
-5. 網頁裡的「裝置橋接」網址預設是 `http://127.0.0.1:8767`，不用改；按
-   「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了
+5. 按「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了（網頁跟 API
+   同源，不用再填伺服器網址）
 
 > `viewer_server.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
 > 不要再另外跑 `crawl_app_tree.py`／`capture_screen_map.py` 這類直接連
@@ -338,7 +339,13 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 | `test_config.py` | Appium 連線設定（iOS/Android 各一組 `DESIRED_CAPS`）＋ Gemini LLM 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `generate_content_with_retry()`（503錯誤自動重試）。**換裝置/App 主要改這裡** |
 | `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**，`app_map_viewer.html`「改版比對」分頁裡的 JS 是從這支移植的展示版，兩邊邏輯要保持一致，但正式流程以這支 Python 版為準 |
 
-### 4.4 瀏覽器工具（純前端 HTML，離線可開）
+### 4.4 瀏覽器工具（由 `viewer_server.py` 提供）
+
+兩支 HTML 都由 `viewer_server.py` 直接提供：`http://127.0.0.1:8767/` 是
+`app_map_viewer.html`，`http://127.0.0.1:8767/viewer.html` 是舊工具，截圖
+（`screenshots/` 等資料夾）也從同一個網址讀。網頁和 API 同源，伺服器只接受
+自己網頁發出的請求（檢查 `Host`／`Origin`），其他網站沒辦法借瀏覽器操作手機。
+只看地圖不接手機也要開伺服器，但不需要 Appium（只有操作手機的功能才會連 Appium）。
 
 | 檔案 | 用途 |
 |---|---|
@@ -389,7 +396,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 2. `docs/CRAWLER_TREE_HANDOFF.md` — 了解自動爬蟲目前的完成度跟已知問題
 3. `docs/JUDGMENT_LOGIC_REFERENCE.md` — 了解解析/定位邏輯的設計依據
 4. `docs/AUTOMATION_ARCHITECTURE_FLOW.md` — 了解整體資料流程
-5. 打開 `app_map_viewer.html`，載入 `app_map_tree.json`，實際操作一輪
+5. 啟動 `viewer_server.py`、打開 http://127.0.0.1:8767/ ，載入 `app_map_tree.json`，實際操作一輪
    熟悉介面（地圖檢視→手動建樹→情境產生→測案產生→測案執行）
 6. 需要時再查 `docs/TROUBLESHOOTING.md`
 
