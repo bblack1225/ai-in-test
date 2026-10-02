@@ -41,7 +41,7 @@ uv run python aitest.py start cathaysec-ios
 - `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
 
 **瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
-- `app_map_viewer.html` — **目前主力工具**：地圖檢視、手動建樹、
+- `web/app_map_viewer.html`（＋同資料夾的 `.css`、`.js`）— **目前主力工具**：地圖檢視、手動建樹、
   測試情境產生、LLM測案產生、測案執行，全部整合在這一頁（「改版比對」分頁暫時移除，見第八節）
 
 **資料檔案**
@@ -441,7 +441,7 @@ workspace/projects/mbroker-demo-ios/
 
 | 檔案 | 用途 |
 |---|---|
-| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
+| `web/app_map_viewer.html`（樣式在 `app_map_viewer.css`、程式在 `app_map_viewer.js`） | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
 > 元件、手動加節點/邊，不用連裝置）——已從交接包移除，因為
@@ -574,14 +574,15 @@ workspace/projects/mbroker-demo-ios/
   ```
   改版比對在 `<section class="tab-panel" id="tab-compare">` 和 `// ===== 改版比對：` 那兩段；
   重新掃描在 `runRescanScreen()`
-- 整個加回來：`git log --oneline -- app_map_viewer.html` 找到「暫時移除「改版比對」分頁、「重新掃描這個畫面」按鈕」
-  那個 commit，`git revert <commit>`（之後的修改如果動到同一段，要手動處理衝突）
+- 整個加回來：網頁後來拆成 `web/app_map_viewer.html`／`.css`／`.js` 三個檔案，移除的那個 commit
+  沒辦法直接 `git revert`，要對照上面 tag 版本裡的那兩段，手動加回對應的檔案（HTML 結構放
+  `.html`、樣式放 `.css`、程式放 `.js`）
 
 `viewer.html` 的版本標記在 tag `archive/before-viewer-retire`：
 ```
-git show archive/before-viewer-retire:viewer.html > viewer.html
+git show archive/before-viewer-retire:viewer.html > web/viewer.html
 ```
-放回專案資料夾後，還要在 `viewer_server.py` 的 `WEB_PAGES` 加回 `"/viewer.html": "viewer.html"`，
+放到 `web/` 資料夾後，還要在 `viewer_server.py` 的 `WEB_PAGES` 加回 `"/viewer.html": "viewer.html"`，
 才能從 http://127.0.0.1:8767/viewer.html 打開。
 
 > tag 只存在本機，推上 GitHub 要另外 `git push origin --tags`（或逐一 push 這兩個 tag），

@@ -1,0 +1,261 @@
+<title>畫面地圖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="app_map_viewer.css">
+
+<div class="wrap">
+  <div class="file-protocol-warning" id="fileProtocolWarning" hidden>
+    ⚠️ 這個頁面要透過 viewer_server.py 開啟：先執行 <span class="mono">uv run python viewer_server.py --platform ios</span>，
+    再用瀏覽器打開 <span class="mono">http://127.0.0.1:8767/</span>。直接雙擊 HTML 檔開啟的話，截圖顯示不出來、也連不到手機和 LLM。
+  </div>
+  <header class="top">
+    <div class="title-block">
+      <span class="eyebrow">crawl_app_tree.py 掃描結果</span>
+      <h1 id="mapTitle">畫面地圖</h1>
+      <div class="meta-line">
+        <span class="mono" id="bundleId"></span> · 掃描時間 <span class="mono" id="crawledAt"></span> ·
+        根畫面 <span class="mono" id="rootName"></span> · max_depth <span class="mono" id="maxDepth"></span> ·
+        平台 <span class="mono" id="mapPlatform"></span>
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-tile"><div class="num" id="statScreens">–</div><div class="lbl">畫面</div></div>
+      <div class="stat-tile"><div class="num" id="statTree">–</div><div class="lbl">tree edges</div></div>
+      <div class="stat-tile"><div class="num" id="statCross">–</div><div class="lbl">cross-link</div></div>
+      <div class="stat-tile"><div class="num" id="statNoop">–</div><div class="lbl">noop</div></div>
+      <div class="stat-tile"><div class="num" id="statSkip">–</div><div class="lbl">chrome 排除</div></div>
+    </div>
+  </header>
+
+  <div class="project-bar">
+    <span class="project-bar-label">專案</span>
+    <select id="projectSelect" title="地圖、截圖、測案、批次都存在 workspace/projects/<專案> 底下，改了會自動存檔">
+      <option value="">（不使用專案：手動載入／匯出檔案）</option>
+    </select>
+    <span class="map-controls" id="mapControls" hidden>
+      <span class="project-bar-label">地圖</span>
+      <select id="mapSelect" title="一個專案可以有很多張地圖（例如依功能分開爬），各自自動存檔"></select>
+      <button class="btn" id="mapNewBtn" title="新增一張空白地圖，再用手動建樹或爬蟲（--map 名稱）填內容">＋ 新地圖</button>
+      <button class="btn" id="mapCopyBtn" title="把目前地圖複製成新的一張">⧉ 複製</button>
+      <button class="btn" id="mapRenameBtn">✎ 改名</button>
+      <button class="btn" id="mapDeleteBtn">🗑 刪除地圖</button>
+    </span>
+    <button class="btn" id="projectExportBtn" disabled title="地圖、截圖、測案、批次打包成一個 zip，交給其他團隊匯入">⬇ 匯出專案 zip</button>
+    <label class="file-btn-label" title="匯入其他人匯出的專案 zip">📂 匯入專案 zip<input type="file" id="projectImportInput" accept=".zip,application/zip"></label>
+    <span class="project-save-status" id="projectSaveStatus"></span>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="map">地圖檢視</button>
+    <button class="tab-btn" data-tab="scenario">測試情境產生</button>
+    <button class="tab-btn" data-tab="llmgen">LLM測案產生</button>
+    <button class="tab-btn" data-tab="runscript">測案執行</button>
+  </div>
+
+  <section class="tab-panel active" id="tab-map">
+  <div class="workspace">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>畫面樹（點節點看細節）</h2>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i>tree</span>
+          <span><i style="background:var(--gold)"></i>cross-link</span>
+          <span><i style="background:var(--grey-mid)"></i>noop</span>
+          <span><i style="background:var(--danger); opacity:.75"></i>chrome 排除</span>
+        </div>
+      </div>
+      <div class="btn-row" style="padding:0 16px 10px;align-items:center;">
+        <button class="btn" id="exportMapBtn">⬇️ 匯出目前地圖（含手動新增的節點）</button>
+        <label class="file-btn-label" id="importMapLabel">📂 載入之前匯出的地圖<input type="file" id="importMapInput" accept="application/json"></label>
+        <span class="mono" id="mapSaveStatus" style="font-size: calc(11px * var(--font-scale));color:var(--ink-soft);"></span>
+      </div>
+      <div class="diagram-scroll"><svg id="tree" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>畫面細節</h2>
+        <span class="meta-line mono" id="detailCounter"></span>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+    </section>
+  </div>
+
+  <footer class="note">
+    候選元件的「分類」是從 <span class="mono">edges[]</span>／<span class="mono">skipped[]</span> 回推的：
+    有標色代表這個元件在爬蟲跑的當下實際被歸類過（點過導向新畫面／noop／被列為常駐 chrome 排除）；
+    沒有標色代表這次跑爬蟲時根本沒輪到它（畫面候選很多、或中途 <span class="mono">recover_to</span> 失敗提早放棄）。
+  </footer>
+  </section>
+
+  <section class="tab-panel" id="tab-scenario">
+    <section class="panel">
+      <div class="panel-head"><h2>測試情境產生：從畫面資料推論可能的測試情境</h2></div>
+      <div class="detail-body" style="max-height:none;">
+        <div class="field-row">
+          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
+          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="scenarioJsonInput" accept="application/json"></label>
+        </div>
+        <div class="source-line" id="scenarioSourceLine"></div>
+        <div class="field-row">
+          <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
+          <button class="btn" id="scenarioSelectNoneBtn">全部取消</button>
+          <span class="mono" id="scenarioScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
+        </div>
+        <div id="scenarioScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div class="btn-row">
+          <button class="btn primary" id="scenarioGenerateBtn" disabled>🔍 分析並產生情境列表</button>
+          <button class="btn" id="scenarioViewPromptBtn">📝 查看／編輯提示詞</button>
+        </div>
+        <div id="scenarioPromptPanel" hidden style="margin-top:8px;">
+          <textarea class="xpath-input" id="scenarioPromptInput" style="width:100%;min-height:240px;"></textarea>
+          <div class="btn-row" style="margin-top:6px;">
+            <button class="btn" id="scenarioPromptResetBtn">還原預設提示詞</button>
+          </div>
+          <div class="empty-hint" style="margin-top:4px;">
+            裡面的 <span class="mono">&lt;&lt;畫面資料JSON會插入這裡&gt;&gt;</span> 標記不要刪掉，按「分析並產生情境列表」時會自動把你選的畫面資料換進去這個位置；改完不用另外存檔，下面的按鈕會直接套用這裡目前的內容，換了畫面選擇再送出也會沿用你改過的版本。
+          </div>
+        </div>
+        <div id="scenarioResultHost"><div class="empty-state">選好畫面後，按下分析，會列出根據這些畫面資料推論出的可能測試情境；每個情境旁邊有按鈕可以直接送去「LLM測案產生」，產生詳細的逐步驟操作。</div></div>
+      </div>
+    </section>
+  </section>
+
+  <section class="tab-panel" id="tab-llmgen">
+    <section class="panel">
+      <div class="panel-head"><h2>LLM 對話式產生跨畫面測案</h2></div>
+      <div class="detail-body" style="max-height:none;">
+        <div class="field-row">
+          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
+          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="llmgenJsonInput" accept="application/json"></label>
+        </div>
+        <div class="source-line" id="llmgenSourceLine"></div>
+        <div class="field-row">
+          <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
+          <button class="btn" id="llmgenSelectNoneBtn">全部取消</button>
+          <span class="mono" id="llmgenScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
+        </div>
+        <div id="llmgenScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div class="chat-box">
+          <div class="chat-messages" id="llmgenMessages"><div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div></div>
+          <div class="attach-tray" id="llmgenAttachTray" hidden></div>
+          <div class="chat-input-row">
+            <button class="btn attach-btn" id="llmgenAttachBtn" disabled title="附加流程圖、規格書等檔案（可多選；也可以直接貼上截圖或拖曳檔案進來）。支援 png／jpg／webp／pdf／txt／md／csv／json">📎</button>
+            <input type="file" id="llmgenAttachInput" multiple hidden accept="image/png,image/jpeg,image/webp,application/pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json">
+            <textarea id="llmgenInput" placeholder="例如：在自選庫存點第一支股票，確認能進到個股總覽頁" disabled></textarea>
+            <button class="btn primary" id="llmgenSendBtn" disabled>送出</button>
+          </div>
+          <div class="attach-hint" id="llmgenAttachHint"></div>
+          <div class="btn-row">
+            <button class="btn" id="llmgenViewPromptBtn" disabled>查看系統提示詞規則</button>
+            <button class="btn" id="llmgenClearBtn" disabled>清空對話</button>
+          </div>
+        </div>
+        <div>
+          <span class="section-label">目前產生的測試案例</span><span class="case-sync-badge" id="llmgenCaseSyncBadge" hidden>✏️ 手動修改過，LLM 還不知道</span>
+          <pre class="case-json" id="llmgenCaseJson">（尚未產生）</pre>
+          <textarea class="case-json-editor" id="llmgenCaseEditor" spellcheck="false" hidden></textarea>
+          <div class="btn-row" style="margin-bottom:8px;">
+            <button class="btn" id="llmgenEditBtn" disabled>✏️ 編輯</button>
+            <button class="btn primary" id="llmgenEditSaveBtn" hidden>💾 儲存修改</button>
+            <button class="btn" id="llmgenEditCancelBtn" hidden>取消</button>
+            <button class="btn" id="llmgenSyncReviewBtn" disabled title="同步後請 LLM 檢查你改過的部分，有問題會修正並輸出完整 JSON。只是要接著下別的指令的話，直接在對話框輸入即可，送出前會自動同步">🔍 同步並請 LLM 檢查調整</button>
+          </div>
+          <div class="btn-row">
+            <label class="file-btn-label" title="匯入之前匯出的測試案例，接著在上方對話框描述要怎麼改，LLM 會以它為基礎修改">📂 匯入既有測試案例來修改<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
+            <select class="project-pick" id="llmgenCaseProjectSelect" hidden title="開啟專案裡的測案來修改"></select>
+            <button class="btn" id="llmgenSaveToProjectBtn" disabled hidden>💾 存到專案</button>
+            <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出測試案例</button>
+            <button class="btn primary" id="llmgenToRunBtn" disabled>➡ 送去執行</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <section class="tab-panel" id="tab-runscript">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>測案執行</h2>
+        <div class="seg-switch" role="tablist" aria-label="執行方式">
+          <button role="tab" id="runModeSingleBtn" aria-selected="true" aria-controls="runModeSingle">單份執行</button>
+          <button role="tab" id="runModeBatchBtn" aria-selected="false" aria-controls="runModeBatch">批次執行</button>
+        </div>
+      </div>
+      <div class="detail-body" style="max-height:none;display:flex;flex-direction:column;gap:10px;">
+        <div class="conn-bar">
+          <span>裝置橋接：</span>
+          <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
+          <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
+        </div>
+        <div id="runModeSingle" role="tabpanel" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="field-row">
+          <span>資料來源：預設用目前載入的地圖；也可以另外上傳</span>
+          <label class="file-btn-label">📂 element_map.json<input type="file" id="runscriptElmapInput" accept="application/json"></label>
+          <label class="file-btn-label">📂 測試案例 JSON<input type="file" id="runscriptCaseInput" accept="application/json"></label>
+          <select class="project-pick" id="runscriptCaseProjectSelect" hidden title="選專案裡的測案"></select>
+        </div>
+        <div class="source-line" id="runscriptMapSourceLine"></div>
+        <div class="source-line" id="runscriptCaseSourceLine"></div>
+        <div class="btn-row">
+          <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
+          <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="runscriptCheckScreen" checked> 執行前先檢查手機是否停在第一步的畫面（第0步）</label>
+          <label class="field-row" style="gap:4px;" title="步驟失敗時，先關掉擋在前面的彈窗（稍後再說／不用了／關閉…）再重試一次；只在失敗時才檢查，不會誤關測案本來要操作的對話框"><input type="checkbox" id="runscriptDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試（行銷／評分／推播邀請…）</label>
+        </div>
+        <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
+        </div>
+        <div id="runModeBatch" role="tabpanel" hidden style="display:flex;flex-direction:column;gap:10px;">
+        <div class="script-note">一次跑多份測案：每一組選一張地圖，再加入用這張地圖的一份或多份測案。每份測案開始前會自動回到它的起始畫面（先辨識目前在哪一頁 → 按返回或往下點 → 都不行才重開 App）。重開 App 後要登入的話，請在該組指定「登入測案」，登入頁也要在同一張地圖裡。</div>
+        <div class="btn-row">
+          <button class="btn" id="batchAddGroupBtn">＋ 新增一組地圖</button>
+          <label class="file-btn-label" title="匯入之前匯出的批次設定（內含地圖跟測案）">📂 匯入批次設定<input type="file" id="batchImportInput" accept="application/json"></label>
+          <button class="btn" id="batchExportBtn" disabled>⬇ 匯出批次設定</button>
+          <select class="project-pick" id="batchProjectSelect" hidden title="開啟專案裡存的批次設定"></select>
+          <button class="btn" id="batchSaveToProjectBtn" disabled hidden title="存進專案：測案用名稱引用、地圖用專案的，之後改了測案或地圖，批次自動用最新版">💾 存到專案</button>
+        </div>
+        <div id="batchGroups" style="display:flex;flex-direction:column;gap:10px;"></div>
+        <div class="btn-row">
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchAutoNavigate" checked> 每份測案開始前自動回到起始畫面</label>
+          <label class="field-row" style="gap:4px;" title="辨識不出目前畫面、按返回也回不去時，關掉 App 再打開，從首頁照地圖點過去；重開後要登入的話需要指定登入測案"><input type="checkbox" id="batchAllowRestart" checked> 回不去時允許重開 App</label>
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="batchRunBtn" disabled>▶ 執行批次</button>
+          <button class="btn danger" id="batchStopBtn" hidden>⏹ 停止</button>
+        </div>
+        <div id="batchResults"></div>
+        </div>
+      </div>
+    </section>
+  </section>
+</div>
+
+<div class="modal-overlay" id="imgModal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modalTitle">畫面操作</h3>
+      <button class="modal-close" id="modalCloseBtn">✕ 關閉</button>
+    </div>
+    <div class="modal-grid">
+      <div class="modal-stage-col">
+        <div class="conn-bar">
+          <span>裝置橋接（<span class="mono">viewer_server.py</span>）：</span>
+          <button class="btn" id="modalServerCheckBtn">檢查連線</button>
+          <span class="conn-status unknown" id="modalServerStatus">未檢查</span>
+        </div>
+        <div class="stage-wrap" id="modalStageWrap"><img id="modalImg" alt=""></div>
+        <div id="modalPickedHost" style="width:100%;"></div>
+      </div>
+      <div class="modal-list-col">
+        <input class="search-box" type="text" id="modalSearch" placeholder="搜尋 class／label／描述…" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">
+        <label style="display:flex;align-items:center;gap:5px;font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);margin:6px 0;"><input type="checkbox" id="modalClickableOnly"> 只顯示可點擊元件</label>
+        <div id="modalListHost" style="display:flex;flex-direction:column;gap:6px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="map-data" type="application/json">{"app":{"bundle_id":"","crawled_at":"","root_name":"","max_depth":0,"max_screens":0,"describe":false,"safe_keywords":false,"include_nav":false,"sample_per_pattern":0},"screens":[],"edges":[],"skipped":[]}</script>
+<script src="app_map_viewer.js"></script>
