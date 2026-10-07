@@ -795,8 +795,8 @@
     var img = document.getElementById("modalImg");
     img.src = screenshotUrl(s);
     img.alt = s.name;
-    document.getElementById("modalClickableOnly").checked = false;
-    var draw = function () { renderModalBoxes(); renderModalList("", false); };
+    document.getElementById("modalClickableOnly").checked = true;
+    var draw = function () { renderModalBoxes(); renderModalList("", true); };
     if (img.complete) draw(); else img.onload = draw;
     document.getElementById("modalSearch").value = "";
     document.getElementById("modalPickedHost").innerHTML = "";
@@ -1448,7 +1448,7 @@
     (llmgenData.screens || []).forEach(function (screen, idx) {
       var label = document.createElement("label");
       label.className = "filter-chip";
-      label.innerHTML = '<input type="checkbox" class="llmgen-screen-cb" value="' + idx + '" /> ' +
+      label.innerHTML = '<input type="checkbox" class="llmgen-screen-cb" value="' + idx + '" checked /> ' +
         escapeHtml(screen.screen_name) + "（" + (screen.elements || []).length + "）";
       llmgenScreenChecklist.appendChild(label);
     });
