@@ -379,6 +379,7 @@ workspace/projects/mbroker-demo-ios/
   ```
   uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" --bundle_id com.cathay.securities.tw.mBroker.Demo
   ```
+  不想記參數的話，只打 `uv run python workspace.py create`，會一步一步問專案代號、平台、顯示名稱、bundle id，最後確認才建立
 - **把舊資料搬進專案**（複製，原檔不動；截圖會一起複製、路徑會改成相對專案資料夾）：
   ```
   uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json

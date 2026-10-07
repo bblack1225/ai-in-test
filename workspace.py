@@ -410,14 +410,42 @@ class Workspace:
         return report
 
 
+def _ask_create(ws: Workspace) -> tuple[str, str, str, str]:
+    """create 沒帶專案代號時，一步一步問。回傳 (project_id, name, platform, bundle_id)。"""
+    print("建立新專案（直接按 Enter 用括號裡的預設值，Ctrl+C 取消）\n")
+    while True:
+        project_id = input("1. 專案代號（小寫英數字、- 和 _，例如 mbroker-demo-ios）：").strip()
+        try:
+            if ws.project_dir(project_id).exists():
+                print(f"   專案「{project_id}」已經存在，換一個")
+                continue
+            break
+        except WorkspaceError as e:
+            print(f"   {e}")
+    while True:
+        choice = input("2. 平台  1) ios  2) android：").strip().lower()
+        platform = {"1": "ios", "2": "android"}.get(choice, choice)
+        if platform in PLATFORMS:
+            break
+        print("   請輸入 1 或 2")
+    name = input(f"3. 顯示名稱（{project_id}）：").strip() or project_id
+    label = "bundle id" if platform == "ios" else "package"
+    bundle_id = input(f"4. {label}（可以先空白，之後用 update 補）：").strip()
+
+    print(f"\n  專案代號：{project_id}\n  平台：{platform}\n  顯示名稱：{name}\n  {label}：{bundle_id or '（空白）'}")
+    if input("\n確定建立？(Y/n)：").strip().lower() not in ("", "y", "yes"):
+        sys.exit("已取消")
+    return project_id, name, platform, bundle_id
+
+
 def _main():
     parser = argparse.ArgumentParser(description="管理 workspace/ 底下的專案")
     parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="workspace 資料夾（預設 ./workspace）")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="列出所有專案")
-    c = sub.add_parser("create", help="建立新專案")
-    c.add_argument("project_id", help="專案代號，例如 mbroker-demo-ios")
-    c.add_argument("--platform", choices=PLATFORMS, required=True)
+    c = sub.add_parser("create", help="建立新專案（不帶參數就一步一步問）")
+    c.add_argument("project_id", nargs="?", help="專案代號，例如 mbroker-demo-ios")
+    c.add_argument("--platform", choices=PLATFORMS)
     c.add_argument("--name", default="", help="顯示名稱，例如「樹精靈 Demo iOS」")
     c.add_argument("--bundle_id", default="", help="iOS bundle id／Android package")
     u = sub.add_parser("update", help="改專案名稱、bundle id（平台不能改：地圖是照那個平台掃出來的）")
@@ -441,7 +469,12 @@ def _main():
                 maps = "、".join(f"{m['name']}({m.get('screens', '?')})" for m in ws.list_maps(p["id"]))
                 print(f"{p['id']:<28} {p['platform']:<8} {p['name']}  {p.get('bundle_id', '')}  地圖：{maps}")
         elif args.cmd == "create":
-            p = ws.create_project(args.project_id, args.name, args.platform, args.bundle_id)
+            if args.project_id is None:
+                p = ws.create_project(*_ask_create(ws))
+            elif args.platform is None:
+                sys.exit("錯誤：要加 --platform ios 或 --platform android（或不帶參數，一步一步問）")
+            else:
+                p = ws.create_project(args.project_id, args.name, args.platform, args.bundle_id)
             print(f"已建立專案 {p['id']}：{ws.project_dir(p['id'])}")
         elif args.cmd == "update":
             if args.name is None and args.bundle_id is None:
@@ -459,6 +492,8 @@ def _main():
                     print(f"    {s}")
     except WorkspaceError as e:
         sys.exit(f"錯誤：{e}")
+    except (KeyboardInterrupt, EOFError):
+        sys.exit("\n已取消")
 
 
 if __name__ == "__main__":
