@@ -97,13 +97,14 @@ def android_capabilities() -> dict:
 # LLM 設定 (Gemini)
 # ---------------------------------------------------------------------------
 
-LLM_MODEL = _section("llm").get("model") or "gemini-flash-latest"
+# 預設寫死版本（2026-10-02 *-latest 別名實際指向的版本），避免 Google 換版本時行為／計費突然改變
+LLM_MODEL = _section("llm").get("model") or "gemini-3.8-flash"
 
 # 高頻率、範圍窄、有實測驗證迴圈把關的任務（單一元件描述、XPath生成/定位）
 # 用 LLM_MODEL（Flash）就夠、也划算。像「測試情境產生」這種一次性、需要
 # 綜合判斷力的任務改用這個 Pro 版本，呼叫頻率低（一次分析按鈕一次呼叫），
 # 多付的成本有限，換來明顯更好的推論品質。
-LLM_MODEL_PRO = _section("llm").get("model_pro") or "gemini-pro-latest"
+LLM_MODEL_PRO = _section("llm").get("model_pro") or "gemini-3.1-pro-preview"
 
 _llm_client = None
 

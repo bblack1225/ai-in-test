@@ -25,6 +25,8 @@ app_map_tree.json
 app_map_tree_export_*.json
 element_map.json
 element_map_android*.json
+# 測試案例含特定 App 的畫面名稱和操作，跟著專案走（workspace/projects/<專案>/cases/），不放進工具 repo
+test_cases/
 
 # capture_transient.py 抓到的截圖 / page source（同樣含 App 畫面資料）
 transient_captures/
