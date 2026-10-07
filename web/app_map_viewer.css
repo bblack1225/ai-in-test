@@ -118,7 +118,7 @@ h1 { font-size: calc(22px * var(--font-scale)); font-weight: 700; letter-spacing
 
 /* ---------- diagram ---------- */
 .diagram-scroll { overflow-x: auto; padding: 22px 18px 26px; }
-svg#tree { display: block; }
+svg#tree { display: block; margin: 0 auto; }
 .node-card { cursor: pointer; }
 .node-card rect.body {
   fill: var(--paper-raised); stroke: var(--line-strong); stroke-width: 1.3;

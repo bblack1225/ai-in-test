@@ -164,6 +164,17 @@
       return;
     }
 
+    // 依顯示寬度截斷：中文、全形字約佔兩個英數字寬
+    function fitNodeName(name, maxUnits) {
+      var units = 0, out = "";
+      for (var i = 0; i < name.length; i++) {
+        var u = name.charCodeAt(i) >= 0x2E80 ? 2 : 1;
+        if (units + u > maxUnits) return out + "\u2026";
+        units += u; out += name[i];
+      }
+      return out;
+    }
+
     // ---- layout: rows by depth ----
     var byDepth = {};
     screens.forEach(function (s) { (byDepth[s.depth] = byDepth[s.depth] || []).push(s); });
@@ -228,9 +239,12 @@
       g.appendChild(elCountText);
 
       var nameText = svgEl("text", { class: "node-name", x: 10, y: 42 });
-      var shortName = s.name.length > 21 ? s.name.slice(0, 20) + "\u2026" : s.name;
-      nameText.textContent = shortName;
+      nameText.textContent = fitNodeName(s.name, 23);
       g.appendChild(nameText);
+      // 名稱被截斷時，滑鼠移上去可以看完整名稱
+      var tip = svgEl("title", {});
+      tip.textContent = s.name;
+      g.appendChild(tip);
 
       // badges row: cross-link / noop / chrome / manual counts
       var outEdges = edgesByFrom[s.uid] || [];
