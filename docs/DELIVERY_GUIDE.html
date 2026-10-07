@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-in-Test 交付說明</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：左側固定目錄＋右側單欄內文（約 70 字寬）；窄螢幕時目錄收到最上面。配色沿用工具網頁的深石板＋青綠 */
+:root {
+  --bg: #f5f7f7;
+  --surface: #ffffff;
+  --fg: #1b2426;
+  --muted: #56666a;
+  --line: #d9e1e2;
+  --accent: #127a72;
+  --accent-soft: #e0f1ef;
+  --code-bg: #eef2f2;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --ios: #2f5fb3;
+  --ios-soft: #e3ebf8;
+  --android: #3b7d23;
+  --android-soft: #e4f1dc;
+  --font-body: "Noto Sans TC", "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+    --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+    --warn: #e9b35a; --warn-soft: #332714;
+    --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+  --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+  --warn: #e9b35a; --warn-soft: #332714;
+  --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.75 var(--font-body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.layout {
+  max-width: 1120px; margin: 0 auto;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px;
+}
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+/* ---- 目錄 ---- */
+nav.toc {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  padding-block: 40px 24px; font-size: 14px; max-height: 100vh; overflow-y: auto;
+}
+nav.toc .toc-title { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.5; }
+nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
+nav.toc .grp { margin-top: 12px; font-size: 12px; color: var(--muted); padding-left: 10px; letter-spacing: .04em; }
+@media (max-width: 900px) {
+  nav.toc { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-block: 24px 16px; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  nav.toc .grp { grid-column: 1 / -1; }
+}
+
+/* ---- 內文 ---- */
+main { min-width: 0; max-width: 760px; padding-block: 40px 0; }
+header.hero { padding-bottom: 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 13px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: 34px; line-height: 1.3; margin: 6px 0 12px; text-wrap: balance; font-weight: 700; }
+.lede { font-size: 17px; color: var(--muted); margin: 0; max-width: 62ch; }
+h2 {
+  font-size: 24px; line-height: 1.35; margin: 56px 0 12px; text-wrap: balance;
+  scroll-margin-top: 16px; display: flex; align-items: baseline; gap: 12px;
+}
+h2 .num { font-family: var(--font-mono); font-size: 15px; color: var(--accent); font-weight: 600; flex: none; }
+h3 { font-size: 18px; margin: 32px 0 8px; scroll-margin-top: 16px; text-wrap: balance; }
+h4 { font-size: 16px; margin: 24px 0 4px; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin-bottom: 4px; }
+li > ul, li > ol { margin-top: 4px; }
+strong { font-weight: 700; }
+.muted { color: var(--muted); }
+
+code { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* 指令區塊：右上角有「複製」 */
+.cmd { position: relative; margin: 8px 0 16px; }
+.cmd pre {
+  margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 84px 12px 14px; overflow-x: auto; font: 14px/1.6 var(--font-mono);
+}
+.cmd pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+.cmd .copy {
+  position: absolute; top: 8px; right: 8px; font: 12px var(--font-body);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer;
+}
+.cmd .copy:hover { border-color: var(--accent); color: var(--accent); }
+.cmd .copy.done { color: var(--accent); border-color: var(--accent); }
+
+/* 提示框 */
+.callout { border-radius: 8px; padding: 12px 16px; margin: 12px 0 18px; font-size: 15px; }
+.callout > :last-child { margin-bottom: 0; }
+.callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+.callout.note { background: var(--accent-soft); }
+.callout.warn { background: var(--warn-soft); }
+.callout.warn .callout-title { color: var(--warn); }
+
+/* 平台標籤 */
+.chip { display: inline-block; font: 600 12px/1 var(--font-mono); padding: 4px 8px; border-radius: 999px; vertical-align: 3px; letter-spacing: .02em; }
+.chip.ios { background: var(--ios-soft); color: var(--ios); }
+.chip.android { background: var(--android-soft); color: var(--android); }
+.chip.both { background: var(--accent-soft); color: var(--accent); }
+.chip.os { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); }
+.os-label { font: 600 12.5px/1 var(--font-mono); color: var(--muted); margin: 14px 0 -2px; letter-spacing: .02em; }
+.os-label + .cmd { margin-top: 6px; }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 8px 0 18px; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; font-size: 13px; color: var(--muted); background: var(--code-bg); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td code { white-space: nowrap; }
+
+/* 交付內容：四樣東西 */
+.kit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 18px; }
+@media (max-width: 560px) { .kit { grid-template-columns: minmax(0, 1fr); } }
+.kit > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.kit .k-name { font-weight: 700; }
+.kit .k-from { font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+.kit p { margin: 0; font-size: 14.5px; color: var(--muted); }
+
+/* 工具網頁的分頁流程 */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 14px 0 20px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.flow > div { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.flow > div:last-child { border-right: none; }
+.flow .f-tab { font-weight: 700; font-size: 15px; }
+.flow .f-do { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+.flow .f-out { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-top: 6px; }
+@media (max-width: 680px) {
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .flow > div { border-right: none; border-bottom: 1px solid var(--line); }
+  .flow > div:last-child { border-bottom: none; }
+}
+
+/* 檢查清單 */
+ul.checks { list-style: none; padding: 0; }
+ul.checks li { padding-left: 28px; position: relative; }
+ul.checks li::before {
+  content: ""; position: absolute; left: 2px; top: 6px; width: 14px; height: 14px;
+  border: 2px solid var(--accent); border-radius: 3px;
+}
+
+hr { border: none; border-top: 1px solid var(--line); margin: 48px 0 0; }
+footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="目錄">
+  <div class="toc-title">目錄</div>
+  <ol>
+    <li><a href="#overview">這套工具做什麼</a></li>
+    <li><a href="#kit">你會拿到什麼</a></li>
+    <li class="grp">第一次安裝</li>
+    <li><a href="#s1">1. 取得程式</a></li>
+    <li><a href="#s2">2. 安裝共用工具</a></li>
+    <li><a href="#s3">3. 建立 Python 環境</a></li>
+    <li><a href="#s4">4. 建立設定檔</a></li>
+    <li><a href="#s5-ios">5A. iOS 裝置設定</a></li>
+    <li><a href="#s5-android">5B. Android 裝置設定</a></li>
+    <li><a href="#s6">6. 檢查環境</a></li>
+    <li><a href="#s7">7. 準備專案</a></li>
+    <li class="grp">日常使用</li>
+    <li><a href="#daily">每次使用</a></li>
+    <li><a href="#web">網頁四個分頁</a></li>
+    <li><a href="#share">團隊內交換資料</a></li>
+    <li><a href="#update">更新工具</a></li>
+    <li class="grp">參考</li>
+    <li><a href="#faq">常見問題</a></li>
+    <li><a href="#limits">已知限制</a></li>
+    <li><a href="#more">延伸閱讀</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">ai-in-test ・ 交付說明</div>
+  <h1>手機 App 自動化測試工具：從 clone 到跑第一份測案</h1>
+  <p class="lede">給接手的團隊看的安裝與使用說明。照第 1 到第 7 步做完，就能在網頁上看到你們 App 的畫面地圖、用 LLM 產生測案，並在手機上執行。之後每次使用只要一個指令。</p>
+</header>
+
+<h2 id="overview">這套工具做什麼</h2>
+<p>這是一套不用手寫 selector 的手機 App UI 自動化測試工具。它會掃描 App 畫面上的每個元件，用 LLM 幫沒有 id 的元件寫上用途說明，整理成一張「畫面地圖」。測案只要寫「在哪個畫面點哪個元件」，執行時工具會依序用原生 id、自動產生的 XPath、鄰近文字、座標去找到元件。</p>
+<p>平常的操作都在一個本機網頁裡完成：</p>
+<div class="flow" role="list">
+  <div role="listitem"><div class="f-tab">地圖檢視</div><div class="f-do">看畫面地圖，從手機掃描補上新畫面</div><div class="f-out">→ 地圖</div></div>
+  <div role="listitem"><div class="f-tab">測試情境產生</div><div class="f-do">讓 LLM 從畫面推想值得測的情境</div><div class="f-out">→ 情境清單</div></div>
+  <div role="listitem"><div class="f-tab">測案編輯</div><div class="f-do">用對話產生或修改測案，存進專案</div><div class="f-out">→ 測案</div></div>
+  <div role="listitem"><div class="f-tab">測案執行</div><div class="f-do">在手機上跑單份或整批測案</div><div class="f-out">→ PASS／FAIL</div></div>
+</div>
+<p>支援 <span class="chip ios">iOS</span> 實機和 <span class="chip android">Android</span> 模擬器／實機，兩個平台共用同一套程式。電腦可以用 macOS 或 Windows，但能測的平台不同：</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>你的電腦</th><th>能測的平台</th><th>要做的步驟</th></tr></thead>
+  <tbody>
+    <tr><td>macOS</td><td><span class="chip ios">iOS</span> <span class="chip android">Android</span></td><td>1～4、5A 和／或 5B、6、7</td></tr>
+    <tr><td>Windows</td><td><span class="chip android">Android</span></td><td>1～4、5B、6、7。iOS 一定要用 Mac，因為建置和簽署都需要只有 macOS 版的 Xcode</td></tr>
+  </tbody>
+</table></div>
+<p>下面每個指令如果兩個系統寫法不同，會分開標示 <span class="chip os">macOS</span> 和 <span class="chip os">Windows</span>。Windows 的指令都在 PowerShell 裡執行。</p>
+
+<h2 id="kit">你會拿到什麼</h2>
+<p>工具和你們 App 的資料是分開交付的。畫面截圖裡可能有帳號、金額等資訊，所以不放進 git。</p>
+<div class="kit">
+  <div><div class="k-from">GitHub</div><div class="k-name">工具程式（repo）</div><p>所有團隊共用同一份，裡面沒有任何 App 的資料。</p></div>
+  <div><div class="k-from">交付窗口另外給</div><div class="k-name">專案 zip</div><p>你們 App 的地圖、截圖、測案、批次設定。沒有的話也可以從頭建立（第 7 步）。</p></div>
+  <div><div class="k-from">交付窗口另外給</div><div class="k-name">Gemini API key</div><p>LLM 功能（元件說明、產生情境與測案）要用。沒有的話其他功能照常能用。</p></div>
+  <div><div class="k-from">你自己建立</div><div class="k-name">config.toml</div><p>這台電腦、這支手機的設定，含 API key，不進 git、不要傳給別人。</p></div>
+</div>
+<div class="callout note">
+  <div class="callout-title">開始前先確認</div>
+  <ul class="checks">
+    <li>一台 Mac 或 Windows 電腦</li>
+    <li>測試用手機或模擬器，待測 App 已經裝好</li>
+    <li>從交付窗口拿到 Gemini API key，以及你們 App 的專案 zip（如果有）</li>
+  </ul>
+</div>
+
+<h2 id="s1"><span class="num">01</span>取得程式</h2>
+<p>macOS 打開「終端機」，Windows 打開「PowerShell」，切到你想放程式的資料夾，然後 clone。電腦上還沒有 git 的話，先照第 2 步的表格裝好 git。</p>
+<div class="cmd"><pre><code>git clone https://github.com/bblack1225/ai-in-test.git
+cd ai-in-test</code></pre><button class="copy" type="button">複製</button></div>
+<p>之後所有指令都要在 <code>ai-in-test</code> 這個資料夾裡執行，程式會用相對路徑讀寫檔案。</p>
+
+<h2 id="s2"><span class="num">02</span>安裝共用工具</h2>
+<p>每一項都先用「確認指令」看看是不是已經裝過。macOS 用 <a href="https://brew.sh" target="_blank" rel="noopener">Homebrew</a> 安裝，還沒裝的話先照它首頁的指令安裝；Windows 用內建的 winget。</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>工具</th><th>用途</th><th>確認指令</th><th>macOS 安裝</th><th>Windows 安裝</th></tr></thead>
+  <tbody>
+    <tr><td>git</td><td>取得程式</td><td><code>git --version</code></td><td><code>xcode-select --install</code></td><td><code>winget install --id Git.Git -e</code></td></tr>
+    <tr><td>uv</td><td>管理 Python 版本和套件</td><td><code>uv --version</code></td><td><code>brew install uv</code></td><td><code>winget install --id astral-sh.uv -e</code></td></tr>
+    <tr><td>Node.js</td><td>執行 Appium</td><td><code>node --version</code></td><td><code>brew install node</code></td><td><code>winget install --id OpenJS.NodeJS.LTS -e</code></td></tr>
+    <tr><td>Appium 3</td><td>手機自動化伺服器</td><td><code>appium --version</code></td><td colspan="2"><code>npm install -g appium</code>（兩個系統一樣）</td></tr>
+  </tbody>
+</table></div>
+<p>Windows 裝完之後要<strong>關掉 PowerShell 再重開</strong>，新裝的指令才找得到。各平台的 Appium driver 和開發工具（Xcode、Android Studio）在第 5 步裝。</p>
+<div class="callout warn">
+  <div class="callout-title">不要直接用電腦上原本的 Python</div>
+  <p>這個專案需要 Python 3.12。macOS 內建的是 3.9，Windows 可能沒裝或是別的版本，直接用會出錯。之後執行程式一律用 <code>uv run python ...</code>，uv 會自動下載並使用專案指定的版本。</p>
+</div>
+
+<h2 id="s3"><span class="num">03</span>建立 Python 環境</h2>
+<div class="cmd"><pre><code>uv sync</code></pre><button class="copy" type="button">複製</button></div>
+<p>uv 會自動下載 Python 3.12（不會動到電腦上原本的 Python），並在專案裡的 <code>.venv/</code> 裝好所有套件，版本照 <code>uv.lock</code> 完全鎖定，每個人裝到的都一樣。確認：</p>
+<div class="cmd"><pre><code>uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')"</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">不需要另外啟用虛擬環境。要加套件的話用 <code>uv add 套件名</code>，不要用 <code>pip install</code>，不然別人拿到專案時裝不到。</p>
+
+<h2 id="s4"><span class="num">04</span>建立設定檔</h2>
+<p>從範本複製一份自己的設定檔（PowerShell 也認得 <code>cp</code>，兩個系統一樣）：</p>
+<div class="cmd"><pre><code>cp config.example.toml config.toml</code></pre><button class="copy" type="button">複製</button></div>
+<p>打開 <code>config.toml</code>，先在 <code>[llm]</code> 填入交付窗口給你的 API key：</p>
+<div class="cmd"><pre><code>[llm]
+api_key = "交付窗口給你的 key"</code></pre><button class="copy" type="button">複製</button></div>
+<p>裝置相關的欄位（<code>[ios]</code> 或 <code>[android]</code>）在第 5 步查到資料後再填。確認 key 讀得到（不會印出 key 本身）：</p>
+<div class="cmd"><pre><code>uv run python -c "import test_config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"</code></pre><button class="copy" type="button">複製</button></div>
+<div class="callout note">
+  <p><code>config.toml</code> 已經列在 <code>.gitignore</code>，不會被 commit。它含有 API key，不要傳給別人，也不要放進任何交付包。不想把 key 寫進檔案的話，也可以改設環境變數 <code>GEMINI_API_KEY</code>，兩個都有時以環境變數為準。</p>
+</div>
+<p>待測 App 的 bundle id／package 不填在這裡，填在專案設定（第 7 步），換測不同 App 時不用改這個檔案。</p>
+
+<h2 id="s5-ios"><span class="num">05A</span>iOS 裝置設定 <span class="chip ios">iOS</span> <span class="chip os">僅限 macOS</span></h2>
+<p>這一段的指令都只能在 Mac 上執行。用 Windows，或只測 Android 的話，跳到 <a href="#s5-android">5B</a>。</p>
+
+<h3>安裝 Xcode 和 iOS driver</h3>
+<ol>
+  <li>從 App Store 安裝 Xcode，打開一次讓它裝完元件，然後同意授權：
+    <div class="cmd"><pre><code>sudo xcodebuild -license accept</code></pre><button class="copy" type="button">複製</button></div></li>
+  <li>安裝 Appium 的 iOS driver：
+    <div class="cmd"><pre><code>appium driver install xcuitest</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>準備 iPhone</h3>
+<ol>
+  <li>USB 接上 Mac、解鎖，手機上點「信任這台電腦」。</li>
+  <li>開啟開發者模式：設定 → 隱私權與安全性 → 開發者模式。找不到這個選項，通常是手機還沒被 Xcode 連過，先做完下一段「簽署 WebDriverAgent」的步驟 3 再回來開。</li>
+  <li>查手機的 UDID，在 <code>== Devices ==</code> 底下手機那一行，最後括號裡的值：
+    <div class="cmd"><pre><code>xcrun xctrace list devices</code></pre><button class="copy" type="button">複製</button></div></li>
+  <li>查待測 App 的 bundle id（第 7 步建立專案時要用）：
+    <div class="cmd"><pre><code>xcrun devicectl device info apps --device 你的UDID</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>簽署 WebDriverAgent</h3>
+<p>WebDriverAgent（WDA）是 Appium 裝到 iPhone 上、實際操作畫面的程式。手機桌面上會多一支 <strong>WebDriverAgentRunner-Runner</strong>，這是正常的，不要刪。</p>
+<ol>
+  <li><strong>Xcode 登入 Apple ID</strong>：Xcode → Settings → Accounts → 左下角 ＋ → Apple ID。沒登入的話，之後連線會報 <code>xcodebuild failed with code 65</code>。</li>
+  <li>打開 WDA 專案：
+    <div class="cmd"><pre><code>open ~/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj</code></pre><button class="copy" type="button">複製</button></div>
+    TARGETS 選 <strong>WebDriverAgentRunner</strong> → Signing &amp; Capabilities：勾選 Automatically manage signing，Team 選你的帳號，Bundle Identifier 自己取一個並固定使用，例如 <code>com.你的名字.WebDriverAgentRunner</code>。</li>
+  <li>上方 Scheme 選 WebDriverAgentRunner、裝置選你的 iPhone，按 Product → Test（⌘U）。手機跳出「不受信任的開發者」的話，到 設定 → 一般 → VPN 與裝置管理 → 信任，再按一次 ⌘U。手機出現 <strong>Automation Running</strong> 就成功了，按 ⌘. 停止。</li>
+  <li>查 Team ID。Xcode 的 Accounts 頁面只看得到團隊名稱，用終端機查，<code>organizationalUnitName</code> 那一行就是：
+    <div class="cmd"><pre><code>security find-certificate -a -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+<div class="callout warn">
+  <div class="callout-title">免費 Apple ID 的簽署只有 7 天效期</div>
+  <p>到期後連線會報 <code>0xe8008011</code> 或 WDA 打不開。刪掉手機上的 WebDriverAgentRunner-Runner 讓 Appium 重裝，或重做上面的步驟 3，不用改 bundle id。免費帳號每 7 天最多註冊 10 個新的 App ID，所以 WDA 的 bundle id 決定後不要一直換。加入公司付費開發者團隊的話，效期是 1 年。</p>
+</div>
+
+<h3>填 config.toml 的 [ios]</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>欄位</th><th>填什麼</th></tr></thead>
+  <tbody>
+    <tr><td><code>udid</code></td><td>上面查到的手機 UDID</td></tr>
+    <tr><td><code>xcode_org_id</code></td><td>Team ID</td></tr>
+    <tr><td><code>wda_bundle_id</code></td><td>在 Xcode 幫 WDA 設定的 Bundle Identifier</td></tr>
+    <tr><td><code>launch_bundle_id</code></td><td>選填，通常留空。留空時工具直接操作手機上目前在前景的 App</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="s5-android"><span class="num">05B</span>Android 裝置設定 <span class="chip android">Android</span></h2>
+<div class="callout warn">
+  <div class="callout-title">這一段還沒照新流程完整實機驗證</div>
+  <p>Android 的程式比 iOS 早開發、相對成熟，但這份安裝流程是依照 iOS 跑通的版本整理的，Android 部分還沒有從頭照著做一次。遇到跟這裡寫的不一樣的地方，請回報給交付窗口。</p>
+</div>
+
+<h3>安裝 Android Studio 和 Android driver</h3>
+<ol>
+  <li>安裝 <a href="https://developer.android.com/studio" target="_blank" rel="noopener">Android Studio</a>，第一次開啟時照預設裝好 Android SDK。用模擬器的話，在 Device Manager 建一台。</li>
+  <li>設定三個環境變數：<code>ANDROID_HOME</code>（Android SDK 的位置）、<code>JAVA_HOME</code>（Appium 要用的 Java），以及把 <code>adb</code> 所在的 platform-tools 加進 <code>PATH</code>。下面用的是 Android Studio 預設的安裝位置，你改過安裝位置的話要跟著改。
+    <div class="os-label">macOS（寫進 ~/.zshrc）</div>
+    <div class="cmd"><pre><code>echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' &gt;&gt; ~/.zshrc
+echo 'export PATH="$ANDROID_HOME/platform-tools:$PATH"' &gt;&gt; ~/.zshrc
+echo 'export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"' &gt;&gt; ~/.zshrc
+source ~/.zshrc</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="os-label">Windows（PowerShell）</div>
+    <div class="cmd"><pre><code>setx ANDROID_HOME "$env:LOCALAPPDATA\Android\Sdk"
+setx JAVA_HOME "C:\Program Files\Android\Android Studio\jbr"</code></pre><button class="copy" type="button">複製</button></div>
+    Windows 的 <code>PATH</code> 請用介面加，不要用 <code>setx</code> 改（太長會被截斷）：開始選單搜尋「編輯您帳戶的環境變數」→ 使用者變數的 <code>Path</code> → 編輯 → 新增 <code>%ANDROID_HOME%\platform-tools</code>。<br>
+    設定完關掉終端機再重開，確認 <code>adb version</code> 有印出版本。</li>
+  <li>安裝 Appium 的 Android driver：
+    <div class="cmd"><pre><code>appium driver install uiautomator2</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>準備裝置和待測 App</h3>
+<ul>
+  <li><strong>實機</strong>：開啟開發人員選項和 USB 偵錯，接上電腦後在手機上允許偵錯。</li>
+  <li><strong>模擬器</strong>（Android Studio 或 BlueStacks）：Appium 不會幫你裝待測 App，要自己先裝 APK。把 APK 拖進模擬器視窗，或執行 <code>adb install 檔案.apk</code>。
+    <ul>
+      <li>Apple Silicon 的 Mac 上模擬器是 arm64，APK 要支援 <code>arm64-v8a</code> 或是 universal 版本</li>
+      <li>拿到 <code>.aab</code> 不能直接安裝，直接跟開發團隊要 APK 最省事</li>
+      <li>金融類 App 常會偵測並擋掉模擬器，被擋的話改用實機</li>
+    </ul></li>
+  <li><strong>BlueStacks</strong>：它不會自動被 adb 看到，要先手動連線。這套工具還沒有在 BlueStacks 上實測過。
+    <ol>
+      <li>BlueStacks 設定 → 進階 → 打開「Android 偵錯橋（ADB）」。旁邊會顯示連線位址，通常是 <code>127.0.0.1:5555</code>；同時開好幾個 BlueStacks 時，每個的 port 不一樣。</li>
+      <li>用 adb 連過去，port 換成畫面上顯示的那個：
+        <div class="cmd"><pre><code>adb connect 127.0.0.1:5555</code></pre><button class="copy" type="button">複製</button></div></li>
+      <li><strong>每次重開 BlueStacks 後都要再連一次</strong>，工具不會自動幫你連。</li>
+    </ol></li>
+  <li>查裝置代號和待測 App 的 package（第 7 步建立專案時要用）。先在手機上打開待測 App，再執行（兩個系統一樣）：
+    <div class="cmd"><pre><code>adb devices
+adb shell "dumpsys window | grep mCurrentFocus"</code></pre><button class="copy" type="button">複製</button></div>
+    第二行輸出裡 <code>/</code> 前面那一段就是 package。</li>
+</ul>
+
+<h3>填 config.toml 的 [android]</h3>
+<p><code>udid</code> 填 <code>adb devices</code> 看到的代號：</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>裝置</th><th><code>udid</code> 範例</th></tr></thead>
+  <tbody>
+    <tr><td>Android Studio 模擬器</td><td><code>emulator-5554</code></td></tr>
+    <tr><td>BlueStacks</td><td><code>127.0.0.1:5555</code>（就是 <code>adb connect</code> 的那串）</td></tr>
+    <tr><td>實機</td><td>一串英數字序號，例如 <code>R5CT1234ABC</code></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="s6"><span class="num">06</span>檢查環境</h2>
+<p>工具附了一個檢查指令，會逐項確認 Python 套件、<code>config.toml</code>、API key、Appium 和 driver、Xcode 簽署憑證、手機有沒有接上、adb、專案、網頁要用的 port。它只讀取資訊，不會操作手機。</p>
+<div class="cmd"><pre><code>uv run python aitest.py doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
+<p>測 Android 就把 <code>ios</code> 換成 <code>android</code>，兩個都用就拿掉 <code>--platform</code>。<strong>Windows 一定要加 <code>--platform android</code></strong>，不然 iOS 那一段會因為沒有 Xcode 而失敗。每一項失敗都會寫怎麼修；照著修完再跑一次，直到沒有失敗項目。</p>
+<p class="muted">「還沒有專案」這一項在第 7 步之前出現是正常的。WDA 簽署有沒有過期，doctor 看不出來；連線時報 <code>code 65</code> 或 <code>0xe8008011</code> 再照 5A 重簽。</p>
+
+<h2 id="s7"><span class="num">07</span>準備專案</h2>
+<p>一支 App 的一個平台是一個「專案」，例如 <code>xxx-ios</code> 和 <code>xxx-android</code> 是兩個專案，因為兩個平台的畫面結構不同，地圖不能共用。專案資料放在 <code>workspace/projects/&lt;專案代號&gt;/</code>，這個資料夾不進 git。</p>
+
+<h3>A. 匯入交付的專案 zip</h3>
+<p>拿到交付窗口給的 zip 時，用這個方式。</p>
+<ol>
+  <li>先只開網頁，不接手機：
+    <div class="cmd"><pre><code>uv run python aitest.py start --no-appium</code></pre><button class="copy" type="button">複製</button></div>
+    瀏覽器會自動打開 <code>http://127.0.0.1:8767/</code>。</li>
+  <li>頁首按「📂 匯入專案 zip」，選拿到的 zip。匯入完成後會自動開啟這個專案。</li>
+  <li>回到終端機按 <code>Ctrl+C</code> 關掉，接著照<a href="#daily">「每次使用」</a>帶專案代號重新啟動。專案代號可以這樣查：
+    <div class="cmd"><pre><code>uv run python workspace.py list</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>B. 從頭建立專案</h3>
+<p>沒有現成資料，或要測一支新的 App 時，用這個方式。執行下面的指令，它會一步一步問專案代號、平台、顯示名稱、bundle id／package，最後確認才建立：</p>
+<div class="cmd"><pre><code>uv run python workspace.py create</code></pre><button class="copy" type="button">複製</button></div>
+<p>bundle id／package 要填第 5 步查到的值，不確定可以先空白，之後再用 <code>workspace.py update &lt;專案代號&gt; --bundle_id 查到的值</code> 補。它決定工具要打開、檢查、重開哪一支 App，填錯的話連線會失敗。</p>
+<p>建好之後地圖是空的，有兩種方式補上畫面：</p>
+<ul>
+  <li><strong>在網頁上手動建</strong>：在地圖檢視的節點詳情按「🌱 從這裡點出新畫面…」，工具會實際點擊手機，掃描新畫面加進地圖。</li>
+  <li><strong>用自動爬蟲</strong>：先關掉網頁伺服器、自己開 Appium（<code>appium --address 127.0.0.1</code>），手機停在要開始爬的畫面，例如 App 首頁。<code>--root_name</code> 是這個起始畫面在地圖上的名稱。第一次用很小的範圍試：
+    <div class="cmd"><pre><code>uv run python crawl_app_tree.py --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div></li>
+</ul>
+<div class="callout warn">
+  <div class="callout-title">爬蟲預設會點擊所有元件</div>
+  <p>「下單、送出、確認」這類高風險按鈕，要加 <code>--safe_keywords</code> 才會跳過。連到正式環境或真實帳號時一定要加，也可以先加 <code>--dry_run</code> 看它打算點哪些。對同一張地圖重爬會整張蓋掉（蓋掉前會備份到 <code>backups/</code>），依功能分開爬時換 <code>--map</code> 名稱，例如 <code>--map trading</code>。</p>
+</div>
+
+<hr>
+
+<h2 id="daily">每次使用</h2>
+<ol>
+  <li>手機接上、解鎖，打開待測 App。</li>
+  <li>帶專案代號啟動，平台會照專案設定：
+    <div class="cmd"><pre><code>uv run python aitest.py start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
+    它會在需要時自動啟動 Appium（只允許本機連線），接著啟動網頁伺服器並打開瀏覽器。</li>
+  <li>這個終端機視窗要一直開著。用完按 <code>Ctrl+C</code>，會一起關掉這次自動啟動的 Appium。</li>
+</ol>
+<div class="table-wrap"><table>
+  <thead><tr><th>常用選項</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><code>--no-appium</code></td><td>不接手機，只看地圖、編輯測案</td></tr>
+    <tr><td><code>--no-browser</code></td><td>不自動打開瀏覽器</td></tr>
+    <tr><td><code>--port 8768</code></td><td>8767 被佔用時換一個 port</td></tr>
+  </tbody>
+</table></div>
+<div class="callout note">
+  <ul>
+    <li>網頁一定要從 <code>http://127.0.0.1:8767/</code> 開。直接雙擊 HTML 檔的話，截圖顯示不出來，也連不到伺服器。</li>
+    <li>沒帶專案代號時，平台預設是 iOS。開 Android 專案時如果看到「專案是 Android，但 viewer_server 目前接的是 iOS」，就是忘了帶專案代號：按 <code>Ctrl+C</code> 重開即可。</li>
+    <li>Windows 上按 <code>Ctrl+C</code> 結束後，下次連線如果失敗，關掉所有 Appium 視窗再重開一次通常就好了。</li>
+    <li>網頁伺服器開著時會一直佔用手機連線，這時不要另外跑 <code>crawl_app_tree.py</code>、<code>capture_screen_map.py</code> 這類直接連手機的程式。要跑的話先按 <code>Ctrl+C</code> 關掉，再自己開 Appium：<code>appium --address 127.0.0.1</code>。</li>
+  </ul>
+</div>
+
+<h2 id="web">網頁四個分頁</h2>
+<p>地圖只從「地圖檢視」進來，其他分頁都用地圖檢視目前開著的那張；測案只從「測案編輯」進來，「測案執行」只負責選測案和執行。</p>
+
+<h3>地圖檢視</h3>
+<ul>
+  <li>頁首選「專案」和「地圖」。一個專案可以有好幾張地圖，通常依功能分開，例如交易、帳務各一張。「⚙ 管理地圖」可以新增、改名、複製、刪除。</li>
+  <li>點節點看畫面細節和元件清單；點截圖可以在圖上直接選元件。</li>
+  <li>改了會自動存檔到目前這張地圖，頁首會顯示存檔狀態。</li>
+</ul>
+
+<h3>測試情境產生</h3>
+<p>勾選畫面後按「分析並產生情境列表」，LLM 會列出值得測的情境。每個情境旁的按鈕會把它帶到「測案編輯」，開一份新測案。</p>
+
+<h3>測案編輯</h3>
+<ol>
+  <li><strong>選測案</strong>：「＋ 新測案」「📁 開啟專案測案」或「📂 匯入測案 JSON」。下方會顯示目前這份存了沒。</li>
+  <li><strong>用 LLM 產生或修改</strong>：勾選相關畫面，用自然語言描述要測的流程，例如「在自選庫存點第一支股票，確認能進到個股總覽頁」。可以附上流程圖或規格書。</li>
+  <li><strong>檢查和存檔</strong>：需要的話手動編輯 JSON，再「💾 存到專案」，或「➡ 送去執行」直接試跑。</li>
+</ol>
+<p class="muted">換一份測案時會清掉之前的對話；目前這份有修改還沒存的話，會先問你。</p>
+
+<h3>測案執行</h3>
+<ul>
+  <li><strong>單份執行</strong>：選一份專案測案（或測案編輯送過來的那份），按「▶ 執行測試」。建議勾選「執行前先檢查手機是否停在第一步的畫面」。</li>
+  <li><strong>批次執行</strong>：要先開專案。每一組選一張地圖，加入要依序執行的測案；重開 App 後需要登入的話，指定該組的「登入測案」。每份測案開始前，工具會自動回到它的起始畫面。整份批次可以「💾 存到專案」，下次直接開啟。</li>
+</ul>
+
+<h2 id="share">團隊內交換資料</h2>
+<p>專案資料不進 git，同一個團隊的人互相交換時用網頁上的匯出／匯入：</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>想做的事</th><th>匯出</th><th>對方匯入</th></tr></thead>
+  <tbody>
+    <tr><td>給整個專案（新成員、換電腦）</td><td>頁首「⬇ 匯出專案 zip」</td><td>「📂 匯入專案 zip」</td></tr>
+    <tr><td>同步彼此的成果（兩個人分頭編不同地圖）</td><td>頁首「⬇ 匯出專案 zip」</td><td>「📂 匯入專案 zip」→ 選「合併」。名稱一樣但內容不同的項目，每一個選保留我的、用匯入的或兩個都留</td></tr>
+    <tr><td>只更新某一張地圖</td><td>地圖檢視「⬇️ 匯出目前地圖（zip，含截圖）」</td><td>「📂 匯入地圖」，同名時選要不要取代</td></tr>
+    <tr><td>給一份測案</td><td>測案編輯「⬇ 匯出 JSON」</td><td>測案編輯「📂 匯入測案 JSON」，再存進專案</td></tr>
+  </tbody>
+</table></div>
+<div class="callout warn">
+  <div class="callout-title">專案資料含有畫面內容</div>
+  <p>截圖和元件文字可能有帳號、金額等資訊。zip 只在團隊內部傳遞，不要 commit 進 repo，也不要給其他 App 的團隊。被取代的地圖都會先備份到專案的 <code>backups/</code>。</p>
+</div>
+
+<h2 id="update">更新工具</h2>
+<p>工具由交付窗口統一維護，所有團隊共用。有新版時：</p>
+<div class="cmd"><pre><code>git pull
+uv sync</code></pre><button class="copy" type="button">複製</button></div>
+<p>你們的 <code>workspace/</code> 和 <code>config.toml</code> 不在 git 裡，更新不會動到它們。請不要為了單一 App 直接改工具程式；遇到問題或需要新功能，回報給交付窗口，修好後所有團隊都會一起受益。</p>
+
+<hr>
+
+<h2 id="faq">常見問題</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>症狀</th><th>原因</th><th>處理方式</th></tr></thead>
+  <tbody>
+    <tr><td><code>TypeError: unsupported operand type(s) for |</code></td><td>用到電腦上原本的舊版 Python</td><td>改用 <code>uv run python ...</code></td></tr>
+    <tr><td>剛裝好的 <code>uv</code>、<code>appium</code>、<code>adb</code> 找不到</td><td>終端機是安裝前開的，還沒讀到新的 PATH</td><td>關掉終端機（PowerShell）再重開</td></tr>
+    <tr><td><span class="chip os">Windows</span> 執行 <code>appium</code> 出現「因為這個系統上已停用指令碼執行」</td><td>PowerShell 預設不允許執行 npm 裝的腳本</td><td>改用 <code>appium.cmd</code>，或請 IT 依公司規範調整 PowerShell 執行原則</td></tr>
+    <tr><td>driver 明明有裝，卻出現 <code>Could not find a driver for automationName ...</code></td><td>同時開著好幾個 Appium，連到舊的那個</td><td>macOS：<code>lsof -nP -iTCP:4723 -sTCP:LISTEN</code>，Windows：<code>netstat -ano | findstr :4723</code>，應該只有一個 PID。多的用 <code>kill &lt;PID&gt;</code>（Windows：<code>taskkill /PID &lt;PID&gt; /F</code>）關掉</td></tr>
+    <tr><td><span class="chip ios">iOS</span> <code>xcodebuild failed with code 65</code></td><td>WDA 建置或簽署失敗，最常見是 Xcode 沒登入 Apple ID</td><td>重做 5A「簽署 WebDriverAgent」步驟 1～3；要看詳細錯誤，在 <code>config.toml</code> 的 <code>[capabilities.ios]</code> 加 <code>showXcodeLog = true</code></td></tr>
+    <tr><td><span class="chip ios">iOS</span> <code>0xe8008011</code>、WDA 打不開</td><td>免費帳號的簽署 7 天到期</td><td>刪掉手機上的 WebDriverAgentRunner-Runner，或在 Xcode 重按 ⌘U</td></tr>
+    <tr><td><span class="chip android">Android</span> doctor 說找不到 adb</td><td>platform-tools 沒加進 PATH</td><td>照 5B 設定環境變數，開新的終端機再試</td></tr>
+    <tr><td><span class="chip android">Android</span> Appium 報找不到 <code>ANDROID_HOME</code> 或 <code>JAVA_HOME</code></td><td>環境變數沒設，或設了但終端機還沒重開</td><td>照 5B 設定，重開終端機後用 <code>aitest.py start</code> 重新啟動 Appium</td></tr>
+    <tr><td><span class="chip android">Android</span> 裝置狀態是 unauthorized</td><td>手機還沒允許這台電腦偵錯</td><td>在手機跳出的視窗按允許</td></tr>
+    <tr><td><span class="chip android">Android</span> 用 BlueStacks，doctor 說看不到裝置</td><td>BlueStacks 重開過，adb 的連線斷了</td><td>再執行一次 <code>adb connect 127.0.0.1:5555</code>（port 照 BlueStacks 設定畫面）</td></tr>
+    <tr><td><span class="chip android">Android</span> 出現 <code>adb server version ... doesn't match</code></td><td>電腦上有兩份不同版本的 adb 在搶，常見於 BlueStacks 自己附的 adb 和 Android SDK 的 adb</td><td>統一用 SDK 的 adb（5B 加進 PATH 的那個）。先關掉 BlueStacks，執行 <code>adb kill-server</code>，再重新連線</td></tr>
+    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時沒帶專案代號，平台用了預設的 iOS</td><td><code>Ctrl+C</code> 後用 <code>aitest.py start &lt;專案代號&gt;</code> 重開</td></tr>
+    <tr><td>port 8767 被佔用</td><td>上一次的伺服器還開著，或有別的程式用了這個 port</td><td>關掉另一個視窗的伺服器，或加 <code>--port 8768</code>。錯誤訊息會附上查是誰佔用的指令</td></tr>
+    <tr><td>操作沒反應、卡住</td><td>手機鎖定，或自動化服務沒在執行</td><td>手機保持解鎖；iOS 確認畫面上有 Automation Running，測試期間不要同時按兩顆音量鍵</td></tr>
+    <tr><td>LLM 功能出現找不到模型的錯誤</td><td>設定的 Gemini 預覽版模型被 Google 下架</td><td>在 <code>config.toml</code> 的 <code>[llm] model_pro</code> 換成當下的正式版</td></tr>
+  </tbody>
+</table></div>
+<p>其他問題見 <code>docs/TROUBLESHOOTING.md</code>。</p>
+
+<h2 id="limits">已知限制</h2>
+<ul>
+  <li><strong>爬蟲在部分畫面回不去</strong>：原地切換內容、沒有真正返回鍵的畫面（例如分頁切換型的畫面），爬蟲失敗後自動復原可能點錯元件。遇到時改用手動建樹。</li>
+  <li><strong>重爬會蓋掉手動建的節點</strong>：對同一張地圖重爬是整張重建，手動加的節點要從 <code>backups/</code> 補回，或把要爬的部分放到另一張地圖。</li>
+  <li><strong>捲動收集和截圖對不齊</strong>：手動建樹時勾選「同時捲動收集完整清單」，捲動後元件的框會跟截圖對不齊，所以這個選項預設不勾。</li>
+  <li><strong>一次只能有一個手機連線</strong>：網頁伺服器開著時，不要同時跑其他直接連手機的程式。</li>
+  <li><strong>Android 爬蟲還沒有在實際 App 上跑過</strong>：只用真實畫面資料離線驗證過。</li>
+  <li><strong>Windows 還沒有實機驗證</strong>：程式已經避開只有 macOS 才有的指令，但還沒有人在 Windows 上從頭跑過一次。遇到問題請回報給交付窗口。</li>
+</ul>
+
+<h2 id="more">延伸閱讀</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>文件</th><th>內容</th></tr></thead>
+  <tbody>
+    <tr><td><code>README_交接文件.md</code></td><td>完整的檔案總覽、每支程式的細節、所有指令選項</td></tr>
+    <tr><td><code>docs/AUTOMATION_ARCHITECTURE_FLOW.md</code></td><td>整體資料流程</td></tr>
+    <tr><td><code>docs/JUDGMENT_LOGIC_REFERENCE.md</code></td><td>畫面解析和元件定位的判斷邏輯</td></tr>
+    <tr><td><code>docs/CRAWLER_TREE_HANDOFF.md</code></td><td>自動爬蟲的完成度和已知問題</td></tr>
+    <tr><td><code>docs/TROUBLESHOOTING.md</code></td><td>疑難排解</td></tr>
+    <tr><td><code>docs/LLM_USAGE_ESTIMATE.md</code></td><td>LLM 用量估算</td></tr>
+  </tbody>
+</table></div>
+
+<footer>這份文件放在 repo 的 <code>docs/DELIVERY_GUIDE.html</code>，跟著工具一起更新。內容有錯或跟實際操作不一樣時，請回報給交付窗口。</footer>
+</main>
+</div>
+
+<script>
+// 每個指令區塊右上角的「複製」：寫入剪貼簿；瀏覽器不允許時改成選取文字，讓使用者自己按 ⌘C
+document.querySelectorAll(".cmd .copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var code = btn.parentElement.querySelector("code");
+    var text = code.textContent;
+    function selectText() {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "已選取，按 ⌘C／Ctrl+C";
+    }
+    function done() {
+      btn.textContent = "已複製";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = "複製"; btn.classList.remove("done"); }, 1500);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, selectText);
+      else selectText();
+    } catch (e) { selectText(); }
+  });
+});
+</script>
+</body>
+</html>
