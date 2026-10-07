@@ -325,29 +325,35 @@ class Workspace:
                     zf.write(p, f"{project_id}/{p.relative_to(d).as_posix()}")
         return buf.getvalue()
 
-    def import_zip(self, data: bytes, project_id: str | None = None) -> dict:
-        """
-        zip 裡第一層是原本的專案代號；project_id 有給就改用這個代號匯入
-        （例如同一份專案想留一份對照）。已經存在的專案不會被覆蓋。
-        """
+    @staticmethod
+    def _open_export_zip(data: bytes) -> tuple[zipfile.ZipFile, list[str], str]:
+        """檢查是不是「匯出專案」產生的 zip，回傳 (zip, 檔案清單, zip 裡的專案代號)；呼叫端負責關掉 zip。"""
         if len(data) > MAX_IMPORT_BYTES:
             raise WorkspaceError("檔案太大（超過 2GB）")
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
         except zipfile.BadZipFile:
             raise WorkspaceError("這不是 zip 檔")
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        tops = {n.split("/", 1)[0] for n in names}
+        if len(tops) != 1 or any("/" not in n for n in names) or not any(n.endswith("/project.json") and n.count("/") == 1 for n in names):
+            zf.close()
+            raise WorkspaceError("zip 內容不對：要是「匯出專案」產生的檔案（第一層是專案資料夾，裡面有 project.json）")
+        if sum(i.file_size for i in zf.infolist()) > MAX_IMPORT_BYTES:
+            zf.close()
+            raise WorkspaceError("解壓後太大（超過 2GB）")
+        return zf, names, tops.pop()
+
+    def import_zip(self, data: bytes, project_id: str | None = None) -> dict:
+        """
+        zip 裡第一層是原本的專案代號；project_id 有給就改用這個代號匯入
+        （例如同一份專案想留一份對照）。已經存在的專案不會被覆蓋（要併進去用 merge_zip）。
+        """
+        zf, names, src_id = self._open_export_zip(data)
         with zf:
-            names = [n for n in zf.namelist() if not n.endswith("/")]
-            tops = {n.split("/", 1)[0] for n in names}
-            if len(tops) != 1 or any("/" not in n for n in names) or not any(n.endswith("/project.json") and n.count("/") == 1 for n in names):
-                raise WorkspaceError("zip 內容不對：要是「匯出專案」產生的檔案（第一層是專案資料夾，裡面有 project.json）")
-            src_id = tops.pop()
             target = self.project_dir(project_id or src_id)
             if target.exists():
                 raise WorkspaceError(f"專案「{target.name}」已經存在，換一個代號匯入，或先把現有的改名／移走", 409)
-            total = sum(i.file_size for i in zf.infolist())
-            if total > MAX_IMPORT_BYTES:
-                raise WorkspaceError("解壓後太大（超過 2GB）")
             staging = target.with_name(f".{target.name}.importing")
             if staging.exists():
                 shutil.rmtree(staging)
@@ -368,6 +374,120 @@ class Workspace:
                 if staging.exists():
                     shutil.rmtree(staging)
         return self.get_project(target.name)
+
+    def merge_zip(self, data: bytes, resolutions: dict | None = None) -> dict:
+        """
+        把別人匯出的 zip 併進本機同代號的專案（兩個人分頭編不同地圖、互相同步用）：
+        - 截圖：本機沒有的補進來（檔名含毫秒時間，不同人拍的不會撞名），已經有的不動
+        - 地圖／測案／批次：本機沒有的直接加；同名但內容一樣的略過；同名內容不同的是「衝突」
+        - 專案設定（project.json）、backups/ 用本機的，不動
+        resolutions 是 None 就只預覽、不寫入；要寫入時每個衝突都要給
+        {"maps/main": "mine" | "theirs" | "both"}：保留本機／用匯入的（地圖會先備份）／
+        兩個都留（匯入的改名成「名稱 (匯入)」）。
+        """
+        zf, names, project_id = self._open_export_zip(data)
+        with zf:
+            mine = self.get_project(project_id)
+            theirs = json.loads(zf.read(f"{project_id}/project.json"))
+            if theirs.get("platform") != mine["platform"]:
+                raise WorkspaceError(f"匯入的專案是 {theirs.get('platform')}，本機的「{project_id}」是 {mine['platform']}，不能合併")
+            d = self._existing_dir(project_id)
+
+            items, shots = [], []
+            for n in names:
+                rel = n.split("/", 1)[1]
+                folder, _, fname = rel.partition("/")
+                if not fname or "/" in fname or fname.startswith(".") or ".." in fname:
+                    continue
+                if folder == "screenshots":
+                    if not (d / "screenshots" / fname).exists():
+                        shots.append((n, fname))
+                elif folder in ("maps", *KINDS) and fname.endswith(".json"):
+                    name = fname[:-5]
+                    if not ITEM_NAME_RE.match(name):
+                        continue
+                    content = zf.read(n)
+                    try:
+                        item = json.loads(content)
+                    except json.JSONDecodeError:
+                        raise WorkspaceError(f"zip 裡的 {rel} 不是合法 JSON")
+                    local = d / folder / fname
+                    if not local.exists():
+                        status = "new"
+                    elif local.read_bytes() == content or _read_json(local) == item:
+                        status = "same"
+                    else:
+                        status = "conflict"
+                    items.append({"kind": folder, "name": name, "status": status, "data": item})
+
+            conflicts = [{"kind": i["kind"], "name": i["name"]} for i in items if i["status"] == "conflict"]
+            report = {
+                "project": mine,
+                "new": [{"kind": i["kind"], "name": i["name"]} for i in items if i["status"] == "new"],
+                "conflicts": conflicts,
+                "screenshots": len(shots),
+            }
+            if resolutions is None:
+                return report
+
+            missing = [f"{c['kind']}/{c['name']}" for c in conflicts if resolutions.get(f"{c['kind']}/{c['name']}") not in ("mine", "theirs", "both")]
+            if missing:
+                raise WorkspaceError(f"這些同名的項目還沒選要怎麼處理：{'、'.join(missing)}")
+            # 寫入前先全部檢查過，不要寫到一半才發現某一份格式不對
+            for i in items:
+                if i["kind"] == "maps":
+                    self._check_map(i["data"])
+                elif not (isinstance(i["data"], dict) and isinstance(i["data"].get("steps" if i["kind"] == "cases" else "groups"), list)):
+                    raise WorkspaceError(f"zip 裡的 {i['kind']}/{i['name']}.json 格式不對")
+
+            # 「兩個都留」的地圖改了名，匯入的批次裡引用到它的也要跟著改，不然會指到本機那張
+            renames = {}
+            for i in items:
+                if i["status"] == "conflict" and resolutions[f"{i['kind']}/{i['name']}"] == "both":
+                    new_name = self._free_name(d / i["kind"], i["name"])
+                    renames[(i["kind"], i["name"])] = new_name
+            for i in items:
+                if i["kind"] == "batches":
+                    for g in i["data"].get("groups") or []:
+                        if isinstance(g, dict) and ("maps", g.get("map_ref")) in renames:
+                            g["map_ref"] = renames[("maps", g["map_ref"])]
+
+            added, replaced, renamed, backups = [], [], [], []
+            for i in items:
+                key = (i["kind"], i["name"])
+                if i["status"] == "same" or (i["status"] == "conflict" and resolutions[f"{key[0]}/{key[1]}"] == "mine"):
+                    continue
+                name = renames.get(key, i["name"])
+                if i["kind"] == "maps":
+                    if i["status"] == "conflict" and key not in renames:
+                        backup = self.backup_map(project_id, name)
+                        if backup:
+                            backups.append(str(backup))
+                    _write_json_atomic(d / "maps" / f"{name}.json", i["data"])
+                else:
+                    self.write_item(project_id, i["kind"], name, i["data"], overwrite=True)
+                entry = {"kind": i["kind"], "name": i["name"]}
+                if key in renames:
+                    renamed.append({**entry, "as": name})
+                elif i["status"] == "conflict":
+                    replaced.append(entry)
+                else:
+                    added.append(entry)
+            for n, fname in shots:
+                dest = d / "screenshots" / fname
+                with zf.open(n) as src, open(dest, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        return {"project": mine, "added": added, "replaced": replaced, "renamed": renamed,
+                "screenshots": len(shots), "backups": backups}
+
+    @staticmethod
+    def _free_name(folder: Path, name: str) -> str:
+        """「兩個都留」時匯入那份的新名稱：名稱 (匯入)、名稱 (匯入 2)…，不跟資料夾裡現有的撞名。"""
+        for n in range(1, 1000):
+            candidate = f"{name} (匯入{'' if n == 1 else f' {n}'})"
+            if not (folder / f"{candidate}.json").exists():
+                return candidate
+        raise WorkspaceError(f"「{name}」的匯入複本太多了，先清掉一些")
 
     # ---- 舊資料搬進專案 ------------------------------------------------
 

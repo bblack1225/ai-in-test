@@ -1024,6 +1024,8 @@ class Handler(BaseHTTPRequestHandler):
         路徑對照（<kind> 是 cases 或 batches）：
           GET    /api/projects                          專案清單
           POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
+          POST   /api/projects/merge[?preview=1]        zip 併進本機同代號的專案；body 是 zip，
+                                                        要寫入時同名的處理方式放 query resolutions=<JSON>
           GET    /api/projects/<id>                     專案資訊＋地圖／測案／批次清單
           GET    /api/projects/<id>/export              下載 zip
           GET    /api/projects/<id>/maps/<name>         讀地圖 → {map, map_version}
@@ -1048,6 +1050,14 @@ class Handler(BaseHTTPRequestHandler):
             elif method == "POST" and parts == ["import"]:
                 new_id = (query.get("id") or [None])[0]
                 self._send_json(200, {"project": WORKSPACE.import_zip(self._read_body(), new_id)})
+            elif method == "POST" and parts == ["merge"]:
+                resolutions = None
+                if (query.get("preview") or ["0"])[0] != "1":
+                    try:
+                        resolutions = json.loads((query.get("resolutions") or ["{}"])[0])
+                    except json.JSONDecodeError:
+                        raise WorkspaceError("resolutions 不是合法JSON")
+                self._send_json(200, WORKSPACE.merge_zip(self._read_body(), resolutions))
             elif method == "GET" and len(parts) == 1:
                 self._send_json(200, WORKSPACE.summary(parts[0]))
             elif method == "GET" and len(parts) == 2 and parts[1] == "export":

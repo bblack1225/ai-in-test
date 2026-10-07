@@ -2846,24 +2846,100 @@
     document.body.removeChild(a);
   });
 
+  async function postZip(path, file) {
+    var res = await fetch(API_BASE + path, { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+    var data = await res.json().catch(function () { return {}; });
+    return { ok: res.ok && !data.error, status: res.status, data: data };
+  }
+
   document.getElementById("projectImportInput").addEventListener("change", async function (e) {
     var file = e.target.files[0]; e.target.value = "";
     if (!file) return;
     var newId = "";
     for (;;) {
-      var res = await fetch(API_BASE + "/api/projects/import" + (newId ? "?id=" + encodeURIComponent(newId) : ""),
-        { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
-      var data = await res.json().catch(function () { return {}; });
-      if (res.ok && !data.error) {
+      var r = await postZip("/api/projects/import" + (newId ? "?id=" + encodeURIComponent(newId) : ""), file);
+      if (r.ok) {
         await loadProjectList();
-        await openProject(data.project.id);
+        await openProject(r.data.project.id);
         return;
       }
-      if (res.status !== 409) { alert("匯入專案失敗：" + (data.error || ("HTTP " + res.status))); return; }
-      newId = (prompt((data.error || "專案已經存在") + "\n\n換一個專案代號匯入（留空取消）：", "") || "").trim();
+      if (r.status !== 409) { alert("匯入專案失敗：" + (r.data.error || ("HTTP " + r.status))); return; }
+      var message = r.data.error || "專案已經存在";
+      if (!newId) {
+        // 本機已經有同代號的專案：先看能不能合併（兩個人分頭編同一個專案、互相同步）
+        var preview = await postZip("/api/projects/merge?preview=1", file);
+        if (preview.ok) {
+          var choice = await askMerge(preview.data);
+          if (!choice) return;
+          if (choice.action === "merge") { await doMerge(file, choice.resolutions); return; }
+        } else {
+          message += "\n（也不能合併：" + (preview.data.error || ("HTTP " + preview.status)) + "）";
+        }
+      }
+      newId = (prompt(message + "\n\n換一個專案代號匯入（留空取消）：", "") || "").trim();
       if (!newId) return;
     }
   });
+
+  // ---- 合併匯入視窗：列出會新增什麼、同名衝突逐一選怎麼處理 ----
+  var mergeModal = document.getElementById("mergeModal");
+  var mergeResolve = null;
+  var KIND_LABELS = { maps: "地圖", cases: "測案", batches: "批次" };
+
+  function closeMerge(result) {
+    mergeModal.hidden = true;
+    if (mergeResolve) { var r = mergeResolve; mergeResolve = null; r(result); }
+  }
+  // 回傳 null（取消）、{action: "rename"}、或 {action: "merge", resolutions}
+  function askMerge(preview) {
+    var counts = {};
+    preview.new.forEach(function (i) { counts[i.kind] = (counts[i.kind] || 0) + 1; });
+    var parts = Object.keys(KIND_LABELS).filter(function (k) { return counts[k]; })
+      .map(function (k) { return counts[k] + " " + (k === "maps" ? "張" : "份") + KIND_LABELS[k]; });
+    if (preview.screenshots) parts.push(preview.screenshots + " 張截圖");
+    document.getElementById("mergeTitle").textContent = "專案「" + preview.project.name + "」已經存在：合併進去？";
+    document.getElementById("mergeSummary").textContent = parts.length
+      ? "會新增：" + parts.join("、") + "（" + preview.new.map(function (i) { return i.name; }).join("、") + "）"
+      : "沒有新的地圖、測案、批次或截圖要加進來。";
+    document.getElementById("mergeConflictBox").hidden = !preview.conflicts.length;
+    document.getElementById("mergeConflictRows").innerHTML = preview.conflicts.map(function (c) {
+      return "<tr><td>" + KIND_LABELS[c.kind] + "</td><td>" + escapeHtml(c.name) + "</td><td>" +
+        '<select data-key="' + escapeHtml(c.kind + "/" + c.name) + '">' +
+        '<option value="mine">保留我的</option>' +
+        '<option value="theirs">用匯入的</option>' +
+        '<option value="both">兩個都留（匯入的改名）</option>' +
+        "</select></td></tr>";
+    }).join("");
+    mergeModal.hidden = false;
+    return new Promise(function (resolve) { mergeResolve = resolve; });
+  }
+  document.getElementById("mergeCloseBtn").addEventListener("click", function () { closeMerge(null); });
+  document.getElementById("mergeRenameBtn").addEventListener("click", function () { closeMerge({ action: "rename" }); });
+  document.getElementById("mergeConfirmBtn").addEventListener("click", function () {
+    var resolutions = {};
+    mergeModal.querySelectorAll("select[data-key]").forEach(function (s) { resolutions[s.dataset.key] = s.value; });
+    closeMerge({ action: "merge", resolutions: resolutions });
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !mergeModal.hidden) closeMerge(null); });
+
+  async function doMerge(file, resolutions) {
+    // 合併可能改到目前開著的地圖：先把還沒存的存掉，合併完再重新開專案讀最新的
+    if (currentProject && !(await flushMapSave()) &&
+        !confirm("地圖「" + currentMapName + "」還有修改沒存進去，合併後重新載入會丟掉這些修改，確定嗎？")) return;
+    var r = await postZip("/api/projects/merge?resolutions=" + encodeURIComponent(JSON.stringify(resolutions)), file);
+    if (!r.ok) { alert("合併失敗：" + (r.data.error || ("HTTP " + r.status))); return; }
+    var d = r.data, lines = [];
+    function names(list) { return list.map(function (i) { return KIND_LABELS[i.kind] + "「" + i.name + "」"; }).join("、"); }
+    if (d.added.length) lines.push("新增：" + names(d.added));
+    if (d.replaced.length) lines.push("換成匯入的：" + names(d.replaced));
+    if (d.renamed.length) lines.push("兩個都留：" + d.renamed.map(function (i) { return KIND_LABELS[i.kind] + "「" + i.name + "」→「" + i.as + "」"; }).join("、"));
+    if (d.screenshots) lines.push("補進 " + d.screenshots + " 張截圖");
+    if (d.backups.length) lines.push("被換掉的地圖已備份到 backups/");
+    mapDirty = false;  // 上面已經存過或使用者同意丟掉；重新開專案時不要再問一次
+    await loadProjectList();
+    await openProject(d.project.id);
+    alert("合併完成" + (lines.length ? "\n\n" + lines.join("\n") : "：沒有需要更新的東西"));
+  }
 
   llmgenCaseProjectSelect.addEventListener("change", async function () {
     var name = llmgenCaseProjectSelect.value;

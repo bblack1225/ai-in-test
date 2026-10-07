@@ -250,6 +250,30 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="mergeModal" hidden>
+  <div class="modal-box map-manager-box" role="dialog" aria-labelledby="mergeTitle">
+    <div class="modal-head">
+      <h3 id="mergeTitle">合併匯入</h3>
+      <button class="modal-close" id="mergeCloseBtn">✕ 取消</button>
+    </div>
+    <div class="map-manager-body">
+      <div id="mergeSummary"></div>
+      <div id="mergeConflictBox">
+        <div class="merge-subtitle">名稱一樣但內容不同，每一個選要怎麼處理：</div>
+        <table class="map-table">
+          <thead><tr><th>類型</th><th>名稱</th><th>處理方式</th></tr></thead>
+          <tbody id="mergeConflictRows"></tbody>
+        </table>
+      </div>
+      <div class="map-manager-hint">本機已經有的截圖、名稱和內容都一樣的項目、專案設定都不會動。選「用匯入的」的地圖會先備份到 backups/。</div>
+      <div class="merge-actions">
+        <button class="btn" id="mergeRenameBtn">改代號匯入成新專案</button>
+        <button class="btn primary" id="mergeConfirmBtn">合併</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="imgModal" hidden>
   <div class="modal-box">
     <div class="modal-head">
