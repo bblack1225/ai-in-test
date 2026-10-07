@@ -36,10 +36,7 @@
     <span class="map-controls" id="mapControls" hidden>
       <span class="project-bar-label">地圖</span>
       <select id="mapSelect" title="一個專案可以有很多張地圖（例如依功能分開爬），各自自動存檔"></select>
-      <button class="btn" id="mapNewBtn" title="新增一張空白地圖，再用手動建樹或爬蟲（--map 名稱）填內容">＋ 新地圖</button>
-      <button class="btn" id="mapCopyBtn" title="把目前地圖複製成新的一張">⧉ 複製</button>
-      <button class="btn" id="mapRenameBtn">✎ 改名</button>
-      <button class="btn" id="mapDeleteBtn">🗑 刪除地圖</button>
+      <button class="btn" id="mapManageBtn" title="新增、改名、複製、刪除這個專案的地圖">⚙ 管理地圖</button>
     </span>
     <button class="btn" id="projectExportBtn" disabled title="地圖、截圖、測案、批次打包成一個 zip，交給其他團隊匯入">⬇ 匯出專案 zip</button>
     <label class="file-btn-label" title="匯入其他人匯出的專案 zip">📂 匯入專案 zip<input type="file" id="projectImportInput" accept=".zip,application/zip"></label>
@@ -230,6 +227,27 @@
       </div>
     </section>
   </section>
+</div>
+
+<div class="modal-overlay" id="mapManagerModal" hidden>
+  <div class="modal-box map-manager-box" role="dialog" aria-labelledby="mapManagerTitle">
+    <div class="modal-head">
+      <h3 id="mapManagerTitle">管理地圖</h3>
+      <button class="modal-close" id="mapManagerCloseBtn">✕ 關閉</button>
+    </div>
+    <div class="map-manager-body">
+      <table class="map-table">
+        <thead><tr><th>名稱</th><th>畫面</th><th>更新時間</th><th></th></tr></thead>
+        <tbody id="mapManagerRows"></tbody>
+      </table>
+      <form class="map-new-row" id="mapNewForm">
+        <input type="text" id="mapNewName" placeholder="新地圖名稱，例如 交易、帳務" autocomplete="off">
+        <button class="btn primary" type="submit">＋ 新增空白地圖</button>
+      </form>
+      <div class="map-manager-msg" id="mapManagerMsg" role="status"></div>
+      <div class="map-manager-hint">依功能分開爬時，爬蟲寫進指定的地圖：<span class="mono">crawl_app_tree.py --project <span id="mapManagerProjectId"></span> --map 名稱</span></div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="imgModal" hidden>

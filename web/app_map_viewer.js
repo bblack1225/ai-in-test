@@ -409,7 +409,7 @@
           "注意：地圖用到的截圖不會一起搬進專案，畫面可能沒有截圖。舊地圖連同截圖搬進專案請用：\n" +
           "uv run python workspace.py import-legacy " + currentProject.id + " --map " + file.name + " --map_name 名稱", suggested) || "").trim();
         if (!name) return;
-        createProjectMap(name, data);
+        createProjectMap(name, data).catch(function (err) { alert("匯入地圖失敗：" + err.message); });
         return;
       }
       applyMapData(data, file.name);
@@ -2595,56 +2595,184 @@
       return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name + (m.screens != null ? "（" + m.screens + " 個畫面）" : "")) + "</option>";
     }).join("");
     mapSelect.value = currentMapName || "";
-    document.getElementById("mapDeleteBtn").disabled = projectMaps.length <= 1;
+    if (!mapManagerModal.hidden) renderMapManager();
   }
-  function askMapName(message, suggested) {
-    var name = (prompt(message + "\n（中英文、數字、空白、- _ . ( ) 都可以，例如 trading、帳務）", suggested || "") || "").trim();
-    if (name && projectMaps.some(function (m) { return m.name === name; })) { alert("已經有地圖叫「" + name + "」了，換一個名稱"); return null; }
-    return name || null;
-  }
-  // 新增一張地圖（map 沒給就是空白），成功就切過去
+  // 新增一張地圖（map 沒給就是空白）並切過去。失敗會 throw，讓呼叫端決定錯誤顯示在哪裡
   async function createProjectMap(name, map) {
-    if (!(await flushMapSave()) && !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) return;
-    try {
-      var res = await apiJson("POST", mapApi(name), map ? { map: map } : {});
-      projectMaps = res.maps;
-      await openMap(name, true);
-    } catch (err) { alert("新增地圖失敗：" + err.message); }
+    if (!(await flushMapSave()) && !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) return false;
+    var res = await apiJson("POST", mapApi(name), map ? { map: map } : {});
+    projectMaps = res.maps;
+    await openMap(name, true);
+    return true;
   }
   document.getElementById("mapSelect").addEventListener("change", function (e) { openMap(e.target.value); });
-  document.getElementById("mapNewBtn").addEventListener("click", function () {
-    var name = askMapName("新地圖的名稱：");
-    if (name) createProjectMap(name, null);
-  });
-  document.getElementById("mapCopyBtn").addEventListener("click", function () {
-    var name = askMapName("把地圖「" + currentMapName + "」複製成新的一張，名稱：", currentMapName + "_copy");
-    if (name) createProjectMap(name, currentMapAsFull());
-  });
-  document.getElementById("mapRenameBtn").addEventListener("click", async function () {
-    var oldName = currentMapName;
-    var name = askMapName("地圖「" + oldName + "」改名成：", oldName);
-    if (!name || name === oldName) return;
-    if (!(await flushMapSave())) { alert("地圖還有修改沒存進去，請先處理存檔問題再改名"); return; }
+
+  // ---- 管理地圖視窗：列出所有地圖，每一列直接改名／複製／刪除，不跳瀏覽器對話框 ----
+  var mapManagerModal = document.getElementById("mapManagerModal");
+  var mapManagerRows = document.getElementById("mapManagerRows");
+  var mapManagerMsg = document.getElementById("mapManagerMsg");
+  // 正在編輯的那一列：{ name, mode: "rename" | "copy" | "delete" }，同時只會有一列在編輯
+  var mapRowEdit = null;
+  var mapManagerBusy = false;
+
+  function setMapManagerMsg(text, isError) {
+    mapManagerMsg.textContent = text || "";
+    mapManagerMsg.className = "map-manager-msg" + (isError ? " error" : "");
+  }
+  function shortTime(t) { return t ? t.slice(5, 16).replace("-", "/") : ""; }  // 2026-10-07 14:20:33 → 10/07 14:20
+  // 名稱的基本檢查（空白、撞名）；格式不合法交給伺服器回錯誤
+  function mapNameProblem(name, exceptName) {
+    if (!name) return "請輸入名稱";
+    if (name !== exceptName && projectMaps.some(function (m) { return m.name === name; })) return "已經有地圖叫「" + name + "」了，換一個名稱";
+    return null;
+  }
+
+  function renderMapManager() {
+    document.getElementById("mapManagerTitle").textContent = "管理地圖：" + (currentProject ? currentProject.name : "");
+    document.getElementById("mapManagerProjectId").textContent = currentProject ? currentProject.id : "";
+    var onlyOne = projectMaps.length <= 1;
+    mapManagerRows.innerHTML = projectMaps.map(function (m) {
+      var name = escapeHtml(m.name), isCurrent = m.name === currentMapName;
+      var edit = mapRowEdit && mapRowEdit.name === m.name ? mapRowEdit.mode : null;
+      var first, actions;
+      if (edit === "rename") {
+        first = '<input type="text" data-row-input value="' + name + '" aria-label="新名稱">';
+        actions = '<button class="btn primary" data-act="save">✓ 改名</button><button class="btn" data-act="cancel">取消</button>';
+      } else if (edit === "delete") {
+        first = '<span class="map-row-confirm">確定刪除「' + name + '」？無法復原</span>';
+        actions = '<button class="btn danger" data-act="confirm-delete">刪除</button><button class="btn" data-act="cancel">取消</button>';
+      } else {
+        first = name + (isCurrent ? '<span class="map-current-badge">目前</span>' : "");
+        actions = (isCurrent ? "" : '<button class="btn" data-act="open">開啟</button>') +
+          '<button class="btn" data-act="rename">改名</button>' +
+          '<button class="btn" data-act="copy">複製</button>' +
+          '<button class="btn danger" data-act="delete"' + (onlyOne ? ' disabled title="專案最後一張地圖不能刪"' : "") + ">刪除</button>";
+      }
+      var html = '<tr data-name="' + name + '"' + (isCurrent ? ' class="current"' : "") + ">" +
+        "<td>" + first + '</td><td class="num">' + (m.screens != null ? m.screens : "?") + "</td>" +
+        '<td class="time">' + escapeHtml(shortTime(m.updated_at)) + '</td><td class="actions">' + actions + "</td></tr>";
+      // 複製：原本那一列不動，在下面多一列輸入複本名稱，看得出來是「多一張」不是改原本的名稱
+      if (edit === "copy") {
+        html += '<tr class="map-copy-row" data-name="' + name + '">' +
+          '<td><div class="map-copy-cell"><span class="map-copy-label">↳ 複本名稱</span><input type="text" data-row-input value="' + escapeHtml(m.name + "_copy") + '" aria-label="複本名稱"></div></td>' +
+          '<td class="num">' + (m.screens != null ? m.screens : "?") + '</td><td class="time">新的</td>' +
+          '<td class="actions"><button class="btn primary" data-act="save">✓ 建立複本</button><button class="btn" data-act="cancel">取消</button></td></tr>';
+      }
+      return html;
+    }).join("");
+    var input = mapManagerRows.querySelector("[data-row-input]");
+    if (input) { input.focus(); input.select(); }
+  }
+
+  async function openMapManager() {
+    if (!currentProject) return;
+    mapRowEdit = null;
+    setMapManagerMsg("");
+    document.getElementById("mapNewName").value = "";
+    mapManagerModal.hidden = false;
+    renderMapManager();
+    // 重新抓一次清單：畫面數、更新時間可能在別的分頁或爬蟲那邊變了
     try {
-      var res = await apiJson("POST", mapApi(oldName) + "/rename", { new_name: name });
-      projectMaps = res.maps;
-      currentMapName = name;
-      currentMapFileName = mapSourceLabel();
-      try { localStorage.setItem("lastMap:" + currentProject.id, name); } catch (e) { /* 無所謂 */ }
-      batchGroups.forEach(function (g) { if (g.mapRef === oldName) { g.mapRef = name; g.mapName = name; } });
-      updateProjectUi();
-      setProjectStatus("地圖已改名為「" + name + "」（專案裡存的批次設定也一起改了）");
-    } catch (err) { alert("改名失敗：" + err.message); }
-  });
-  document.getElementById("mapDeleteBtn").addEventListener("click", async function () {
-    var name = currentMapName;
-    if (!confirm("確定要刪除地圖「" + name + "」嗎？無法復原（除非你之前有匯出過地圖或專案）。\n截圖不會刪，之後可以用 cleanup_images.py --project 清掉沒人用的。")) return;
+      projectMaps = (await apiJson("GET", projectApi())).maps;
+      renderMapPicker();
+    } catch (err) { setMapManagerMsg("更新地圖清單失敗：" + err.message, true); }
+  }
+  function closeMapManager() { mapManagerModal.hidden = true; mapRowEdit = null; }
+
+  async function runMapAction(name, act, input) {
+    if (act === "cancel") { mapRowEdit = null; setMapManagerMsg(""); renderMapManager(); return; }
+    if (act === "rename" || act === "copy" || act === "delete") { mapRowEdit = { name: name, mode: act }; setMapManagerMsg(""); renderMapManager(); return; }
+    if (mapManagerBusy) return;
+    mapManagerBusy = true;
     try {
-      var res = await apiJson("DELETE", mapApi(name));
-      projectMaps = res.maps;
-      var names = projectMaps.map(function (m) { return m.name; });
-      await openMap(names.indexOf("main") >= 0 ? "main" : names[0], true);
-    } catch (err) { alert("刪除地圖失敗：" + err.message); }
+      if (act === "open") {
+        if (await openMap(name)) closeMapManager();
+      } else if (act === "save" && mapRowEdit.mode === "rename") {
+        var newName = (input.value || "").trim();
+        var problem = mapNameProblem(newName, name);
+        if (problem) { setMapManagerMsg(problem, true); return; }
+        if (newName === name) { mapRowEdit = null; renderMapManager(); return; }
+        if (name === currentMapName && !(await flushMapSave())) { setMapManagerMsg("目前地圖還有修改沒存進去，請先處理存檔問題再改名", true); return; }
+        var res = await apiJson("POST", mapApi(name) + "/rename", { new_name: newName });
+        projectMaps = res.maps;
+        batchGroups.forEach(function (g) { if (g.mapRef === name) { g.mapRef = newName; g.mapName = newName; } });
+        if (name === currentMapName) {
+          currentMapName = newName;
+          currentMapFileName = mapSourceLabel();
+          try { localStorage.setItem("lastMap:" + currentProject.id, newName); } catch (e) { /* 無所謂 */ }
+        }
+        mapRowEdit = null;
+        updateProjectUi();
+        setMapManagerMsg("已改名為「" + newName + "」（專案裡存的批次設定也一起改了）");
+      } else if (act === "save" && mapRowEdit.mode === "copy") {
+        var copyName = (input.value || "").trim();
+        var copyProblem = mapNameProblem(copyName);
+        if (copyProblem) { setMapManagerMsg(copyProblem, true); return; }
+        // 目前這張用記憶體裡的（包含還沒存檔的修改），其他張去伺服器讀
+        if (await createProjectMap(copyName, await fetchProjectMap(name))) {
+          mapRowEdit = null;
+          renderMapManager();
+          setMapManagerMsg("已複製「" + name + "」成「" + copyName + "」，並切換過去");
+        }
+      } else if (act === "confirm-delete") {
+        var del = await apiJson("DELETE", mapApi(name));
+        projectMaps = del.maps;
+        mapRowEdit = null;
+        if (name === currentMapName) {
+          var names = projectMaps.map(function (m) { return m.name; });
+          mapDirty = false;  // 刪掉的地圖不用再存
+          await openMap(names.indexOf("main") >= 0 ? "main" : names[0], true);
+        } else {
+          renderMapPicker();
+        }
+        renderMapManager();
+        setMapManagerMsg("已刪除「" + name + "」。截圖不會刪，之後可以用 cleanup_images.py --project 清掉沒人用的");
+      }
+    } catch (err) {
+      setMapManagerMsg("失敗：" + err.message, true);
+    } finally {
+      mapManagerBusy = false;
+    }
+  }
+
+  document.getElementById("mapManageBtn").addEventListener("click", openMapManager);
+  document.getElementById("mapManagerCloseBtn").addEventListener("click", closeMapManager);
+  mapManagerModal.addEventListener("click", function (e) { if (e.target === mapManagerModal) closeMapManager(); });
+  mapManagerRows.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    var row = btn.closest("tr");
+    runMapAction(row.dataset.name, btn.dataset.act, row.querySelector("[data-row-input]"));
+  });
+  mapManagerRows.addEventListener("keydown", function (e) {
+    var input = e.target.closest("[data-row-input]");
+    if (!input) return;
+    if (e.key === "Enter") { e.preventDefault(); runMapAction(input.closest("tr").dataset.name, "save", input); }
+    if (e.key === "Escape") { e.stopPropagation(); runMapAction(null, "cancel"); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !mapManagerModal.hidden) closeMapManager();
+  });
+  document.getElementById("mapNewForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var input = document.getElementById("mapNewName");
+    var name = (input.value || "").trim();
+    var problem = mapNameProblem(name);
+    if (problem) { setMapManagerMsg(problem, true); return; }
+    if (mapManagerBusy) return;
+    mapManagerBusy = true;
+    try {
+      if (await createProjectMap(name, null)) {
+        input.value = "";
+        mapRowEdit = null;
+        renderMapManager();
+        setMapManagerMsg("已新增「" + name + "」並切換過去，關掉視窗就可以開始手動建樹");
+      }
+    } catch (err) {
+      setMapManagerMsg("新增失敗：" + err.message, true);
+    } finally {
+      mapManagerBusy = false;
+    }
   });
   // 批次每一組裡的「選專案地圖」下拉選單
   function projectMapPickHtml(gi) {
