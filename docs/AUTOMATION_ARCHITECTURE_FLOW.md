@@ -24,7 +24,7 @@ flowchart LR
   工具鏈
 - **建置完成的產物，會被安裝到手機上變成一支真正的App**——執行位置是手機，
   不是電腦
-- **跟目標App(樹精靈Demo)的關係**：兩支App都裝在同一支手機上，WDA是負責
+- **跟目標App(你好Demo)的關係**：兩支App都裝在同一支手機上，WDA是負責
   接收自動化指令、代為讀取畫面/送出點擊的「代理人」，目標App才是真正被
   操作的對象
 - **這個步驟不是每次都重做**：簽署有效期內、WDA已經裝在手機上時，後續每次
@@ -53,7 +53,7 @@ flowchart TD
     subgraph L3["⑤ 實體 iPhone"]
         E["WebDriverAgent (WDA)<br/>🖥️建置於電腦(Xcode)／📱執行於手機，:8100，接收 HTTP 指令"]
         F["iOS XCUITest 框架<br/>系統層級，讀取／操作 Accessibility Tree"]
-        G["⑥ 目標 App（樹精靈Demo）<br/>實際被操作、被讀取畫面內容的 App"]
+        G["⑥ 目標 App（你好Demo）<br/>實際被操作、被讀取畫面內容的 App"]
     end
 
     A1 -->|"Python 函式呼叫"| B1
@@ -91,7 +91,7 @@ flowchart TD
 | ④ Driver層 | XCUITest Driver | iOS 專用，負責在裝置上建置、簽署、啟動 WebDriverAgent，並維持跟它的連線 |
 | ⑤ 裝置層 | WebDriverAgent (WDA) | 這是**裝在手機上、跟目標App一起跑的一支測試用App**，本身是蘋果官方 XCTest 框架的一部分，接收HTTP指令後轉呼叫系統API |
 | ⑤ 裝置層 | iOS XCUITest 框架 | 作業系統層級的機制，真正去讀 Accessibility Tree、真正去送出觸控事件 |
-| ⑥ 目標App | 樹精靈Demo | 被操作、被讀取畫面內容的對象，本身不知道自己正在被自動化測試 |
+| ⑥ 目標App | 你好Demo | 被操作、被讀取畫面內容的對象，本身不知道自己正在被自動化測試 |
 
 ---
 

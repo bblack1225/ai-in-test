@@ -28,7 +28,7 @@
   4. workspace 專案：加 --project，清的是專案資料夾裡的 screenshots/、crops/，
      引用從專案的 maps/（所有地圖）、backups/（爬蟲覆蓋前的備份）、cases/、batches/ 找；
      網頁開著專案時地圖會自動存檔，不用先匯出：
-       uv run python cleanup_images.py --project mbroker-demo-ios
+       uv run python cleanup_images.py --project foo-demo-ios
 """
 
 import argparse

@@ -7,7 +7,7 @@
 > AI定位（`/agent_xpath`）或 LLM測案對話（`/llm_chat`）——那兩個是「人工
 > 互動階段」，用量算法不同，另外看 `LLM_USAGE_ESTIMATE.md`。
 
-實測時間：2026-09-17　App：`com.cathay.securities.tw.mBroker.Demo`
+實測時間：2026-09-17　App：`com.foo.securities.tw.foo.Demo`
 
 ---
 
@@ -74,7 +74,7 @@ prompt裡，但一樣算輸入token）＋以下文字 prompt：
 用一句簡短的繁體中文描述。
 
 元件清單（JSON）：
-[{"temp_id": "e0_0", "class": "XCUIElementTypeApplication", "label": "樹精靈Demo", "bounds": {"x": 0.0, "y": 0.0, "width": 390.0, "height": 844.0}, "position_bucket": "middle_center", "nearby_text": []}, {"temp_id": "e0_1", "class": "XCUIElementTypeWindow", ...}, ... （共111筆）]
+[{"temp_id": "e0_0", "class": "XCUIElementTypeApplication", "label": "你好Demo", "bounds": {"x": 0.0, "y": 0.0, "width": 390.0, "height": 844.0}, "position_bucket": "middle_center", "nearby_text": []}, {"temp_id": "e0_1", "class": "XCUIElementTypeWindow", ...}, ... （共111筆）]
 
 請回傳一個 JSON 陣列，每個項目對應一個輸入元件，格式：
 [{"temp_id": "<與輸入相同的temp_id>", "description": "<用途描述>"}]
@@ -86,7 +86,7 @@ prompt裡，但一樣算輸入token）＋以下文字 prompt：
 **收到的回應（節錄，實際111筆全部回傳）：**
 ```json
 [
-  {"temp_id": "e0_0", "description": "樹精靈應用程式主畫面"},
+  {"temp_id": "e0_0", "description": "你好應用程式主畫面"},
   {"temp_id": "e0_1", "description": "主應用程式視窗"},
   {"temp_id": "e0_5", "description": "頂部自選群組切換選單按鈕（目前為自選庫存）"},
   {"temp_id": "e0_14", "description": "側邊選單「美股專區」功能按鈕"}

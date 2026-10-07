@@ -7,7 +7,7 @@
 **環境裝好之後，每次使用只要一個指令**（詳見 3.1）：
 
 ```
-uv run python aitest.py start cathaysec-ios
+uv run python aitest.py start foo-ios
 ```
 
 環境有沒有裝好、哪裡沒裝好，用 `uv run python aitest.py doctor` 檢查。
@@ -307,7 +307,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 1. iPhone 接上 USB、解鎖，打開待測 App（停在要操作的畫面）
 2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話開上次用的專案、平台 ios）：
    ```
-   uv run python aitest.py start cathaysec-ios
+   uv run python aitest.py start foo-ios
    ```
    - Appium 已經開著就直接用；沒開的話自動啟動（只綁 127.0.0.1，log 在 `logs/`）
    - 接著啟動 `viewer_server.py`，好了之後自動用瀏覽器打開 http://127.0.0.1:8767/ 並切到這個專案
@@ -364,7 +364,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 （含畫面資料），交付給其他團隊時用「⬇ 匯出專案 zip」，對方用「📂 匯入專案 zip」。
 
 ```
-workspace/projects/mbroker-demo-ios/
+workspace/projects/foo-demo-ios/
 ├── project.json     專案設定：名稱、平台、bundle_id（爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個）
 ├── maps/            地圖（跟 app_map_tree.json 同格式），預設 main，依功能可以有很多張
 │   ├── main.json
@@ -377,18 +377,18 @@ workspace/projects/mbroker-demo-ios/
 
 - **建立專案**：
   ```
-  uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" --bundle_id com.cathay.securities.tw.mBroker.Demo
+  uv run python workspace.py create foo-demo-ios --platform ios --name "你好 Demo iOS" --bundle_id com.foo.securities.tw.foo.Demo
   ```
   不想記參數的話，只打 `uv run python workspace.py create`，會一步一步問專案代號、平台、顯示名稱、bundle id，最後確認才建立
 - **把舊資料搬進專案**（複製，原檔不動；截圖會一起複製、路徑會改成相對專案資料夾）：
   ```
-  uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
+  uv run python workspace.py import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
   ```
   地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
   第一次被讀到時會自動搬成 `maps/main.json`
 - **修改專案設定**（名稱、bundle id／package；平台不能改，地圖是照那個平台掃出來的）：
   ```
-  uv run python workspace.py update mbroker-demo-ios --bundle_id com.cathay.securities.tw.mBroker.Demo
+  uv run python workspace.py update foo-demo-ios --bundle_id com.foo.securities.tw.foo.Demo
   ```
   bundle id 留空的話，iOS 用 `config.toml` 的 `launch_bundle_id`、再沒有就用當下前景的 App，Android 用當下前景的 App；
   兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到

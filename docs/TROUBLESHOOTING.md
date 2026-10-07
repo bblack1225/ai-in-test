@@ -257,8 +257,8 @@ sudo xcodebuild -license accept
 
 ### 13. 同一個 native_id 出現在不同 class 上，unique_id 互相覆蓋
 
-**現象**：實測國泰證券 App 的 `login_screen` 時發現，「忘記密碼」「不登入先逛逛」
-「02-7732-6888」這幾個文字，各自都同時是一個 `XCUIElementTypeButton`
+**現象**：實測你好證券 App 的 `login_screen` 時發現，「忘記密碼」「不登入先逛逛」
+「02-1234-5678」這幾個文字，各自都同時是一個 `XCUIElementTypeButton`
 跟它內部的 `XCUIElementTypeStaticText` 的 `native_id`（iOS 常見的「按鈕包著文字」結構，
 兩層都各自有 accessibility name，且都通過元件篩選條件）。
 
@@ -311,7 +311,7 @@ native id」（`is_real_native_id`），`name == label` 一律視為沒有 nativ
 
 ### 15. 純圖示按鈕（沒有 Button 外殼）完全抓不到——已擴大候選範圍納入 Image
 
-**現象**：國泰人壽「保單總覽」頁的客服圖示（`ic_customService`）、通知鈴鐺
+**現象**：你好人壽「保單總覽」頁的客服圖示（`ic_customService`）、通知鈴鐺
 （`ic_messageNotice`），兩個都是 `XCUIElementTypeImage`，而且外層也沒有任何
 `Button` 或其他可互動 class 包著，完全被 `INTERACTIVE_CLASSES` 白名單排除，
 不會出現在候選清單裡（跟之前「密碼欄眼睛圖示」不同，那個好歹 class 是 Button）。
@@ -348,7 +348,7 @@ native id」（`is_real_native_id`），`name == label` 一律視為沒有 nativ
 ### 16. 水平/垂直捲動清單裡的元件座標超出截圖範圍，裁切時崩潰
 
 **現象**：`ValueError: Coordinate 'right' is less than 'left'`，發生在
-`crop_element_screenshot()`。國泰人壽「健康吧」頁的「健康目標」是一個
+`crop_element_screenshot()`。你好人壽「健康吧」頁的「健康目標」是一個
 可以左右捲動的清單，畫面截圖當下只拍得到目前顯示的部分，但 Accessibility
 Tree 回報的元件座標**不受目前截圖範圍限制**（還沒捲到、或已經捲出畫面的
 項目一樣有座標資料）。當元件座標整個落在截圖範圍之外時，裁切框的
@@ -406,7 +406,7 @@ Please retry in 52.138198684s.
 
 ### 18. 指紋不夠精細，同一次掃描內不同元件算出相同 unique_id
 
-**現象**：國泰人壽「健康吧」頁裡，「睡眠時數」跟「健身場館簽到次數」
+**現象**：你好人壽「健康吧」頁裡，「睡眠時數」跟「健身場館簽到次數」
 兩個不同位置（`x=285` vs `x=399`）的佔位符文字「-」，指紋算出來完全一樣：
 ```json
 {"class": "XCUIElementTypeStaticText", "label_text": "-", "position_bucket": "middle_right",
@@ -435,7 +435,7 @@ Please retry in 52.138198684s.
 
 ### 19. App 閒置逾時自動登出，同名畫面重掃會覆蓋成登出畫面的資料
 
-**現象**：討論/規劃花比較久的時間沒有實際操作手機時，國泰人壽 App 會自動
+**現象**：討論/規劃花比較久的時間沒有實際操作手機時，你好人壽 App 會自動
 跳出「太久沒動了喔，請您登出/關閉APP...」（錯誤代碼003）並登出。如果這時候
 直接用原本的 `screen_name` 重新掃描，**會把該畫面原本正常的資料整個覆蓋掉**
 （`save_to_json` 是同名畫面互相覆蓋，不是累加），造成明明前一次掃描是對的，
@@ -523,8 +523,8 @@ native id 元件當指紋，檢查目前手機畫面能找到幾個。過半數�
 **背景**：為了測試 `viewer.html` 的「改版比對 Demo」，把 `element_map.json`
 備份成 `element_map_20260818.json`（8/18掃的舊版），隔一天（8/19）重新掃描
 同樣兩個畫面存回 `element_map.json`（新版），再用程式比對兩份資料的
-`unique_id` 差異。`cathaylife_policy_overview`（保單總覽）44個元件
-**完全沒有差異**，但 `cathaylife_health_screen`（健康吧）43→44個元件裡，
+`unique_id` 差異。`foolife_policy_overview`（保單總覽）44個元件
+**完全沒有差異**，但 `foolife_health_screen`（健康吧）43→44個元件裡，
 有6組元件的 `unique_id` 不一樣，逐一拆解原因如下：
 
 **1. 動態輪播文字內容**
@@ -595,7 +595,7 @@ badge（會員等級勳章圖示）、batree_pointdge（任務值兌換圖示）
 
 **這批真實資料的意義**：完整驗證了理論上討論過的三種指紋不穩定成因
 （動態內容、非同步載入時機、`sibling_index`脆弱），還額外挖出一個
-先前沒想到的第四種成因（LLM視覺判斷不穩定）。也證實 `cathaylife_policy_overview`
+先前沒想到的第四種成因（LLM視覺判斷不穩定）。也證實 `foolife_policy_overview`
 這種內容單純、沒有動態數據的畫面，指紋反而非常穩定（44/44完全沒差異），
 代表**指紋穩定性高度取決於畫面本身有沒有動態/非同步內容**，不是所有畫面
 風險都一樣高。
@@ -648,10 +648,10 @@ Tree，不呼叫LLM、不截圖，成本很低。
 
 ### 26. Android版：同一個 resource-id 被多個不同元件共用，unique_id 跟 LLM 描述互相覆蓋
 
-**背景**：Android 版（`capture_screen_map_android.py`）第一次對國泰證券
+**背景**：Android 版（`capture_screen_map_android.py`）第一次對你好證券
 「我的」分頁（未登入狀態）掃描成功後，人工核對輸出資料時發現：「股票抽籤」
 「額度調整」「教學懶人包」「期貨開戶」「研究報告」「股票出借」這6個明顯不同
-的按鈕，`native_id` 全部都是 `com.cathaysec.eservice:id/btnFavorite`，
+的按鈕，`native_id` 全部都是 `com.foo.eservice:id/btnFavorite`，
 且全部拿到一模一樣、內容也對不上的 LLM 描述：「點擊進入『申辦投信帳單』
 功能按鈕」。
 
@@ -703,8 +703,8 @@ RecyclerView 模式），幾乎一定會遇到同一個 resource-id 被多個項
 ### 27. Android版：畫面校驗抓不出「捲動位置不對」，只要頭尾固定元件都在就誤判 100% 吻合（尚未修正）
 
 **背景**：驗證「畫面下滑後才看得到的元件，掃描抓不抓得到、測案能不能執行」時，
-先在國泰證券「我的」分頁往下滑一次再重新掃描（存成
-`cathaysec_android_my_screen_scrolled`），比對滑動前後的元件清單，證實
+先在你好證券「我的」分頁往下滑一次再重新掃描（存成
+`foo_android_my_screen_scrolled`），比對滑動前後的元件清單，證實
 Android 的 Accessibility Tree **只反映當下實際渲染出來的內容**：滑動後
 多出「個資變更」「功能管理」「我的點數」「電子帳單」4個原本抓不到的元件，
 同時「立即登入」「嗨，你好」這些滑出畫面上方的元件從清單裡消失。這點
@@ -761,7 +761,7 @@ native 元件（例如先 `assert_visible` 標題），後面接的步驟才是�
 
 **會不會再發生**：**會**，只要 Android 畫面符合「native 元件集中在
 頭尾固定列、真正要測的內容在可捲動區域裡」這種常見版面模式（例如這次
-的國泰證券「我的」分頁，或任何有底部導覽列+可捲動內容的畫面），就會
+的你好證券「我的」分頁，或任何有底部導覽列+可捲動內容的畫面），就會
 複現同樣的校驗盲區。目前 generated 元件本身的定位邏輯是安全的（查不到
 就老實 SKIP，不會誤判/誤點），風險僅限於「畫面校驗這道防線失靈，
 排查測試報告時容易誤判原因」，不是會誤觸真實操作的等級，但仍建議
@@ -946,7 +946,7 @@ API請求次數不會增加，只是單次請求內容變多），元件地圖�
    描述、裁切截圖時使用「那一輪」的截圖，不會用錯畫面內容去描述元件
 
 **先確認過一個更簡化的做法為什麼行不通**：曾經討論過「乾脆一次捲到底、
-只抓最後一次就好」，但已經有實測證據證明不行——國泰證券「我的」分頁
+只抓最後一次就好」，但已經有實測證據證明不行——你好證券「我的」分頁
 捲到底後重掃，捲動前的「立即登入」等元件直接從 Tree 上消失（不是被過濾，
 查證過原始XML完全不存在），因為 Android 的清單容器（尤其RecyclerView）
 會回收畫面外的項目。這代表**只能邊捲邊抓、每一段都要停下來記錄**，不能
@@ -1612,7 +1612,7 @@ Android版驗證過的寫法，套用到iOS的XML結構理論上通，但沒有�
 15. **`enabled=false` 的元件目前還是會被點擊並回報 PASS**（23）：
     `run_tap()` 還沒檢查元件是否真的可互動，這是已知但尚未修的落差。
 16. **`generate_test_case.py`/`run_test_case.py` 目前只完整驗證過1個畫面**
-    （`cathaylife_policy_overview`）：PROJECT_BRIEF 第二、三步驟的核心流程
+    （`foolife_policy_overview`）：PROJECT_BRIEF 第二、三步驟的核心流程
     已經跑通，但涵蓋的情境還不夠廣，之後找更多不同類型的畫面（尤其是
     混合較多 generated 元件、或有 input_text 情境的畫面）多驗證幾次。
 17. **`viewer.html` 的「改版比對 Demo」是純前端 JS 實作，還沒進主流程**：

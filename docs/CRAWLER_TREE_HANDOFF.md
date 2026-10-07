@@ -39,7 +39,7 @@
 | WDA 專案 | `~/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj`，target `WebDriverAgentRunner`，bundle `com.cfhtest001.WebDriverAgentRunner`，已配置好 signing |
 | Appium | 3.6.0 + xcuitest driver 12.3.2，本 session 起在 :4723（log `/tmp/appium_ios_scan.log`），砍掉重開一個乾淨的即可 |
 | Python | Appium-Python-Client **6.0.0**，`GEMINI_API_KEY` 只在互動式 shell（先 `source ~/.zshrc`） |
-| `test_config.py` 的 `bundleId` | 目前是 `com.cathay.securities.tw.mBroker.Demo`（樹精靈Demo） |
+| `test_config.py` 的 `bundleId` | 目前是 `com.foo.securities.tw.foo.Demo`（你好Demo） |
 
 ### 重啟 Appium
 ```bash
@@ -53,12 +53,12 @@ source ~/.zshrc && nohup appium --log /tmp/appium_ios_scan.log --log-timestamp -
 
 | 嘗試 | 結果 / 為什麼放棄 |
 |---|---|
-| **國泰證券-測試**（`com.cathaysec.newapp.test`，iOS） | 有登入牆但有測試帳號、半自動可過。dry-run 發現：(a) tree 每個元件重複 2x；(b) sub-tab（委託/成交/庫存…）是原地換內容不換頁、且 tree 讀不到「哪個被選中」→ 會塌成同一節點且被記 noop；(c) **測試帳號是空的**（查無資料），沒有資料列可下鑽 → 帳務子樹幾乎是空的。使用者決定換 App |
-| **Android 模擬器 `test_phone`**（emulator-5554, Android 16） | 使用者想改用 Android（`current_activity` 當畫面 id 更穩、有 `TestBankApp` 靶場）。已裝 `com.testfield.bankapp`（靶場，有 `MAP.md` 標準答案）、`com.cathaysec.eservice`（3.7.16）。**沒把爬蟲 port 成 Android 版** |
-| **eService dev debug APK**（`com.cathaysec.eservice.flavorDeveloperTest` 3.7.18-AFA，Android） | 從 `https://mapptest.cathaysec.com.tw/QRCode/NewApp/eService_dev_debug_1.apk`（原連結 `.a` 要補成 `.apk`）下載、`adb install -r -g` 成功。啟動跳 root/偵錯偵測對話框（有「繼續使用」可放行）。**使用者說連不進去（IP 限制）** |
+| **你好證券-測試**（`com.foo.newapp.test`，iOS） | 有登入牆但有測試帳號、半自動可過。dry-run 發現：(a) tree 每個元件重複 2x；(b) sub-tab（委託/成交/庫存…）是原地換內容不換頁、且 tree 讀不到「哪個被選中」→ 會塌成同一節點且被記 noop；(c) **測試帳號是空的**（查無資料），沒有資料列可下鑽 → 帳務子樹幾乎是空的。使用者決定換 App |
+| **Android 模擬器 `test_phone`**（emulator-5554, Android 16） | 使用者想改用 Android（`current_activity` 當畫面 id 更穩、有 `TestBankApp` 靶場）。已裝 `com.testfield.bankapp`（靶場，有 `MAP.md` 標準答案）、`com.foo.eservice`（3.7.16）。**沒把爬蟲 port 成 Android 版** |
+| **eService dev debug APK**（`com.foo.eservice.flavorDeveloperTest` 3.7.18-AFA，Android） | 從 `https://mapptest.foo.com.tw/QRCode/NewApp/eService_dev_debug_1.apk`（原連結 `.a` 要補成 `.apk`）下載、`adb install -r -g` 成功。啟動跳 root/偵錯偵測對話框（有「繼續使用」可放行）。**使用者說連不進去（IP 限制）** |
 | **IP 限制排查** | 模擬器走 NAT，對外 IP = 主機 IP（實測都是 `203.74.115.97`）。使用者的 WireGuard VPN「zzz」當時是斷線的。結論：連 VPN 主機 IP 若變、模擬器通常跟著變（不保證）；也可能根本不是 IP 問題（Play Integrity / cert pinning / root 偵測降級） |
-| **cathaybk 測試 APK**（`https://smuat.megatime.com.tw/EAS/Apps/cathaybk/cathaytest/...apk`） | 下載需登入「精誠隨想 SoftMobile App Store」，`302` 轉 `/EAS/login.aspx`。**沒帳號抓不到**，要使用者自己用瀏覽器登入下載 |
-| **樹精靈Demo**（`com.cathay.securities.tw.mBroker.Demo` 3.3.60，iOS，TestFlight 裝的） | 換回 iOS + 這支。**一開始沒有登入牆**、直接進「自選庫存」有範例資料、無截圖保護、native id 品質好（`MBKMetroQuote_QuoteDataCell_0_0` 這種）。**首選目標**。但後來被我 `terminate_app` + `activate_app` 重啟後，掉到登入頁了（見「目前卡點」） |
+| **foobk 測試 APK**（`https://smuat.megatime.com.tw/EAS/Apps/foobk/footest/...apk`） | 下載需登入「精誠隨想 SoftMobile App Store」，`302` 轉 `/EAS/login.aspx`。**沒帳號抓不到**，要使用者自己用瀏覽器登入下載 |
+| **你好Demo**（`com.foo.securities.tw.foo.Demo` 3.3.60，iOS，TestFlight 裝的） | 換回 iOS + 這支。**一開始沒有登入牆**、直接進「自選庫存」有範例資料、無截圖保護、native id 品質好（`MBKMetroQuote_QuoteDataCell_0_0` 這種）。**首選目標**。但後來被我 `terminate_app` + `activate_app` 重啟後，掉到登入頁了（見「目前卡點」） |
 
 ---
 
@@ -114,7 +114,7 @@ source ~/.zshrc && nohup appium --log /tmp/appium_ios_scan.log --log-timestamp -
 
 **其他**
 - 可點的 StaticText（`interactive_statictext_keys()`）：accessible=true + 文字不像資料 +
-  無 Button/Cell 祖先 → 也當候選（樹精靈Demo 的分頁列 證券庫存/期權庫存/複委託庫存
+  無 Button/Cell 祖先 → 也當候選（你好Demo 的分頁列 證券庫存/期權庫存/複委託庫存
   是這種）
 - **modal 自動關**（`dismiss_modal()`）：偵測 XCUIElementTypeAlert 或
   `_MODAL_HINT_MARKERS`，點 `MODAL_DISMISS_LABELS`（我知道了/關閉/略過/繼續使用…），
@@ -126,7 +126,7 @@ source ~/.zshrc && nohup appium --log /tmp/appium_ios_scan.log --log-timestamp -
   點過 3 個都導到同一畫面 → 跳過其餘（78 個報價卡變 ~3 個）
 - **效能優化**（本 session 後段做的）：爬蟲呼叫 `scan_screen(wait_stable=False)`、
   `page_source` 抓一次傳下去、`recover_to` 用短 `wait_stable(1.5)`、`dismiss_modal`
-  字串快篩。**優化後還沒對樹精靈Demo 完整跑過一次**（見卡點）
+  字串快篩。**優化後還沒對你好Demo 完整跑過一次**（見卡點）
 
 ### 執行方式
 ```bash
@@ -140,14 +140,14 @@ python3 crawl_app_tree.py --root_name <名字> --include_nav --max_depth 2 --max
 
 ## 五、對各 App 的實測發現
 
-### 國泰證券-測試（帳務首頁 dry-run）
+### 你好證券-測試（帳務首頁 dry-run）
 - tree 每個 Cell/StaticText **重複 2 份**（座標一模一樣）→ 已加去重（by class+label+bounds）
 - 兩排橫向 sub-tab（總覽/台股/…、委託/成交/庫存/對帳單/交割款）都是 `Cell`，
   **選中狀態 tree 讀不到**（無 selected/value）
 - 測試帳號空（查無資料）
 - 有「報價連線中斷」的攔截彈窗（確定鈕）
 
-### 樹精靈Demo（有登入態時，2026-09-10 首次跑）
+### 你好Demo（有登入態時，2026-09-10 首次跑）
 **機制運作得很好：**
 - `nav_title` 抓到的是 **iOS ViewController 類名**（`TWCTMainVC` / `TWCTStockOverviewVC` /
   `TWCTOrderVC`）→ 超穩的畫面 id，命名乾淨
@@ -172,7 +172,7 @@ python3 crawl_app_tree.py --root_name <名字> --include_nav --max_depth 2 --max
 
 **背景**：手機重新接上（USB 配對信任重建）、WDA 免費簽章當天過期（`0xe8008011 provisioning profile has expired`），
 在 Xcode 對 `WebDriverAgent.xcodeproj` 按 Cmd+U 重簽成功（CLI 版 `xcodebuild -allowProvisioningUpdates`
-卡住不動，疑似在等 Apple ID 2FA，改用 Xcode GUI 才成功）。使用者手動登入樹精靈Demo，回到自選庫存畫面
+卡住不動，疑似在等 Apple ID 2FA，改用 Xcode GUI 才成功）。使用者手動登入你好Demo，回到自選庫存畫面
 （九宮格模式，有真實報價資料）。
 
 **登入態**：整次驗證（含中途 WDA session 重建）**沒有再發生被登出/掉登入態**的狀況，
@@ -239,7 +239,7 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 > 以下是 2026-09-10 的舊記錄，**已在 2026-09-15 解決**（使用者手動重新登入回到自選庫存），
 > 保留原文供參考。最新狀態、真正的效能瓶頸見上方「五之一」。
 
-我用 `driver.terminate_app()` + `activate_app()` 重啟樹精靈Demo 想回到乾淨狀態，
+我用 `driver.terminate_app()` + `activate_app()` 重啟你好Demo 想回到乾淨狀態，
 結果 App 走了「啟動 → 公告頁 → **登入頁**」。原本首次跑的時候是直接進「自選庫存」
 有範例資料的（`noReset: True` 有一個持久化 session），這個 session 在我重啟後掉了。
 
@@ -254,16 +254,16 @@ def wait_stable(driver, max_wait: float = 3.0, poll: float = 0.4) -> None:
 ## 七、已知問題 / 待討論
 
 1. **in-place 換內容的 sub-tab / 顯示模式切換**：點了不換頁（skeleton 一樣）→ 記成
-   noop，不會變成子節點。國泰證券的 委託/成交/庫存 和樹精靈的 列表/九宮格都是這種。
+   noop，不會變成子節點。你好證券的 委託/成交/庫存 和你好的 列表/九宮格都是這種。
    要不要「偵測到分頁列 → 每個 tab 強制當一個 view 節點（screen_uid = 骨架 + 點的 tab 文字）」
    還沒定案（使用者上次在這個問題被中斷、還沒回答）
 2. **骨架簽章對「無 nav_title、無 native_id」的畫面很弱**：只剩 class 直方圖，可能誤合併。
-   國泰證券帳務內頁就是這種
+   你好證券帳務內頁就是這種
 3. **同 VC 不同模式算幾個節點**（TWCTMainVC vs TWCTMainVC_2）
 4. **`go_back` / `recover_to` 對自訂導覽的 App 可能不準**（找 NavigationBar 第一個 Button
    / 左上角 Button / driver.back() / 邊緣滑）
 5. **登入牆 / 空測試帳號**是反覆遇到的結構性障礙
-6. **`--include_nav` 全 App 爬 + 黑名單關**會走進下單頁並點買賣鈕（樹精靈是 Demo 應該
+6. **`--include_nav` 全 App 爬 + 黑名單關**會走進下單頁並點買賣鈕（你好是 Demo 應該
    sandbox，但真 App 要小心）
 
 ---

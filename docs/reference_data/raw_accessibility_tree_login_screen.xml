@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <AppiumAUT>
-  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="國泰證券" label="國泰證券" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="" processId="1194" bundleId="tw.cathaysec.STP">
+  <XCUIElementTypeApplication type="XCUIElementTypeApplication" name="你好證券" label="你好證券" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="" processId="1194" bundleId="tw.foo.STP">
     <XCUIElementTypeWindow type="XCUIElementTypeWindow" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
       <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
         <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="0" y="0" width="390" height="844" index="0" traits="">
@@ -75,8 +75,8 @@
                           <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="119" y="749" width="152" height="17" index="1" traits="">
                             <XCUIElementTypeOther type="XCUIElementTypeOther" enabled="true" visible="true" accessible="false" x="143" y="749" width="104" height="17" index="0" traits="">
                               <XCUIElementTypeImage type="XCUIElementTypeImage" name="bxPhone" enabled="true" visible="true" accessible="false" x="143" y="749" width="16" height="17" index="0" traits="Image"/>
-                              <XCUIElementTypeButton type="XCUIElementTypeButton" name="02-7732-6888" label="02-7732-6888" enabled="true" visible="true" accessible="true" x="159" y="749" width="88" height="17" index="1" traits="Button">
-                                <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="02-7732-6888" name="02-7732-6888" label="02-7732-6888" enabled="true" visible="true" accessible="false" x="159" y="750" width="88" height="15" index="0" traits="StaticText"/>
+                              <XCUIElementTypeButton type="XCUIElementTypeButton" name="02-1234-5678" label="02-1234-5678" enabled="true" visible="true" accessible="true" x="159" y="749" width="88" height="17" index="1" traits="Button">
+                                <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" value="02-1234-5678" name="02-1234-5678" label="02-1234-5678" enabled="true" visible="true" accessible="false" x="159" y="750" width="88" height="15" index="0" traits="StaticText"/>
                               </XCUIElementTypeButton>
                             </XCUIElementTypeOther>
                           </XCUIElementTypeOther>

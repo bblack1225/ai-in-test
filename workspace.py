@@ -4,7 +4,7 @@
 
     workspace/                      ← 整個不進 git（地圖、截圖含帳號金額等畫面資料）
     └── projects/
-        └── mbroker-demo-ios/
+        └── foo-demo-ios/
             ├── project.json        ← 名稱、平台、bundle_id
             ├── maps/<名稱>.json    ← 地圖（crawl_app_tree.py 的全名格式），依功能分開爬可以有很多張，預設 main
             ├── backups/            ← 爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
@@ -16,12 +16,12 @@
 
 CLI：
     uv run python workspace.py list
-    uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" \\
-        --bundle_id com.cathay.securities.tw.mBroker.Demo
+    uv run python workspace.py create foo-demo-ios --platform ios --name "你好 Demo iOS" \\
+        --bundle_id com.foo.securities.tw.foo.Demo
     # 改名稱、bundle id（平台不能改）
-    uv run python workspace.py update mbroker-demo-ios --bundle_id com.example.app
+    uv run python workspace.py update foo-demo-ios --bundle_id com.example.app
     # 把舊的 app_map_tree.json＋用到的截圖＋test_cases/ 搬進專案（不會刪原檔），地圖存成 main
-    uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
+    uv run python workspace.py import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
     # 地圖存成別的名稱：--map_name trading
 
 早期的專案只有一份 map.json，第一次讀到時會自動搬成 maps/main.json。
@@ -93,7 +93,7 @@ class Workspace:
 
     def project_dir(self, project_id: str) -> Path:
         if not PROJECT_ID_RE.match(project_id or ""):
-            raise WorkspaceError(f"專案代號「{project_id}」不合法：只能用小寫英數字、- 和 _，例如 mbroker-demo-ios")
+            raise WorkspaceError(f"專案代號「{project_id}」不合法：只能用小寫英數字、- 和 _，例如 foo-demo-ios")
         return self.projects_dir / project_id
 
     def _existing_dir(self, project_id: str) -> Path:
@@ -600,7 +600,7 @@ def _ask_create(ws: Workspace) -> tuple[str, str, str, str]:
     """create 沒帶專案代號時，一步一步問。回傳 (project_id, name, platform, bundle_id)。"""
     print("建立新專案（直接按 Enter 用括號裡的預設值，Ctrl+C 取消）\n")
     while True:
-        project_id = input("1. 專案代號（小寫英數字、- 和 _，例如 mbroker-demo-ios）：").strip()
+        project_id = input("1. 專案代號（小寫英數字、- 和 _，例如 foo-demo-ios）：").strip()
         try:
             if ws.project_dir(project_id).exists():
                 print(f"   專案「{project_id}」已經存在，換一個")
@@ -630,9 +630,9 @@ def _main():
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="列出所有專案")
     c = sub.add_parser("create", help="建立新專案（不帶參數就一步一步問）")
-    c.add_argument("project_id", nargs="?", help="專案代號，例如 mbroker-demo-ios")
+    c.add_argument("project_id", nargs="?", help="專案代號，例如 foo-demo-ios")
     c.add_argument("--platform", choices=PLATFORMS)
-    c.add_argument("--name", default="", help="顯示名稱，例如「樹精靈 Demo iOS」")
+    c.add_argument("--name", default="", help="顯示名稱，例如「你好 Demo iOS」")
     c.add_argument("--bundle_id", default="", help="iOS bundle id／Android package")
     u = sub.add_parser("update", help="改專案名稱、bundle id（平台不能改：地圖是照那個平台掃出來的）")
     u.add_argument("project_id")

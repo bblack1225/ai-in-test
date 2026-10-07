@@ -2,7 +2,7 @@
 一鍵啟動＋環境檢查。
 
     uv run python aitest.py start                    # 啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器
-    uv run python aitest.py start cathaysec-ios      # 直接開這個專案（平台照專案設定）
+    uv run python aitest.py start foo-ios      # 直接開這個專案（平台照專案設定）
     uv run python aitest.py start --platform android --no-appium
     uv run python aitest.py doctor                   # 逐項檢查環境，告訴你哪裡沒裝好、怎麼修
 
@@ -462,7 +462,7 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器")
     s.add_argument("project", nargs="?", default=None,
-                   help="直接開這個專案（平台照專案設定），例如 cathaysec-ios；有哪些用 workspace.py list 查")
+                   help="直接開這個專案（平台照專案設定），例如 foo-ios；有哪些用 workspace.py list 查")
     s.add_argument("--platform", choices=("ios", "android"), default=None, help="預設：專案的平台，沒指定專案就是 ios")
     s.add_argument("--no-appium", action="store_true", help="不啟動 Appium（只看地圖、編輯測案）")
     s.add_argument("--no-browser", action="store_true", help="不自動打開瀏覽器")

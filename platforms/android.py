@@ -549,7 +549,7 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
       - UiSelector 只能比對單一節點、而且是原字比對，文字被拆成好幾個 TextView 或
         破折號全半形不同就抓不到；所以每隔 source_interval 秒另外抓一次整份 page
         source 做寬鬆比對（見 _texts_in_source、_normalize_banner_text）。
-      - **page source 不只是備援**：實測國泰證券的「買進-委託處理中」跑馬燈畫在另一個視窗，
+      - **page source 不只是備援**：實測你好證券的「買進-委託處理中」跑馬燈畫在另一個視窗，
         UiSelector（包括 textMatches）完全查不到，只有開了 enableMultiWindows 的 page source
         看得到（它由「買進-委託處理中」「｜」「陳○玲」三個 TextView 組成，比對到的是接起來的
         那串）。跑馬燈只出現兩三秒，所以 page source 每一輪都抓、從一開始就抓；實測一次約

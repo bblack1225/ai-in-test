@@ -8,7 +8,7 @@
 
 使用方式：
   python compare_versions.py --old_json element_map_舊版.json --new_json element_map.json \
-      --screen_name cathaylife_health_screen [--test_case test_cases/cathaylife_health_screen.json]
+      --screen_name foolife_health_screen [--test_case test_cases/foolife_health_screen.json]
 """
 
 import argparse

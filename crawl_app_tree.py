@@ -39,9 +39,9 @@ iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊�
 
 使用方式：
   1. 手動把 App 導航到子樹根畫面（例如某個 tab 的 landing），保持登入、螢幕解鎖
-  2. python crawl_app_tree.py --root_name cathaysec_accounting --max_depth 3 --max_screens 40
+  2. python crawl_app_tree.py --root_name foo_accounting --max_depth 3 --max_screens 40
      Android 加 --platform android（App 會用啟動當下前景的那一支）
-     寫進專案：加 --project cathaysec-ios --map accounting
+     寫進專案：加 --project foo-ios --map accounting
      先 dry-run 看會點什麼：加 --dry_run（只掃根畫面、列候選、不點）
   3. 爬蟲期間不要開著 viewer_server.py，同一台裝置同時只能有一條 Appium 連線
 
@@ -282,7 +282,7 @@ def interactive_statictext_keys(page_source: str) -> set[tuple[str, str]]:
     """
     找出「看起來可點、但 class 是 StaticText」的元件的 (class, identifier)。
 
-    很多 App（含樹精靈Demo）的分頁列 / 選單項目是 accessible=true 的 StaticText
+    很多 App（含你好Demo）的分頁列 / 選單項目是 accessible=true 的 StaticText
     包在 eOther 裡，不是 Button/Cell，naive 的 Button/Cell click-crawl 會整個漏掉。
     判定條件：
       - visible=true 且 accessible=true（是獨立的無障礙元素）
@@ -318,7 +318,7 @@ def persistent_chrome_keys(page_source: str, screen_height: float) -> set[tuple[
     「常駐框架」元件的 (class, label/name)：畫面最上緣 / 最下緣的可點元件（頂部
     導覽列、底部 tab bar / 導覽 Button 列），加上 TabBar 底下的所有元件。
 
-    不管實際 class 是不是 XCUIElementTypeTabBar——樹精靈Demo 這類 App 的底部
+    不管實際 class 是不是 XCUIElementTypeTabBar——你好Demo 這類 App 的底部
     導覽是一排 name 開頭「btn 」的 Button，不是標準 TabBar。用來把常駐框架從
     非根層畫面（或整支子樹）的爬蟲候選裡排掉（#5）。
     """
