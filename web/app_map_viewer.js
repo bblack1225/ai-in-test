@@ -1998,6 +1998,15 @@
     await renderServerStatus(API_BASE, runscriptServerStatus, mapPlatform());
   }
   runscriptServerCheckBtn.addEventListener("click", checkRunscriptServer);
+  // 執行中使用者自己捲動畫面（不是程式捲的）：這次執行就不再自動捲到執行中的步驟
+  var followRunningStep = false;
+  var SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
+  function stopFollowingRunningStep() { followRunningStep = false; }
+  window.addEventListener("wheel", stopFollowingRunningStep, { passive: true });
+  window.addEventListener("touchmove", stopFollowingRunningStep, { passive: true });
+  window.addEventListener("keydown", function (e) {
+    if (SCROLL_KEYS.indexOf(e.key) >= 0 && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) stopFollowingRunningStep();
+  });
   runscriptRunBtn.addEventListener("click", async function () {
     var elementMap = currentExecutionMap();
     if (!runscriptTestCase) return;
@@ -2014,6 +2023,10 @@
       await assertPlatformMatches(progressBase, mapPlatform());
       // 執行是同步請求要跑完才回傳，執行中另外輪詢 /test_progress 顯示目前跑到哪一步
       var polling = false, runFinished = false;
+      // 換到下一步時才把畫面捲到執行中的那一步；使用者自己捲過（滾輪／觸控／按鍵）就不再跟，
+      // 不然卡在同一步時每秒被拉回去，往上捲不到停止按鈕
+      followRunningStep = true;
+      var lastFollowedStep = null;
       progressTimer = setInterval(async function () {
         if (polling) return;
         polling = true;
@@ -2023,7 +2036,10 @@
             runscriptRunBtn.textContent = "執行中（" + Math.max(pr.current || 0, 0) + "/" + pr.total + "）...";
             renderRunscriptPreview(pr.results, false, pr.precheck, pr.current || 0);
             var running = runscriptBody.querySelector(".script-step-card.running");
-            if (running) running.scrollIntoView({ block: "nearest" });
+            if (running && followRunningStep && pr.current !== lastFollowedStep) {
+              lastFollowedStep = pr.current;
+              running.scrollIntoView({ block: "nearest" });
+            }
             runscriptRunBtn.disabled = true;
           }
         } catch (e) { /* 輪詢失敗不影響主流程 */ }
