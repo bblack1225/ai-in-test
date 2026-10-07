@@ -25,7 +25,7 @@ from appium import webdriver
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
+from test_config import APPIUM_SERVER_URL, ios_capabilities
 
 OUTPUT_DIR = Path("transient_captures")
 
@@ -59,7 +59,7 @@ def main():
     args = parser.parse_args()
     keywords = args.keyword or ["委託", "委托", "回報"]
 
-    options = XCUITestOptions().load_capabilities(DESIRED_CAPS)
+    options = XCUITestOptions().load_capabilities(ios_capabilities())
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=options)
 
     # 跑馬燈是持續動畫，XCUITest 預設會等 App「靜止」才查詢，會拖慢甚至卡住輪詢

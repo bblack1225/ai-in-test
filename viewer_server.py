@@ -1,5 +1,5 @@
 """
-本機小型伺服器：讓 app_map_viewer.html / viewer.html 上的按鈕能透過 HTTP API
+本機小型伺服器：讓 app_map_viewer.html 上的按鈕能透過 HTTP API
 呼叫 run_test_case.py 現成的定位邏輯，對手機執行真正的操作。iOS、Android 共用
 這一支，啟動時用 --platform 指定這次接哪種裝置。
 
@@ -28,14 +28,18 @@ API：
   - /llm_chat：「LLM 測案產生」的多輪對話代理，純聊天不操作裝置
   - /llm_scenarios（+ GET /llm_scenarios_prompt）：「測試情境產生」
   - /run_test_script、/stop_test_script：執行／停止一份可能橫跨多個畫面的測案
-  - /scan_screen：「手動建樹」對目前畫面執行一次掃描
+  - /scan_screen：「手動建樹」對目前畫面執行一次掃描（帶 project 的話截圖存進專案資料夾）
+  - /api/projects/...：workspace 專案（地圖、測案、批次）的讀寫、匯出／匯入 zip，
+    見 workspace.py；不需要手機
 
 使用方式：
   1. 先確認手機已連接、目標畫面已經手動導航好（iOS 另需 WebDriverAgent 簽署有效）
-  2. 執行：python viewer_server.py --platform ios（或 --platform android）
-  3. 瀏覽器打開 app_map_viewer.html，連線網址預設 http://127.0.0.1:8767
+  2. 執行：uv run python viewer_server.py --platform ios（或 --platform android）
+  3. 瀏覽器打開 http://127.0.0.1:8767/ （網頁由這支伺服器提供，跟 API 同源；
+     直接雙擊 HTML 檔用 file:// 開啟的話，網頁連不到這支伺服器）
 
-安全提醒：只綁定 127.0.0.1，不會對外網開放，但按下按鈕會「真的」操作手機
+安全提醒：只綁定 127.0.0.1，而且只接受這支伺服器自己網頁發出的請求（見
+Handler._request_allowed），其他網站沒辦法借你的瀏覽器操作手機。按下按鈕會「真的」操作手機
 畫面，單次操作（點擊、驗證可見等）沒有 verify_current_screen() 前置校驗，
 請自行確認手機導航到正確畫面。「測案執行」（/run_test_script）例外：
 執行前會先做第0步畫面檢查，畫面不符就整份不執行（可從 viewer 取消勾選略過）。
@@ -45,10 +49,14 @@ import argparse
 import base64
 import binascii
 import json
+import mimetypes
+import signal
 import threading
 import time
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
@@ -72,9 +80,22 @@ from run_test_case import (
     with_dismiss_note,
 )
 from test_config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
+from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8767
+PORT = DEFAULT_PORT  # main() 依 --port 設定，檢查 Host／Origin 標頭用
+
+# 網頁由這支伺服器直接提供（http://127.0.0.1:8767/），跟 API 同源，不需要 CORS。
+# 網頁（HTML／CSS／JS）放在 web/；截圖等資料沿用其他腳本的慣例，相對於啟動時的工作目錄。
+WEB_DIR = Path(__file__).resolve().parent / "web"
+WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer.html"}
+# web/ 裡可以直接給網頁讀的檔案類型（只看 web/ 第一層，不會讀到子資料夾或外面）
+WEB_ASSET_SUFFIXES = (".css", ".js")
+DATA_DIRS = ("screenshots", "crops", "test_results")
+# 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png
+PROJECT_STATIC_DIRS = ("screenshots", "crops")
+WORKSPACE = Workspace(DEFAULT_ROOT)  # main() 依 --workspace 設定
 
 
 PLATFORM = None  # main() 依 --platform 設定，平台差異都在 platforms/ 裡
@@ -832,10 +853,16 @@ def do_scan_screen(payload: dict) -> dict:
     screen_name = (payload.get("screen_name") or "").strip()
     if not screen_name:
         return {"error": "screen_name 不可為空"}
+    project_id = payload.get("project")
+    out_dir = WORKSPACE.project_dir(project_id) if project_id else None
+    if out_dir is not None:
+        project = WORKSPACE.get_project(project_id)
+        if project["platform"] != PLATFORM.name:
+            return {"error": f"專案「{project_id}」是 {project['platform']}，但伺服器目前接的是 {PLATFORM.name}"}
     screen_data = scan_screen(PLATFORM, get_driver(), screen_name,
                               describe=bool(payload.get("describe", False)),
                               scroll=bool(payload.get("scroll", True)),
-                              wait_stable=True)
+                              wait_stable=True, out_dir=out_dir)
     return {"screen_data": screen_data}
 
 
@@ -844,30 +871,86 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+    def _request_allowed(self) -> bool:
+        """
+        只接受來自這支伺服器自己網頁的請求。按鈕會「真的」操作手機、花 LLM 額度，
+        光綁 127.0.0.1 不夠：使用者瀏覽器開著的任何網站都能對 127.0.0.1 發請求
+        （text/plain 這類不需要預檢的 POST 照樣會送到、照樣被執行，只是看不到回應），
+        或用 DNS rebinding 把自己的網域指到 127.0.0.1。所以：
+          - Host 必須是本機位址：擋 DNS rebinding（那種請求的 Host 是對方的網域）
+          - 有 Origin 的話必須是本機網頁：擋其他網站的跨站請求
+        curl、Python 腳本這類沒有 Origin 的請求照常放行。
+        """
+        allowed = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+        if self.headers.get("Host") not in allowed:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin in {f"http://{h}" for h in allowed}
+
+    def _serve_file(self, path: str) -> bool:
+        """網頁本身＋截圖這類資料夾裡的檔案；其他路徑一律 404，不會讀到資料夾外面。"""
+        parts = unquote(path).lstrip("/").split("/")
+        if path in WEB_PAGES:
+            file = WEB_DIR / WEB_PAGES[path]
+        elif len(parts) == 1 and Path(parts[0]).suffix in WEB_ASSET_SUFFIXES and not parts[0].startswith("."):
+            file = WEB_DIR / parts[0]
+        elif len(parts) >= 4 and parts[0] == "projects" and parts[2] in PROJECT_STATIC_DIRS:
+            try:
+                root = (WORKSPACE.project_dir(parts[1]) / parts[2]).resolve()
+            except WorkspaceError:
+                return False
+            file = root.joinpath(*parts[3:]).resolve()
+            if not file.is_relative_to(root):
+                return False
+        else:
+            rel = unquote(path).lstrip("/")
+            top = rel.split("/", 1)[0]
+            if top not in DATA_DIRS:
+                return False
+            root = Path(top).resolve()
+            file = Path(rel).resolve()
+            if not file.is_relative_to(root):
+                return False
+        if not file.is_file():
+            return False
+        body = file.read_bytes()
+        ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+        if ctype.startswith("text/"):
+            ctype += "; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        # 網頁改完重新整理就要看到新版；截圖檔名會變（或帶 ?v=），不用特別處理
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        self.wfile.write(body)
+        return True
 
     def do_GET(self):
-        if self.path == "/ping":
+        if not self._request_allowed():
+            self._send_json(403, {"error": f"只接受從 http://127.0.0.1:{PORT}/ 開啟的網頁"})
+            return
+        path = urlsplit(self.path).path
+        if path.startswith("/api/"):
+            self._handle_api("GET")
+            return
+        if path == "/ping":
             self._send_json(200, {"status": "ok", "platform": PLATFORM.name})
             return
-        if self.path == "/test_progress":
+        if path == "/test_progress":
             self._send_json(200, {**_progress, "results": list(_progress["results"])})
             return
-        if self.path == "/batch_progress":
+        if path == "/batch_progress":
             self._send_json(200, json.loads(json.dumps(_batch_progress, ensure_ascii=False, default=str)))
             return
-        if self.path == "/llm_scenarios_prompt":
+        if path == "/llm_scenarios_prompt":
             self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
+            return
+        if self._serve_file(path):
             return
         self._send_json(404, {"error": "not found"})
 
@@ -881,6 +964,12 @@ class Handler(BaseHTTPRequestHandler):
     PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script")
 
     def do_POST(self):
+        if not self._request_allowed():
+            self._send_json(403, {"error": f"只接受從 http://127.0.0.1:{PORT}/ 開啟的網頁"})
+            return
+        if self.path.startswith("/api/"):
+            self._handle_api("POST")
+            return
         if self.path not in self.KNOWN_PATHS:
             self._send_json(404, {"error": f"not found，可用路徑: {', '.join(self.KNOWN_PATHS)}"})
             return
@@ -907,6 +996,108 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._send_json(200, result)
+
+    def do_PUT(self):
+        if not self._request_allowed():
+            self._send_json(403, {"error": f"只接受從 http://127.0.0.1:{PORT}/ 開啟的網頁"})
+            return
+        self._handle_api("PUT")
+
+    def do_DELETE(self):
+        if not self._request_allowed():
+            self._send_json(403, {"error": f"只接受從 http://127.0.0.1:{PORT}/ 開啟的網頁"})
+            return
+        self._handle_api("DELETE")
+
+    def _read_body(self) -> bytes:
+        return self.rfile.read(int(self.headers.get("Content-Length", 0)))
+
+    def _read_json_body(self):
+        try:
+            return json.loads(self._read_body() or b"null")
+        except json.JSONDecodeError:
+            raise WorkspaceError("請求內容不是合法JSON")
+
+    def _handle_api(self, method: str):
+        """
+        workspace 專案的讀寫（建立專案、改專案設定用 workspace.py 的 create／update），
+        路徑對照（<kind> 是 cases 或 batches）：
+          GET    /api/projects                          專案清單
+          POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
+          GET    /api/projects/<id>                     專案資訊＋地圖／測案／批次清單
+          GET    /api/projects/<id>/export              下載 zip
+          GET    /api/projects/<id>/maps/<name>         讀地圖 → {map, map_version}
+          POST   /api/projects/<id>/maps/<name>         新增地圖 {map?}（沒給就是空白），同名已存在回 409
+          PUT    /api/projects/<id>/maps/<name>         存地圖 {map, base_version}，版本不符回 409
+          POST   /api/projects/<id>/maps/<name>/rename  改名 {new_name}
+          DELETE /api/projects/<id>/maps/<name>         刪地圖（最後一張不能刪）
+          GET    /api/projects/<id>/<kind>/<name>       讀一份
+          PUT    /api/projects/<id>/<kind>/<name>[?overwrite=1]  存一份（已存在又沒 overwrite 回 409）
+          DELETE /api/projects/<id>/<kind>/<name>       刪一份
+        不碰手機，所以不用排 _device_lock；檔案寫入是先寫暫存檔再改名，不會寫出半份。
+        """
+        url = urlsplit(self.path)
+        parts = [unquote(p) for p in url.path.split("/")[3:] if p]  # 去掉開頭的 /api/projects
+        query = parse_qs(url.query)
+        if url.path.split("/")[2:3] != ["projects"]:
+            self._send_json(404, {"error": "not found"})
+            return
+        try:
+            if method == "GET" and not parts:
+                self._send_json(200, {"projects": WORKSPACE.list_projects()})
+            elif method == "POST" and parts == ["import"]:
+                new_id = (query.get("id") or [None])[0]
+                self._send_json(200, {"project": WORKSPACE.import_zip(self._read_body(), new_id)})
+            elif method == "GET" and len(parts) == 1:
+                self._send_json(200, WORKSPACE.summary(parts[0]))
+            elif method == "GET" and len(parts) == 2 and parts[1] == "export":
+                body = WORKSPACE.export_zip(parts[0])
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{parts[0]}_{time.strftime("%Y%m%d")}.zip"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif len(parts) >= 3 and parts[1] == "maps":
+                self._handle_map_api(method, parts[0], parts[2], parts[3:])
+            elif len(parts) == 3 and method == "GET":
+                self._send_json(200, {"data": WORKSPACE.read_item(*parts)})
+            elif len(parts) == 3 and method == "PUT":
+                overwrite = (query.get("overwrite") or ["0"])[0] == "1"
+                WORKSPACE.write_item(*parts, self._read_json_body(), overwrite)
+                self._send_json(200, {"items": WORKSPACE.list_items(parts[0], parts[1])})
+            elif len(parts) == 3 and method == "DELETE":
+                WORKSPACE.delete_item(*parts)
+                self._send_json(200, {"items": WORKSPACE.list_items(parts[0], parts[1])})
+            else:
+                self._send_json(404, {"error": "not found"})
+        except WorkspaceError as e:
+            self._send_json(e.status, {"error": str(e)})
+        except Exception as e:
+            self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def _handle_map_api(self, method: str, project_id: str, name: str, rest: list):
+        if method == "GET" and not rest:
+            map_data, version = WORKSPACE.read_map(project_id, name)
+            self._send_json(200, {"map": map_data, "map_version": version})
+        elif method == "POST" and not rest:
+            body = self._read_json_body() or {}
+            version = WORKSPACE.create_map(project_id, name, body.get("map"))
+            self._send_json(200, {"map_version": version, "maps": WORKSPACE.list_maps(project_id)})
+        elif method == "PUT" and not rest:
+            body = self._read_json_body() or {}
+            version = WORKSPACE.write_map(project_id, name, body.get("map"), body.get("base_version"))
+            self._send_json(200, {"map_version": version})
+        elif method == "POST" and rest == ["rename"]:
+            body = self._read_json_body() or {}
+            WORKSPACE.rename_map(project_id, name, str(body.get("new_name", "")).strip())
+            self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})
+        elif method == "DELETE" and not rest:
+            WORKSPACE.delete_map(project_id, name)
+            self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})
+        else:
+            self._send_json(404, {"error": "not found"})
 
     def _dispatch(self, path: str, payload: dict) -> dict:
         if path == "/tap":
@@ -936,18 +1127,27 @@ class Handler(BaseHTTPRequestHandler):
         print("[viewer_server]", format % args)
 
 
+def _raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
-    global PLATFORM
+    global PLATFORM, PORT, WORKSPACE
     parser = argparse.ArgumentParser(description="App 元件地圖／測試工具的本機橋接伺服器")
     parser.add_argument("--platform", choices=sorted(PLATFORMS), default="ios",
                         help="這次要接的裝置平台（預設 ios）")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"監聽埠（預設 {DEFAULT_PORT}）")
+    parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="專案資料夾（預設 ./workspace）")
     args = parser.parse_args()
     PLATFORM = get_platform(args.platform)
+    PORT = args.port
+    WORKSPACE = Workspace(args.workspace)
 
-    server = ThreadingHTTPServer((HOST, args.port), Handler)
-    print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}）：http://{HOST}:{args.port}（只接受本機連線）")
-    print("[viewer_server] 等待 viewer 的按鈕觸發請求，Ctrl+C 結束")
+    # 被 aitest.py 或 kill 結束（SIGTERM）時跟 Ctrl+C 一樣收尾：關掉 Appium session，手機上不會留著 WDA 連線
+    signal.signal(signal.SIGTERM, _raise_interrupt)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}），只接受本機連線")
+    print(f"[viewer_server] 用瀏覽器打開 http://{HOST}:{PORT}/ ，Ctrl+C 結束")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

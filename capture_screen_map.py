@@ -33,7 +33,7 @@ POC: App 元件地圖產生器（第一步），iOS / Android 共用
      Android：Android Studio + SDK + 模擬器（或實體裝置），adb 看得到裝置
   2. 啟動 Appium Server: `appium`（需已安裝 xcuitest / uiautomator2 driver）
   3. 設定環境變數 GEMINI_API_KEY
-  4. 修改 test_config.py 的 DESIRED_CAPS / ANDROID_DESIRED_CAPS
+  4. 裝置設定填在 config.toml（範本 config.example.toml）
 """
 
 import argparse
@@ -550,7 +550,8 @@ def crop_element_screenshot(screenshot_png: bytes, bounds: dict, save_path: Path
 # ---------------------------------------------------------------------------
 
 def scan_screen(platform, driver, screen_name: str, describe: bool = True, scroll: bool = True,
-                wait_stable: bool = True, page_source: str | None = None, save_crops: bool = False) -> dict:
+                wait_stable: bool = True, page_source: str | None = None, save_crops: bool = False,
+                out_dir: Path | None = None) -> dict:
     """
     掃描目前畫面，產出完整元件地圖資料。
 
@@ -574,6 +575,10 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
 
     save_crops=False（預設）：不存無 id 元件的裁切小圖，screenshot_crop 留 None。
     只有要人工打開小圖核對 LLM 描述時才需要開。
+
+    out_dir：截圖／裁切圖存到 out_dir/screenshots、out_dir/crops（給 workspace 專案用，
+    傳專案資料夾）。回傳資料裡的路徑一律是相對 out_dir 的 "screenshots/xxx.png"，
+    所以地圖搬到哪個資料夾都能用。None（預設）＝目前工作目錄，跟以前一樣。
     """
     print(f"開始掃描畫面: {screen_name}")
 
@@ -600,10 +605,11 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
     # 裡的代表截圖（跟捲動收集過程中每一輪各自的截圖是分開的用途）
     # 檔名加上掃描時間：每份 map 的根畫面都叫 root_screen，只用畫面名稱當檔名的話，
     # 任何一次掃描都會蓋掉別份 map 的截圖，匯入舊 map 會看到最新那次掃描的圖
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    base_dir = out_dir or Path(".")
+    (base_dir / SCREENSHOTS_DIR).mkdir(parents=True, exist_ok=True)
     scanned_at = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
     screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
-    screenshot_img.save(screenshot_path)
+    screenshot_img.save(base_dir / screenshot_path)
 
     scroll_collected = platform.has_scrollable_content(page_source) and scroll
     if scroll_collected:
@@ -685,7 +691,7 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
             crop_path = None
             if save_crops and not screenshot_blocked:
                 crop_path = CROPS_DIR / f"{screen_name}_{unique_id.split('::')[-1]}.png"
-                crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], crop_path, scale_x, scale_y)
+                crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], base_dir / crop_path, scale_x, scale_y)
                 if not crop_saved:
                     print(f"  [警告] 元件超出截圖可視範圍，略過裁切: {unique_id}")
 

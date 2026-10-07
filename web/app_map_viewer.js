@@ -1,693 +1,5 @@
-<title>樹精靈畫面地圖</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<style>
-  :root {
-    --font-scale: 1.15; /* 整頁字級倍率，1 = 原本大小 */
-    --ink: #14181a;
-    --ink-soft: #4b5459;
-    --paper: #eef1ee;
-    --paper-raised: #ffffff;
-    --line: #d7dbd6;
-    --line-strong: #b9c0bb;
-    --accent: #1f6f6a;
-    --accent-soft: #dcece9;
-    --accent-ink: #0e4844;
-    --gold: #9a6a1f;
-    --gold-soft: #f1e5cd;
-    --grey-mid: #7d8683;
-    --grey-soft: #e7e9e6;
-    --danger: #9a4634;
-    --danger-soft: #f3e0da;
-    --shadow: 0 1px 2px rgba(20,24,26,0.06), 0 6px 20px -8px rgba(20,24,26,0.18);
-    --radius: 10px;
-    color-scheme: light;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --ink: #eceeec;
-      --ink-soft: #a7afab;
-      --paper: #12171a;
-      --paper-raised: #1a2125;
-      --line: #2b343a;
-      --line-strong: #3b464c;
-      --accent: #56b8b0;
-      --accent-soft: #17302e;
-      --accent-ink: #bfe9e4;
-      --gold: #d3a55c;
-      --gold-soft: #33291a;
-      --grey-mid: #8b9490;
-      --grey-soft: #1f262a;
-      --danger: #d98871;
-      --danger-soft: #3a241f;
-      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px -10px rgba(0,0,0,0.55);
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --ink: #eceeec;
-    --ink-soft: #a7afab;
-    --paper: #12171a;
-    --paper-raised: #1a2125;
-    --line: #2b343a;
-    --line-strong: #3b464c;
-    --accent: #56b8b0;
-    --accent-soft: #17302e;
-    --accent-ink: #bfe9e4;
-    --gold: #d3a55c;
-    --gold-soft: #33291a;
-    --grey-mid: #8b9490;
-    --grey-soft: #1f262a;
-    --danger: #d98871;
-    --danger-soft: #3a241f;
-    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 10px 30px -10px rgba(0,0,0,0.55);
-    color-scheme: dark;
-  }
-
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: "IBM Plex Sans", -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
-    font-size: calc(14px * var(--font-scale));
-    line-height: 1.5;
-    padding-inline: max(16px, env(safe-area-inset-left, 0px));
-    padding-block: 20px 40px;
-  }
-  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
-  h1, h2, h3 { text-wrap: balance; margin: 0; }
-  .wrap { max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
-
-  /* ---------- header ---------- */
-  header.top {
-    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px 24px;
-    padding-bottom: 14px; border-bottom: 1px solid var(--line);
-  }
-  .title-block { display: flex; flex-direction: column; gap: 4px; }
-  .eyebrow {
-    font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--accent); font-weight: 600;
-  }
-  h1 { font-size: calc(22px * var(--font-scale)); font-weight: 700; letter-spacing: -0.01em; }
-  .meta-line { font-size: calc(12.5px * var(--font-scale)); color: var(--ink-soft); }
-  .meta-line .mono { color: var(--ink-soft); }
-
-  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .stat-tile {
-    background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 8px 14px; min-width: 84px; box-shadow: var(--shadow);
-  }
-  .stat-tile .num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: calc(20px * var(--font-scale)); font-weight: 600; line-height: 1.1; }
-  .stat-tile .lbl { font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
-
-  /* ---------- workspace ---------- */
-  .workspace { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr); gap: 16px; align-items: start; }
-  @media (max-width: 880px) { .workspace { grid-template-columns: 1fr; } }
-
-  .panel {
-    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 14px;
-    box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column;
-  }
-  .panel-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 12px 16px; border-bottom: 1px solid var(--line);
-  }
-  .panel-head h2 { font-size: calc(13px * var(--font-scale)); font-weight: 600; letter-spacing: 0.02em; }
-  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); }
-  .legend span { display: inline-flex; align-items: center; gap: 5px; }
-  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
-
-  /* ---------- diagram ---------- */
-  .diagram-scroll { overflow-x: auto; padding: 22px 18px 26px; }
-  svg#tree { display: block; }
-  .node-card { cursor: pointer; }
-  .node-card rect.body {
-    fill: var(--paper-raised); stroke: var(--line-strong); stroke-width: 1.3;
-    transition: stroke 0.15s ease, filter 0.15s ease;
-  }
-  .node-card:hover rect.body { stroke: var(--accent); }
-  .node-card.selected rect.body { stroke: var(--accent); stroke-width: 2.2; }
-  .node-card .depth-chip { fill: var(--accent-soft); }
-  .node-card .depth-chip-text { fill: var(--accent-ink); font-weight: 600; }
-  .node-name { font-family: "IBM Plex Mono", monospace; font-weight: 600; fill: var(--ink); font-size: 12.5px; }
-  .node-sub { fill: var(--ink-soft); font-size: 10.5px; }
-  .badge-text { font-size: 10px; font-weight: 600; font-family: "IBM Plex Sans", sans-serif; }
-  .edge-line { fill: none; stroke: var(--line-strong); stroke-width: 1.6; }
-  .edge-arrow { fill: var(--line-strong); }
-
-  /* ---------- detail panel ---------- */
-  .detail-body { padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 14px; max-height: 78vh; overflow-y: auto; }
-  .shot-row { display: flex; gap: 12px; align-items: flex-start; }
-  .shot-frame {
-    flex: 0 0 auto; width: 108px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line);
-    box-shadow: var(--shadow); background: var(--grey-soft); cursor: zoom-in; position: relative;
-  }
-  .shot-frame img { display: block; width: 100%; height: auto; }
-  .shot-frame::after {
-    content: "🔍 點圖放大操作"; position: absolute; inset: auto 0 0 0; padding: 3px 4px; font-size: calc(9px * var(--font-scale));
-    text-align: center; background: rgba(0,0,0,0.55); color: #fff;
-  }
-
-  /* ---------- image action modal ---------- */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(10,12,12,0.6); display: flex; align-items: center;
-    justify-content: center; z-index: 1000; padding: 20px;
-  }
-  .modal-box {
-    background: var(--paper-raised); border-radius: 16px; box-shadow: var(--shadow);
-    width: 100%; max-width: 1100px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;
-  }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .modal-head h3 { font-size: calc(14px * var(--font-scale)); font-weight: 600; }
-  .modal-close { background: none; border: none; font-size: calc(16px * var(--font-scale)); cursor: pointer; color: var(--ink-soft); padding: 4px 8px; border-radius: 6px; }
-  .modal-close:hover { background: var(--grey-soft); color: var(--ink); }
-  .modal-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr); gap: 0; overflow: hidden; flex: 1; min-height: 0; }
-  @media (max-width: 760px) { .modal-grid { grid-template-columns: 1fr; overflow-y: auto; } }
-  .modal-stage-col { padding: 14px; overflow-y: auto; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; align-items: center; }
-  .modal-list-col { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-
-  .conn-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--grey-soft); border-radius: 9px; font-size: calc(11.5px * var(--font-scale)); width: 100%; }
-  .conn-bar input[type="text"] { flex: 1 1 180px; min-width: 140px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-raised); color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: calc(11.5px * var(--font-scale)); }
-  .conn-status { font-weight: 700; padding: 2px 8px; border-radius: 99px; font-size: calc(10.5px * var(--font-scale)); }
-  .conn-status.online { background: var(--accent-soft); color: var(--accent-ink); }
-  .conn-status.offline { background: var(--danger-soft); color: var(--danger); }
-  .conn-status.unknown { background: var(--grey-soft); color: var(--ink-soft); border: 1px solid var(--line); }
-  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-family: inherit; font-size: calc(11.5px * var(--font-scale)); font-weight: 600; cursor: pointer; }
-  .btn:hover { border-color: var(--accent); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
-  .btn.danger:hover { background: var(--danger); color: #fff; }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-
-  .stage-wrap { position: relative; display: inline-block; max-width: 100%; border-radius: 10px; overflow: visible; border: 1px solid var(--line); box-shadow: var(--shadow); background: var(--grey-soft); }
-  .stage-wrap img { display: block; height: min(62vh, 800px); max-width: 100%; width: auto; border-radius: 10px; }
-  .el-box { position: absolute; border: 1.5px solid; box-sizing: border-box; cursor: pointer; background: rgba(31,111,106,0.05); }
-  .el-box.native { border-color: var(--accent); }
-  .el-box.generated { border-color: var(--gold); }
-  .el-box:hover { background: rgba(31,111,106,0.16); }
-  .el-box.picked { border-width: 2.5px; background: rgba(154,70,52,0.18); border-color: var(--danger); z-index: 2; }
-
-  .picked-panel { display: flex; flex-direction: column; gap: 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--grey-soft); width: 100%; }
-  .picked-panel .pk-row { font-size: calc(11.5px * var(--font-scale)); display: flex; gap: 6px; }
-  .picked-panel .pk-row b { color: var(--ink-soft); font-weight: 600; min-width: 56px; flex: 0 0 auto; }
-  .tap-result { font-size: calc(11.5px * var(--font-scale)); padding: 6px 9px; border-radius: 7px; font-family: "IBM Plex Mono", monospace; }
-  .tap-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
-  .tap-result.fail { background: var(--danger-soft); color: var(--danger); }
-  .tap-result.pending { background: var(--grey-soft); color: var(--ink-soft); }
-
-  .modal-list-row {
-    padding: 7px 9px; border-radius: 8px; background: var(--grey-soft); font-size: calc(11.5px * var(--font-scale)); cursor: pointer; border: 1.5px solid transparent;
-  }
-  .modal-list-row:hover { border-color: var(--line-strong); }
-  .modal-list-row.picked { border-color: var(--danger); background: var(--danger-soft); }
-  .modal-list-row .row-top { display: flex; gap: 6px; align-items: center; font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); font-size: calc(10.5px * var(--font-scale)); }
-  .modal-list-row .row-desc { margin-top: 2px; color: var(--ink); }
-  .screen-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .screen-id .name { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: calc(15px * var(--font-scale)); }
-  .screen-id .uid { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); }
-  .breadcrumb { font-size: calc(12px * var(--font-scale)); color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .breadcrumb b { color: var(--ink); font-weight: 600; }
-  .breadcrumb .sep { color: var(--line-strong); }
-
-  .mini-stats { display: flex; gap: 8px; flex-wrap: wrap; }
-  .mini-stat {
-    background: var(--grey-soft); border-radius: 8px; padding: 6px 10px; font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft);
-    display: flex; gap: 5px; align-items: baseline;
-  }
-  .mini-stat b { font-family: "IBM Plex Mono", monospace; font-size: calc(13px * var(--font-scale)); color: var(--ink); font-variant-numeric: tabular-nums; }
-
-  .section-label {
-    font-size: calc(11px * var(--font-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft);
-    margin-bottom: 6px; display: block;
-  }
-  .edge-list { display: flex; flex-direction: column; gap: 5px; }
-  .edge-row {
-    display: flex; align-items: center; gap: 7px; font-size: calc(12px * var(--font-scale)); padding: 6px 8px; border-radius: 7px; background: var(--grey-soft);
-  }
-  .kind-tag {
-    font-size: calc(10px * var(--font-scale)); font-weight: 700; padding: 1.5px 7px; border-radius: 99px; letter-spacing: 0.02em; flex: 0 0 auto;
-  }
-  .kind-tree { background: var(--accent-soft); color: var(--accent-ink); }
-  .kind-cross-link { background: var(--gold-soft); color: var(--gold); }
-  .kind-noop { background: var(--grey-soft); color: var(--grey-mid); border: 1px solid var(--line); }
-  .kind-external { background: var(--danger-soft); color: var(--danger); }
-  .kind-chrome { background: var(--grey-soft); color: var(--grey-mid); border: 1px solid var(--line); }
-  .edge-row .via { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .edge-row .to { color: var(--ink); font-weight: 500; flex: 0 0 auto; }
-  .empty-hint { font-size: calc(12px * var(--font-scale)); color: var(--ink-soft); font-style: italic; }
-
-  .search-box {
-    width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper);
-    color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: calc(12.5px * var(--font-scale));
-  }
-  .search-box:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  table.el-table { width: 100%; border-collapse: collapse; font-size: calc(11.5px * var(--font-scale)); }
-  table.el-table th {
-    position: sticky; top: 0; background: var(--paper-raised); text-align: left; font-weight: 600; color: var(--ink-soft);
-    padding: 5px 6px; border-bottom: 1px solid var(--line); font-size: calc(10.5px * var(--font-scale)); text-transform: uppercase; letter-spacing: 0.03em;
-  }
-  table.el-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  table.el-table td.cls { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); white-space: nowrap; }
-  table.el-table td.lbl { color: var(--ink); word-break: break-word; }
-  table.el-table td.lbl .native { display: block; font-family: "IBM Plex Mono", monospace; font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); }
-  .table-scroll { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
-  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-  .dot-tree { background: var(--accent); }
-  .dot-cross-link { background: var(--gold); }
-  .dot-noop { background: var(--grey-mid); }
-  .dot-chrome { background: var(--danger); opacity: 0.75; }
-  .dot-none { background: var(--line-strong); }
-
-  footer.note { font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); padding-top: 4px; }
-  a { color: var(--accent); }
-
-  /* ---------- 分頁系統（整合自 viewer.html） ---------- */
-  .tab-bar { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 0; }
-  .tab-btn {
-    padding: 9px 14px; border: none; background: none; color: var(--ink-soft); font-family: inherit;
-    font-size: calc(13px * var(--font-scale)); font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  }
-  .tab-btn:hover { color: var(--ink); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-panel { display: none; flex-direction: column; gap: 16px; }
-  .tab-panel.active { display: flex; }
-
-  .field-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: calc(12.5px * var(--font-scale)); }
-  .file-btn-label {
-    display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 7px;
-    border: 1px solid var(--line-strong); background: var(--paper-raised); font-size: calc(11.5px * var(--font-scale)); font-weight: 600;
-    cursor: pointer;
-  }
-  .file-btn-label:hover { border-color: var(--accent); }
-  .file-btn-label input[type="file"] { display: none; }
-  textarea.xpath-input {
-    width: 100%; min-height: 56px; font-family: "IBM Plex Mono", monospace; font-size: calc(11.5px * var(--font-scale));
-    padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
-    resize: vertical;
-  }
-  select.plain-select {
-    padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper-raised);
-    color: var(--ink); font-family: inherit; font-size: calc(11.5px * var(--font-scale)); max-width: 100%;
-  }
-  .xpath-editor-result { font-size: calc(11px * var(--font-scale)); padding: 5px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); }
-  .xpath-editor-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
-  .xpath-editor-result.fail, .xpath-editor-result.error { background: var(--danger-soft); color: var(--danger); }
-  .el-locator { font-size: calc(11px * var(--font-scale)); padding: 4px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); word-break: break-all; }
-  .el-locator .locator-type { font-weight: 700; margin-right: 6px; color: var(--ink); }
-  .el-locator.custom { background: var(--gold-soft); color: var(--gold); }
-
-  .compare-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
-  .summary-card { background: var(--grey-soft); border-radius: 10px; padding: 10px 12px; text-align: center; }
-  .summary-card .num { font-family: "IBM Plex Mono", monospace; font-size: calc(22px * var(--font-scale)); font-weight: 700; }
-  .summary-card .label { font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); margin-top: 2px; }
-  .summary-card.confirmed .num { color: var(--accent); }
-  .summary-card.needs_review .num { color: var(--gold); }
-  .summary-card.new .num { color: var(--ink-soft); }
-  .summary-card.missing .num { color: var(--danger); }
-
-  .match-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--paper-raised); }
-  .match-card.confirmed { border-left: 4px solid var(--accent); }
-  .match-card.needs_review { border-left: 4px solid var(--gold); }
-  .match-card.new { border-left: 4px solid var(--line-strong); }
-  .match-card.missing { border-left: 4px solid var(--danger); }
-  .match-verdict { font-size: calc(10.5px * var(--font-scale)); font-weight: 700; padding: 1.5px 8px; border-radius: 99px; }
-  .match-verdict.confirmed { background: var(--accent-soft); color: var(--accent-ink); }
-  .match-verdict.needs_review { background: var(--gold-soft); color: var(--gold); }
-  .match-verdict.new { background: var(--grey-soft); color: var(--ink-soft); }
-  .match-verdict.missing { background: var(--danger-soft); color: var(--danger); }
-  .match-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin-top: 6px; font-size: calc(12px * var(--font-scale)); }
-  .match-arrow { color: var(--ink-soft); }
-  .mc-id { font-family: "IBM Plex Mono", monospace; font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); word-break: break-all; }
-  .mc-desc { margin-top: 2px; }
-  .score-breakdown { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); margin-top: 6px; }
-  .score-total { font-weight: 700; color: var(--ink); }
-  .match-apply-row { margin-top: 6px; }
-  .match-apply-btn { font-size: calc(11px * var(--font-scale)); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
-  .match-applied-note { font-size: calc(11px * var(--font-scale)); color: var(--accent); font-weight: 600; }
-  .source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: calc(12px * var(--font-scale)); padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); }
-  .source-line .source-kind { font-weight: 600; }
-  .source-line .source-name { font-family: "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
-  .source-line .btn { margin-left: auto; padding: 3px 9px; font-size: calc(11px * var(--font-scale)); }
-  .source-line.empty { background: var(--grey-soft); color: var(--ink-soft); }
-  .script-note { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); margin-top: 6px; padding: 6px 8px; background: var(--grey-soft); border-radius: 6px; }
-  .script-note.warn { background: var(--gold-soft); color: var(--gold); }
-
-  .filter-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 99px; background: var(--grey-soft); font-size: calc(11px * var(--font-scale)); cursor: pointer; }
-  .chat-box { display: flex; flex-direction: column; gap: 10px; }
-  .chat-messages { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
-  .chat-msg { max-width: 80%; padding: 8px 11px; border-radius: 10px; font-size: calc(12.5px * var(--font-scale)); white-space: pre-wrap; }
-  .chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
-  .chat-msg.model { align-self: flex-start; background: var(--grey-soft); color: var(--ink); }
-  .chat-msg.system-note { align-self: center; background: var(--danger-soft); color: var(--danger); font-size: calc(11px * var(--font-scale)); }
-  .chat-input-row { display: flex; gap: 8px; align-items: stretch; }
-  .chat-box.drag-over .chat-messages { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
-  .attach-btn { padding: 6px 10px; font-size: calc(15px * var(--font-scale)); }
-  .attach-tray { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
-  .attach-tray[hidden] { display: none; }
-  .attach-item { position: relative; display: flex; align-items: center; gap: 8px; height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); overflow: visible; }
-  .attach-item.image { width: 56px; }
-  .attach-item.image img { width: 100%; height: 100%; object-fit: cover; border-radius: 9px; display: block; }
-  .attach-item.doc { padding: 0 10px 0 6px; max-width: 200px; }
-  .attach-doc-icon { flex: none; width: 36px; height: 42px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: calc(9.5px * var(--font-scale)); font-weight: 700; letter-spacing: 0.04em; color: #fff; background: var(--grey-mid); }
-  .attach-doc-icon.pdf { background: var(--danger); }
-  .attach-doc-meta { display: flex; flex-direction: column; min-width: 0; font-size: calc(11px * var(--font-scale)); line-height: 1.35; }
-  .attach-doc-name { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .attach-doc-sub { color: var(--ink-soft); }
-  .attach-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); font-size: calc(12px * var(--font-scale)); line-height: 1; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
-  .attach-remove:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
-  .chat-msg .attach-tray { padding: 0; border: none; background: transparent; margin-bottom: 6px; }
-  .chat-msg.user .attach-item { border-color: transparent; }
-  .attach-hint { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); }
-  .attach-hint.warn { color: var(--gold); }
-  .chat-input-row textarea { flex: 1; min-height: 44px; font-family: inherit; font-size: calc(12.5px * var(--font-scale)); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); resize: vertical; }
-  pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
-  textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
-  .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: calc(11px * var(--font-scale)); }
-  .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: calc(11px * var(--font-scale)); }
-
-  .seg-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--paper); }
-  .seg-switch button { border: none; background: transparent; color: var(--ink-soft); font: inherit; font-size: calc(11.5px * var(--font-scale)); font-weight: 600; padding: 5px 14px; cursor: pointer; }
-  .seg-switch button + button { border-left: 1px solid var(--line-strong); }
-  .seg-switch button:hover { color: var(--ink); }
-  .seg-switch button[aria-selected="true"] { background: var(--accent); color: #fff; }
-  #runModeSingle[hidden], #runModeBatch[hidden] { display: none !important; }
-  .batch-group { border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-  .batch-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .batch-group-head h3 { font-size: calc(12.5px * var(--font-scale)); margin: 0; margin-right: auto; }
-  .batch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: calc(12px * var(--font-scale)); }
-  .batch-row .lbl { color: var(--ink-soft); min-width: 64px; }
-  .batch-cases { display: flex; flex-direction: column; gap: 4px; }
-  .batch-case { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: calc(12px * var(--font-scale)); }
-  .batch-case .idx { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
-  .batch-case .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .batch-case .meta { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); margin-right: auto; }
-  .batch-case .warn { color: var(--gold); font-size: calc(11px * var(--font-scale)); }
-  .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: calc(11px * var(--font-scale)); cursor: pointer; }
-  .icon-btn:hover { border-color: var(--accent); }
-  .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .status-chip { display: inline-block; min-width: 44px; text-align: center; padding: 2px 8px; border-radius: 99px; font-size: calc(10.5px * var(--font-scale)); font-weight: 700; background: var(--grey-soft); color: var(--ink-soft); }
-  .status-chip.pass { background: var(--accent-soft); color: var(--accent-ink); }
-  .status-chip.fail { background: var(--danger-soft); color: var(--danger); }
-  .status-chip.skip { background: var(--gold-soft); color: var(--gold); }
-  .status-chip.running { background: var(--accent); color: #fff; }
-  .batch-result-case { border: 1px solid var(--line); border-radius: 8px; background: var(--paper-raised); margin-bottom: 6px; }
-  .batch-result-case > summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; font-size: calc(12px * var(--font-scale)); list-style: none; }
-  .batch-result-case > summary::-webkit-details-marker { display: none; }
-  .batch-result-case > summary .name { font-weight: 600; margin-right: auto; }
-  .batch-result-case > summary .meta { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); }
-  .batch-result-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; font-size: calc(11.5px * var(--font-scale)); }
-  .batch-nav-log { margin: 0; padding-left: 18px; color: var(--ink-soft); }
-  .batch-step-line { display: flex; gap: 6px; }
-  .batch-step-line .no { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
-  .batch-step-line.pass .out { color: var(--accent-ink); }
-  .batch-step-line.fail .out { color: var(--danger); }
-  .batch-step-line.skip .out { color: var(--gold); }
-
-  .script-step-card { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--paper-raised); }
-  .script-step-card.pass { border-left: 4px solid var(--accent); }
-  .script-step-card.fail { border-left: 4px solid var(--danger); }
-  .script-step-card.skip { border-left: 4px solid var(--gold); }
-  .script-step-card.running { border-left: 4px solid var(--accent); background: var(--paper); }
-  .script-step-outcome.running { color: var(--accent); }
-  .script-step-index { font-family: "IBM Plex Mono", monospace; font-weight: 700; color: var(--ink-soft); }
-  .script-step-top { display: flex; gap: 8px; align-items: center; }
-  .script-step-action { font-weight: 700; font-size: calc(12px * var(--font-scale)); }
-  .script-step-screen { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
-  .script-step-note { font-size: calc(11.5px * var(--font-scale)); color: var(--ink-soft); margin-top: 2px; }
-  .script-step-target { font-size: calc(11px * var(--font-scale)); font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); margin-top: 2px; word-break: break-all; }
-  .script-step-outcome { font-size: calc(11px * var(--font-scale)); font-weight: 700; margin-top: 4px; }
-  .script-step-outcome.pass { color: var(--accent); }
-  .script-step-outcome.fail { color: var(--danger); }
-  .script-step-outcome.skip { color: var(--gold); }
-</style>
-
-<div class="wrap">
-  <header class="top">
-    <div class="title-block">
-      <span class="eyebrow">crawl_app_tree.py 掃描結果</span>
-      <h1>樹精靈Demo 畫面地圖</h1>
-      <div class="meta-line">
-        <span class="mono" id="bundleId"></span> · 掃描時間 <span class="mono" id="crawledAt"></span> ·
-        根畫面 <span class="mono" id="rootName"></span> · max_depth <span class="mono" id="maxDepth"></span> ·
-        平台 <span class="mono" id="mapPlatform"></span>
-      </div>
-    </div>
-    <div class="stat-row">
-      <div class="stat-tile"><div class="num" id="statScreens">–</div><div class="lbl">畫面</div></div>
-      <div class="stat-tile"><div class="num" id="statTree">–</div><div class="lbl">tree edges</div></div>
-      <div class="stat-tile"><div class="num" id="statCross">–</div><div class="lbl">cross-link</div></div>
-      <div class="stat-tile"><div class="num" id="statNoop">–</div><div class="lbl">noop</div></div>
-      <div class="stat-tile"><div class="num" id="statSkip">–</div><div class="lbl">chrome 排除</div></div>
-    </div>
-  </header>
-
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="map">地圖檢視</button>
-    <button class="tab-btn" data-tab="compare">改版比對</button>
-    <button class="tab-btn" data-tab="scenario">測試情境產生</button>
-    <button class="tab-btn" data-tab="llmgen">LLM測案產生</button>
-    <button class="tab-btn" data-tab="runscript">測案執行</button>
-  </div>
-
-  <section class="tab-panel active" id="tab-map">
-  <div class="workspace">
-    <section class="panel">
-      <div class="panel-head">
-        <h2>畫面樹（點節點看細節）</h2>
-        <div class="legend">
-          <span><i style="background:var(--accent)"></i>tree</span>
-          <span><i style="background:var(--gold)"></i>cross-link</span>
-          <span><i style="background:var(--grey-mid)"></i>noop</span>
-          <span><i style="background:var(--danger); opacity:.75"></i>chrome 排除</span>
-        </div>
-      </div>
-      <div class="btn-row" style="padding:0 16px 10px;align-items:center;">
-        <button class="btn" id="exportMapBtn">⬇️ 匯出目前地圖（含手動新增的節點）</button>
-        <label class="file-btn-label">📂 載入之前匯出的地圖<input type="file" id="importMapInput" accept="application/json"></label>
-        <span class="mono" id="mapSaveStatus" style="font-size: calc(11px * var(--font-scale));color:var(--ink-soft);"></span>
-      </div>
-      <div class="diagram-scroll"><svg id="tree" xmlns="http://www.w3.org/2000/svg"></svg></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>畫面細節</h2>
-        <span class="meta-line mono" id="detailCounter"></span>
-      </div>
-      <div class="detail-body" id="detailBody"></div>
-    </section>
-  </div>
-
-  <footer class="note">
-    候選元件的「分類」是從 <span class="mono">edges[]</span>／<span class="mono">skipped[]</span> 回推的：
-    有標色代表這個元件在爬蟲跑的當下實際被歸類過（點過導向新畫面／noop／被列為常駐 chrome 排除）；
-    沒有標色代表這次跑爬蟲時根本沒輪到它（畫面候選很多、或中途 <span class="mono">recover_to</span> 失敗提早放棄）。
-  </footer>
-  </section>
-
-  <section class="tab-panel" id="tab-compare">
-    <section class="panel">
-      <div class="panel-head"><h2>改版比對：相似度計分 + 人工確認識別碼延續</h2></div>
-      <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <label class="file-btn-label">📂 舊版 element_map.json<input type="file" id="oldJsonInput" accept="application/json"></label>
-          <select class="plain-select" id="oldScreenSelect" disabled></select>
-        </div>
-        <div class="field-row">
-          <label class="file-btn-label">📂 新版 element_map.json<input type="file" id="newJsonInput" accept="application/json"></label>
-          <select class="plain-select" id="newScreenSelect" disabled></select>
-        </div>
-        <div class="field-row">
-          <label class="file-btn-label">📂（選填）舊版測試腳本 JSON<input type="file" id="scriptJsonInput" accept="application/json"></label>
-        </div>
-        <div class="btn-row">
-          <button class="btn primary" id="compareBtn" disabled>執行比對</button>
-          <button class="btn" id="compareExportBtn" disabled>⬇ 匯出套用後的新版 JSON</button>
-        </div>
-        <div id="compareResults"></div>
-      </div>
-    </section>
-  </section>
-
-  <section class="tab-panel" id="tab-scenario">
-    <section class="panel">
-      <div class="panel-head"><h2>測試情境產生：從畫面資料推論可能的測試情境</h2></div>
-      <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
-          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="scenarioJsonInput" accept="application/json"></label>
-        </div>
-        <div class="source-line" id="scenarioSourceLine"></div>
-        <div class="field-row">
-          <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
-          <button class="btn" id="scenarioSelectNoneBtn">全部取消</button>
-          <span class="mono" id="scenarioScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
-        </div>
-        <div id="scenarioScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <div class="conn-bar">
-          <span>LLM代理連線：</span>
-          <input type="text" id="scenarioServerUrl" value="http://127.0.0.1:8767">
-        </div>
-        <div class="btn-row">
-          <button class="btn primary" id="scenarioGenerateBtn" disabled>🔍 分析並產生情境列表</button>
-          <button class="btn" id="scenarioViewPromptBtn">📝 查看／編輯提示詞</button>
-        </div>
-        <div id="scenarioPromptPanel" hidden style="margin-top:8px;">
-          <textarea class="xpath-input" id="scenarioPromptInput" style="width:100%;min-height:240px;"></textarea>
-          <div class="btn-row" style="margin-top:6px;">
-            <button class="btn" id="scenarioPromptResetBtn">還原預設提示詞</button>
-          </div>
-          <div class="empty-hint" style="margin-top:4px;">
-            裡面的 <span class="mono">&lt;&lt;畫面資料JSON會插入這裡&gt;&gt;</span> 標記不要刪掉，按「分析並產生情境列表」時會自動把你選的畫面資料換進去這個位置；改完不用另外存檔，下面的按鈕會直接套用這裡目前的內容，換了畫面選擇再送出也會沿用你改過的版本。
-          </div>
-        </div>
-        <div id="scenarioResultHost"><div class="empty-state">選好畫面後，按下分析，會列出根據這些畫面資料推論出的可能測試情境；每個情境旁邊有按鈕可以直接送去「LLM測案產生」，產生詳細的逐步驟操作。</div></div>
-      </div>
-    </section>
-  </section>
-
-  <section class="tab-panel" id="tab-llmgen">
-    <section class="panel">
-      <div class="panel-head"><h2>LLM 對話式產生跨畫面測案</h2></div>
-      <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
-          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="llmgenJsonInput" accept="application/json"></label>
-        </div>
-        <div class="source-line" id="llmgenSourceLine"></div>
-        <div class="field-row">
-          <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
-          <button class="btn" id="llmgenSelectNoneBtn">全部取消</button>
-          <span class="mono" id="llmgenScreensCount" style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);"></span>
-        </div>
-        <div id="llmgenScreenChecklist" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <div class="conn-bar">
-          <span>LLM代理連線：</span>
-          <input type="text" id="llmgenServerUrl" value="http://127.0.0.1:8767">
-        </div>
-        <div class="chat-box">
-          <div class="chat-messages" id="llmgenMessages"><div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div></div>
-          <div class="attach-tray" id="llmgenAttachTray" hidden></div>
-          <div class="chat-input-row">
-            <button class="btn attach-btn" id="llmgenAttachBtn" disabled title="附加流程圖、規格書等檔案（可多選；也可以直接貼上截圖或拖曳檔案進來）。支援 png／jpg／webp／pdf／txt／md／csv／json">📎</button>
-            <input type="file" id="llmgenAttachInput" multiple hidden accept="image/png,image/jpeg,image/webp,application/pdf,.txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json">
-            <textarea id="llmgenInput" placeholder="例如：在自選庫存點第一支股票，確認能進到個股總覽頁" disabled></textarea>
-            <button class="btn primary" id="llmgenSendBtn" disabled>送出</button>
-          </div>
-          <div class="attach-hint" id="llmgenAttachHint"></div>
-          <div class="btn-row">
-            <button class="btn" id="llmgenViewPromptBtn" disabled>查看系統提示詞規則</button>
-            <button class="btn" id="llmgenClearBtn" disabled>清空對話</button>
-          </div>
-        </div>
-        <div>
-          <span class="section-label">目前產生的測試案例</span><span class="case-sync-badge" id="llmgenCaseSyncBadge" hidden>✏️ 手動修改過，LLM 還不知道</span>
-          <pre class="case-json" id="llmgenCaseJson">（尚未產生）</pre>
-          <textarea class="case-json-editor" id="llmgenCaseEditor" spellcheck="false" hidden></textarea>
-          <div class="btn-row" style="margin-bottom:8px;">
-            <button class="btn" id="llmgenEditBtn" disabled>✏️ 編輯</button>
-            <button class="btn primary" id="llmgenEditSaveBtn" hidden>💾 儲存修改</button>
-            <button class="btn" id="llmgenEditCancelBtn" hidden>取消</button>
-            <button class="btn" id="llmgenSyncReviewBtn" disabled title="同步後請 LLM 檢查你改過的部分，有問題會修正並輸出完整 JSON。只是要接著下別的指令的話，直接在對話框輸入即可，送出前會自動同步">🔍 同步並請 LLM 檢查調整</button>
-          </div>
-          <div class="btn-row">
-            <label class="file-btn-label" title="匯入之前匯出的測試案例，接著在上方對話框描述要怎麼改，LLM 會以它為基礎修改">📂 匯入既有測試案例來修改<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
-            <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出測試案例</button>
-            <button class="btn primary" id="llmgenToRunBtn" disabled>➡ 送去執行</button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </section>
-
-  <section class="tab-panel" id="tab-runscript">
-    <section class="panel">
-      <div class="panel-head">
-        <h2>測案執行</h2>
-        <div class="seg-switch" role="tablist" aria-label="執行方式">
-          <button role="tab" id="runModeSingleBtn" aria-selected="true" aria-controls="runModeSingle">單份執行</button>
-          <button role="tab" id="runModeBatchBtn" aria-selected="false" aria-controls="runModeBatch">批次執行</button>
-        </div>
-      </div>
-      <div class="detail-body" style="max-height:none;display:flex;flex-direction:column;gap:10px;">
-        <div class="conn-bar">
-          <span>裝置橋接：</span>
-          <input type="text" id="runscriptServerUrl" value="http://127.0.0.1:8767">
-          <button class="btn" id="runscriptServerCheckBtn">檢查連線</button>
-          <span class="conn-status unknown" id="runscriptServerStatus">未檢查</span>
-        </div>
-        <div id="runModeSingle" role="tabpanel" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳</span>
-          <label class="file-btn-label">📂 element_map.json<input type="file" id="runscriptElmapInput" accept="application/json"></label>
-          <label class="file-btn-label">📂 測試案例 JSON<input type="file" id="runscriptCaseInput" accept="application/json"></label>
-        </div>
-        <div class="source-line" id="runscriptMapSourceLine"></div>
-        <div class="source-line" id="runscriptCaseSourceLine"></div>
-        <div class="btn-row">
-          <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
-          <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
-          <label class="field-row" style="gap:4px;"><input type="checkbox" id="runscriptCheckScreen" checked> 執行前先檢查手機是否停在第一步的畫面（第0步）</label>
-          <label class="field-row" style="gap:4px;" title="步驟失敗時，先關掉擋在前面的彈窗（稍後再說／不用了／關閉…）再重試一次；只在失敗時才檢查，不會誤關測案本來要操作的對話框"><input type="checkbox" id="runscriptDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試（行銷／評分／推播邀請…）</label>
-        </div>
-        <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
-        </div>
-        <div id="runModeBatch" role="tabpanel" hidden style="display:flex;flex-direction:column;gap:10px;">
-        <div class="script-note">一次跑多份測案：每一組選一張地圖，再加入用這張地圖的一份或多份測案。每份測案開始前會自動回到它的起始畫面（先辨識目前在哪一頁 → 按返回或往下點 → 都不行才重開 App）。重開 App 後要登入的話，請在該組指定「登入測案」，登入頁也要在同一張地圖裡。</div>
-        <div class="btn-row">
-          <button class="btn" id="batchAddGroupBtn">＋ 新增一組地圖</button>
-          <label class="file-btn-label" title="匯入之前匯出的批次設定（內含地圖跟測案）">📂 匯入批次設定<input type="file" id="batchImportInput" accept="application/json"></label>
-          <button class="btn" id="batchExportBtn" disabled>⬇ 匯出批次設定</button>
-        </div>
-        <div id="batchGroups" style="display:flex;flex-direction:column;gap:10px;"></div>
-        <div class="btn-row">
-          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchAutoNavigate" checked> 每份測案開始前自動回到起始畫面</label>
-          <label class="field-row" style="gap:4px;" title="辨識不出目前畫面、按返回也回不去時，關掉 App 再打開，從首頁照地圖點過去；重開後要登入的話需要指定登入測案"><input type="checkbox" id="batchAllowRestart" checked> 回不去時允許重開 App</label>
-          <label class="field-row" style="gap:4px;"><input type="checkbox" id="batchDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試</label>
-        </div>
-        <div class="btn-row">
-          <button class="btn primary" id="batchRunBtn" disabled>▶ 執行批次</button>
-          <button class="btn danger" id="batchStopBtn" hidden>⏹ 停止</button>
-        </div>
-        <div id="batchResults"></div>
-        </div>
-      </div>
-    </section>
-  </section>
-</div>
-
-<div class="modal-overlay" id="imgModal" hidden>
-  <div class="modal-box">
-    <div class="modal-head">
-      <h3 id="modalTitle">畫面操作</h3>
-      <button class="modal-close" id="modalCloseBtn">✕ 關閉</button>
-    </div>
-    <div class="modal-grid">
-      <div class="modal-stage-col">
-        <div class="conn-bar">
-          <span>裝置橋接（<span class="mono">python viewer_server.py</span>）：</span>
-          <input type="text" id="modalServerUrl" value="http://127.0.0.1:8767">
-          <button class="btn" id="modalServerCheckBtn">檢查連線</button>
-          <span class="conn-status unknown" id="modalServerStatus">未檢查</span>
-        </div>
-        <div class="stage-wrap" id="modalStageWrap"><img id="modalImg" alt=""></div>
-        <div id="modalPickedHost" style="width:100%;"></div>
-      </div>
-      <div class="modal-list-col">
-        <input class="search-box" type="text" id="modalSearch" placeholder="搜尋 class／label／描述…" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">
-        <label style="display:flex;align-items:center;gap:5px;font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);margin:6px 0;"><input type="checkbox" id="modalClickableOnly"> 只顯示可點擊元件</label>
-        <div id="modalListHost" style="display:flex;flex-direction:column;gap:6px;overflow-y:auto;"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script id="map-data" type="application/json">{"app":{"bundle_id":"","crawled_at":"","root_name":"","max_depth":0,"max_screens":0,"describe":false,"safe_keywords":false,"include_nav":false,"sample_per_pattern":0},"screens":[],"edges":[],"skipped":[]}</script>
-<script>
+// app_map_viewer.html 的程式（由 viewer_server.py 提供，跟網頁放在同一個資料夾）。
+// 整支包在一個立即執行的函式裡，變數不會漏到全域；頁面元素都在 HTML，這裡只綁事件、畫畫面。
 (function () {
   "use strict";
   var DATA = JSON.parse(document.getElementById("map-data").textContent);
@@ -697,6 +9,11 @@
   // 目前地圖是從哪個檔案載入的，給「測試情境產生」「LLM測案產生」「測案執行」
   // 顯示資料來源用；頁面內嵌的資料沒有檔名
   var currentMapFileName = null;
+  // 目前開啟的 workspace 專案（{id, name, platform, bundle_id}），null＝沒用專案；
+  // mapVersion 是上次讀到／存檔後的地圖版本，存檔時帶回去讓伺服器擋掉互相覆蓋
+  var currentProject = null, mapVersion = null, projectList = [], projectCases = [], projectBatches = [];
+  // 專案裡目前開著的地圖（一個專案可以有很多張，依功能分開爬）
+  var currentMapName = null, projectMaps = [];
 
   // 各分頁的「目前使用」標示。kind 是來源類型（例如「目前地圖」「上傳檔案」），
   // name 是檔名或補充說明；kind 為 null 代表還沒有資料。
@@ -753,6 +70,10 @@
     c = c || "";
     return c.indexOf("XCUIElementType") === 0 ? c.slice("XCUIElementType".length) : c.split(".").pop();
   }
+  // 網頁由 viewer_server.py 直接提供（http://127.0.0.1:8767/），API 跟網頁同源，
+  // 一律用相對路徑呼叫，不用再填伺服器網址
+  var API_BASE = "";
+  if (!/^https?:$/.test(location.protocol)) document.getElementById("fileProtocolWarning").hidden = false;
   // /ping 回傳伺服器目前接的平台（viewer_server.py --platform），舊版伺服器沒有這個欄位就是 null
   async function fetchServerPlatform(base) {
     var res = await fetch(base + "/ping");
@@ -959,29 +280,51 @@
   //     的候選清單，算出來的東西不是同一份東西，直接填 null——如果之後
   //     crawl_app_tree.py 重新爬到同一個畫面，不會認得這是同一個節點，
   //     只能靠人工核對、合併。
+  //
+  // 從全名格式載入的資料會把原始物件藏在 _orig（不可列舉：JSON.stringify、
+  // Object.assign 都看不到，送給 LLM 的資料不會變大），轉回全名時以它為底，
+  // 爬蟲算的 skeleton、enabled、description_source 這些精簡格式沒有的欄位
+  // 才不會在「載入→存檔」一輪之後被洗掉——專案地圖會自動存檔，這點很重要。
+  function hideOrig(obj, orig) {
+    Object.defineProperty(obj, "_orig", { value: orig, enumerable: false, writable: true, configurable: true });
+    return obj;
+  }
   function shortElToFullElement(el) {
-    var out = {
+    var orig = el._orig || {};
+    var out = Object.assign({}, orig, {
       unique_id: el.u, id_source: el.src, native_id: el.n, class: el.c,
-      label: el.l, value: el.v, bounds: el.b, enabled: true, accessible: !!el.a,
+      label: el.l, value: el.v, bounds: el.b,
+      enabled: orig.enabled !== undefined ? orig.enabled : true, accessible: !!el.a,
       fingerprint: el.fp || null,
-      description: el.d || "", description_source: el.d ? "llm_generated" : "skipped",
-      status: "active"
-    };
+      description: el.d || "",
+      description_source: el.d === (orig.description || "") && orig.description_source
+        ? orig.description_source : (el.d ? "llm_generated" : "skipped"),
+      status: orig.status || "active"
+    });
+    if (el._orig && !el.fp && !("fingerprint" in orig)) delete out.fingerprint;  // 原本沒有的欄位不要多長出來
     // 人工自訂的 XPath 也要匯出，不然匯出→載入（或拿匯出的地圖去批次執行）就不見了
+    delete out.custom_xpath;
     if (el.custom_xpath) out.custom_xpath = el.custom_xpath;
     return out;
   }
   function shortScreenToFull(s) {
-    return {
+    var orig = s._orig || {};
+    var out = Object.assign({}, orig, {
       screen_uid: s.uid, screen_name: s.name,
       parent_screen_uid: s.parent, entry_element_uid: s.entry,
       depth: s.depth, path: s.path || [],
-      skeleton: null,
-      last_scanned: s._scannedAt ? new Date(s._scannedAt).toISOString() : null,
-      screenshot: s.screenshot, screenshot_blocked: false, screen_stable_at_scan: null,
+      skeleton: orig.skeleton || null,
+      last_scanned: s._scannedAt ? new Date(s._scannedAt).toISOString() : (orig.last_scanned || null),
+      screenshot: s.screenshot,
+      screenshot_blocked: orig.screenshot_blocked || false,
+      screen_stable_at_scan: orig.screen_stable_at_scan !== undefined ? orig.screen_stable_at_scan : null,
       screen_width: s.w, screen_height: s.h,
       elements: (s.els || []).map(shortElToFullElement)
-    };
+    });
+    // 手動新增、還沒掃描的節點：存檔再載入後要能繼續「掃描目前畫面」
+    delete out.pending_scan;
+    if (s._blank) out.pending_scan = true;
+    return out;
   }
 
   document.getElementById("exportMapBtn").addEventListener("click", function () {
@@ -1004,7 +347,9 @@
   // elements[]/unique_id...），跟這個工具內部用的精簡欄位（uid/name/els[]/
   // u...）不一樣，讀進來要先轉過一輪。
   function fullScreenToShort(fs) {
-    return {
+    var orig = Object.assign({}, fs);
+    delete orig.elements;
+    var out = {
       uid: fs.screen_uid, name: fs.screen_name,
       parent: fs.parent_screen_uid, entry: fs.entry_element_uid,
       depth: fs.depth, path: fs.path || [],
@@ -1013,6 +358,8 @@
       screenshot: fs.screenshot, w: fs.screen_width, h: fs.screen_height,
       els: (fs.elements || []).map(toShortEl)
     };
+    if (fs.pending_scan) out._blank = true;
+    return hideOrig(out, orig);
   }
 
   function normalizeImportedMap(data) {
@@ -1026,32 +373,46 @@
     };
   }
 
+  // 換上一份新地圖（檔案載入、開專案都走這裡），各分頁跟著刷新
+  function applyMapData(data, sourceName) {
+    var normalized = normalizeImportedMap(data);
+    screens = normalized.screens; edges = normalized.edges; skipped = normalized.skipped; app = normalized.app;
+    DATA.screens = screens; DATA.edges = edges; DATA.skipped = skipped; DATA.app = app;
+    currentMapFileName = sourceName;
+    selectedUid = null;
+    detailCounter.textContent = "";
+    rebuildAll();
+    var r = screens.filter(function (sc) { return !sc.parent; })[0] || screens[0];
+    if (r) selectScreen(r.uid); else renderEmptyMapDetail();
+    // 「測試情境產生」「LLM測案產生」預設也是抓目前地圖的資料，換了地圖
+    // 這兩邊要跟著刷新，不然會一直停在換地圖之前的舊資料——但使用者
+    // 自己在那兩個分頁另外上傳過 element_map.json 的話，尊重那個選擇，
+    // 不要蓋掉。
+    if (scenarioDataSource !== "uploaded") initScenarioFromCurrentMap();
+    if (llmgenDataSource !== "uploaded") initLlmgenFromCurrentMap();
+    if (!runscriptElementMap) renderRunscriptPreview(); // 測案執行預設也是用目前地圖
+    renderBatchGroups();
+    document.getElementById("mapSaveStatus").textContent = "已載入（" + screens.length + " 個畫面）";
+  }
+
   function loadMapFromFile(file) {
     var reader = new FileReader();
     reader.onload = function () {
-      try {
-        var data = JSON.parse(reader.result);
-        if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列（要用這個工具自己匯出的檔案，或專案正式的 app_map_tree.json）。"); return; }
-        var normalized = normalizeImportedMap(data);
-        screens = normalized.screens; edges = normalized.edges; skipped = normalized.skipped; app = normalized.app;
-        DATA.screens = screens; DATA.edges = edges; DATA.skipped = skipped; DATA.app = app;
-        currentMapFileName = file.name;
-        selectedUid = null;
-        detailCounter.textContent = "";
-        rebuildAll();
-        if (screens.length === 0) renderEmptyMapDetail();
-        else detailBody.innerHTML = '<div class="empty-hint">請點選左邊的畫面節點查看細節</div>';
-        // 「測試情境產生」「LLM測案產生」預設也是抓目前地圖的資料，換了地圖
-        // 這兩邊要跟著刷新，不然會一直停在換地圖之前的舊資料——但使用者
-        // 自己在那兩個分頁另外上傳過 element_map.json 的話，尊重那個選擇，
-        // 不要蓋掉。
-        if (scenarioDataSource !== "uploaded") initScenarioFromCurrentMap();
-        if (llmgenDataSource !== "uploaded") initLlmgenFromCurrentMap();
-        if (!runscriptElementMap) renderRunscriptPreview(); // 測案執行預設也是用目前地圖
-        document.getElementById("mapSaveStatus").textContent = "已載入（" + screens.length + " 個畫面）";
-      } catch (err) {
-        alert("JSON 解析失敗：" + err.message);
+      var data;
+      try { data = JSON.parse(reader.result); } catch (err) { alert("JSON 解析失敗：" + err.message); return; }
+      if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列（要用這個工具自己匯出的檔案，或專案正式的 app_map_tree.json）。"); return; }
+      if (currentProject) {
+        // 開著專案時載入檔案＝匯入成專案裡的一張新地圖，不會蓋掉現有的。截圖不會跟著
+        // 搬進專案，舊地圖連同截圖要搬進來請用 workspace.py import-legacy
+        var suggested = file.name.replace(/\.json$/i, "").replace(/[^\w一-鿿 .()（）-]+/g, "_");
+        var name = (prompt("匯入成專案「" + currentProject.name + "」的一張新地圖，地圖名稱：\n\n" +
+          "注意：地圖用到的截圖不會一起搬進專案，畫面可能沒有截圖。舊地圖連同截圖搬進專案請用：\n" +
+          "uv run python workspace.py import-legacy " + currentProject.id + " --map " + file.name + " --map_name 名稱", suggested) || "").trim();
+        if (!name) return;
+        createProjectMap(name, data).catch(function (err) { alert("匯入地圖失敗：" + err.message); });
+        return;
       }
+      applyMapData(data, file.name);
     };
     reader.readAsText(file);
   }
@@ -1095,9 +456,13 @@
     });
   }
 
+  // 專案地圖的截圖路徑相對於專案資料夾（screenshots/xxx.png），由伺服器的
+  // /projects/<專案>/screenshots/ 提供；沒開專案時照舊相對於伺服器的工作目錄
   function screenshotUrl(s) {
     if (!s.screenshot) return "";
-    return s.screenshot + (s._scannedAt ? ("?v=" + s._scannedAt) : "");
+    var path = currentProject && !/^(\/|[a-z]+:)/i.test(s.screenshot)
+      ? "projects/" + encodeURIComponent(currentProject.id) + "/" + s.screenshot : s.screenshot;
+    return path + (s._scannedAt ? ("?v=" + s._scannedAt) : "");
   }
 
   function renderEdgeRow(e, direction) {
@@ -1152,7 +517,6 @@
     html += '<div class="breadcrumb">' + renderBreadcrumb(s) + "</div>";
     html += "</div>";
     html += '<div class="empty-hint" style="margin-top:10px;">這是手動新增的空白節點，剛才的點擊已經送到裝置——請先確認手機畫面已經停在這個新節點對應的畫面，再對「目前畫面」執行一次掃描。</div>';
-    html += '<div class="conn-bar" style="margin-top:10px;"><span>裝置橋接：</span><input type="text" id="blankScanServerUrl" value="http://127.0.0.1:8767"></div>';
     html += '<div class="field-row"><label><input type="checkbox" id="blankScanDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>';
     html += '<div class="field-row"><label><input type="checkbox" id="blankScanScroll"> 同時捲動收集完整清單（畫面有捲軸時可以抓到更多元件，但捲動後抓到的元件座標是相對「捲到那邊當下」的畫面，跟這裡顯示的截圖對不上、疊圖會顯示錯位／重疊，點擊定位也可能因此點錯地方——不確定要不要開就先不要勾）</label></div>';
     html += '<div class="btn-row"><button class="btn primary" id="blankScanBtn">🔍 掃描目前畫面</button><button class="btn danger" id="deleteNodeBtn">🗑 刪除節點</button></div>';
@@ -1182,8 +546,8 @@
     toDelete.forEach(function (u) { toDeleteSet[u] = true; });
 
     var confirmMsg = toDelete.length > 1
-      ? "確定要刪除「" + s.name + "」嗎？這會一併刪除底下 " + (toDelete.length - 1) + " 個子節點，無法復原（除非你之前有匯出過地圖）。"
-      : "確定要刪除「" + s.name + "」嗎？無法復原（除非你之前有匯出過地圖）。";
+      ? "確定要刪除「" + s.name + "」嗎？這會一併刪除底下 " + (toDelete.length - 1) + " 個子節點，無法復原（除非你之前有匯出過地圖或專案）。"
+      : "確定要刪除「" + s.name + "」嗎？無法復原（除非你之前有匯出過地圖或專案）。";
     if (!confirm(confirmMsg)) return;
 
     var parentUid = s.parent;
@@ -1194,6 +558,7 @@
 
     selectedUid = null;
     rebuildAll();
+    markMapDirty();
 
     if (screens.length === 0) {
       detailCounter.textContent = "";
@@ -1227,9 +592,11 @@
         nav_title: null, selected_tab: null, screenshot: null, w: null, h: null,
         els: [], _blank: true
       };
+      if (currentProject) app.platform = currentProject.platform;
       screens.push(newScreen);
       rebuildAll();
       selectScreen(newUid);
+      markMapDirty();
     });
     document.getElementById("emptyImportMapInput").addEventListener("change", function (e) {
       var file = e.target.files[0];
@@ -1242,7 +609,15 @@
   function toShortEl(el) {
     var out = { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds, fp: el.fingerprint };
     if (el.custom_xpath) out.custom_xpath = el.custom_xpath;  // 匯出再載入時保留人工自訂的 XPath
-    return out;
+    return hideOrig(out, el);
+  }
+  // 掃描結果裡畫面層級的欄位（截圖保護、是否穩定、掃描時間）記到 _orig，存檔時才帶得出去
+  function rememberScanMeta(s, screenData) {
+    hideOrig(s, Object.assign({}, s._orig || {}, {
+      last_scanned: screenData.last_scanned || null,
+      screenshot_blocked: !!screenData.screenshot_blocked,
+      screen_stable_at_scan: screenData.screen_stable_at_scan !== undefined ? screenData.screen_stable_at_scan : null
+    }));
   }
 
   function rememberMapPlatform(screenData) {
@@ -1256,13 +631,14 @@
     s.w = screenData.screen_width || null;
     s.h = screenData.screen_height || null;
     s._scannedAt = Date.now(); // 快取破壞用：同畫面重掃檔名不變，靠這個逼瀏覽器重新讀檔而不是用舊快取
+    rememberScanMeta(s, screenData);
     delete s._blank;
   }
 
   async function runBlankScreenScan(s) {
     var btn = document.getElementById("blankScanBtn");
     var resultEl = document.getElementById("blankScanResult");
-    var base = document.getElementById("blankScanServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var describe = document.getElementById("blankScanDescribe").checked;
     var scroll = document.getElementById("blankScanScroll").checked;
     btn.disabled = true;
@@ -1272,13 +648,14 @@
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/scan_screen", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll })
+        body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll, project: currentProject ? currentProject.id : null })
       });
       var data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
       applyScanResultToBlankScreen(s, data.screen_data);
       rebuildAll();
       selectScreen(s.uid);
+      markMapDirty();
     } catch (err) {
       resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個新畫面？）");
       resultEl.className = "tap-result fail";
@@ -1319,17 +696,8 @@
     html += '<div class="mini-stat"><b>' + inEdges.length + "</b>可抵達路徑</div>";
     html += "</div>";
 
-    html += '<div class="btn-row"><button class="btn" id="addNodeBtn">🌱 新增節點（手動建樹）</button>' +
-      '<button class="btn" id="rescanToggleBtn">🔄 重新掃描這個畫面</button>' +
+    html += '<div class="btn-row"><button class="btn" id="addNodeBtn" title="開啟視窗：在這個畫面選一個元件點擊，把點出來的畫面建成子節點（手動建樹）">🌱 從這裡點出新畫面…</button>' +
       '<button class="btn danger" id="deleteNodeBtn">🗑 刪除節點（含所有子節點）</button></div>';
-    html += '<div id="rescanPanel" hidden style="margin-top:8px;">' +
-      '<div class="conn-bar"><span>裝置橋接：</span><input type="text" id="rescanServerUrl" value="http://127.0.0.1:8767"></div>' +
-      '<div class="field-row"><label><input type="checkbox" id="rescanDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>' +
-      '<div class="field-row"><label><input type="checkbox" id="rescanScroll"> 同時捲動收集完整清單（捲動後抓到的元件座標跟這裡的截圖對不上，疊圖會錯位、點擊定位也可能點錯地方，不確定要不要開就先不要勾）</label></div>' +
-      '<div class="btn-row"><button class="btn primary" id="rescanBtn">開始重新掃描</button></div>' +
-      '<div class="tap-result pending" id="rescanResult">還沒掃描</div>' +
-      "</div>";
-
     html += '<div><span class="section-label">如何抵達這個畫面</span>';
     html += inEdges.length
       ? '<div class="edge-list">' + inEdges.map(function (e) { return renderEdgeRow(e, "in"); }).join("") + "</div>"
@@ -1361,67 +729,6 @@
     if (shotFrame) shotFrame.addEventListener("click", function () { openModal(s); });
     document.getElementById("addNodeBtn").addEventListener("click", function () { openModal(s, { addNode: true }); });
     document.getElementById("deleteNodeBtn").addEventListener("click", function () { deleteNode(s.uid); });
-    document.getElementById("rescanToggleBtn").addEventListener("click", function () {
-      var panel = document.getElementById("rescanPanel");
-      panel.hidden = !panel.hidden;
-    });
-    document.getElementById("rescanBtn").addEventListener("click", function () { runRescanScreen(s); });
-  }
-
-  async function runRescanScreen(s) {
-    var btn = document.getElementById("rescanBtn");
-    var resultEl = document.getElementById("rescanResult");
-    var base = document.getElementById("rescanServerUrl").value.replace(/\/$/, "");
-    var describe = document.getElementById("rescanDescribe").checked;
-    var scroll = document.getElementById("rescanScroll").checked;
-    btn.disabled = true;
-    resultEl.className = "tap-result pending";
-    resultEl.textContent = "掃描中，元件多或畫面有可捲動內容時可能要等一段時間…";
-    try {
-      await assertPlatformMatches(base, mapPlatform());
-      var res = await fetch(base + "/scan_screen", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ screen_name: s.name, describe: describe, scroll: scroll })
-      });
-      var data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
-
-      var newEls = (data.screen_data.elements || []).map(toShortEl);
-      var newIds = {};
-      newEls.forEach(function (el) { newIds[el.u] = true; });
-
-      var children = screens.filter(function (c) { return c.parent === s.uid; });
-      var brokenChildren = children.filter(function (c) { return c.entry && !newIds[c.entry]; });
-
-      var msg = "重新掃描完成：原本 " + s.els.length + " 個元件 → 新掃到 " + newEls.length + " 個元件。\n\n";
-      if (brokenChildren.length) {
-        msg += "⚠️ 以下 " + brokenChildren.length + " 個子節點的入口元件在新掃描結果裡消失了，套用後會變成點不進去這些子節點（子節點本身不會被自動刪除，需要你之後手動處理）：\n";
-        msg += brokenChildren.map(function (c) { return "・" + c.name; }).join("\n");
-        msg += "\n\n";
-      }
-      msg += "要用這次掃描結果覆蓋現有的畫面資料嗎？";
-
-      if (!confirm(msg)) {
-        resultEl.textContent = "已取消，維持原本資料";
-        resultEl.className = "tap-result pending";
-        btn.disabled = false;
-        return;
-      }
-
-      rememberMapPlatform(data.screen_data);
-      s.els = newEls;
-      s.screenshot = data.screen_data.screenshot || null;
-      s.w = data.screen_data.screen_width || null;
-      s.h = data.screen_data.screen_height || null;
-      s._scannedAt = Date.now();
-
-      rebuildAll();
-      selectScreen(s.uid);
-    } catch (err) {
-      resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個畫面？）");
-      resultEl.className = "tap-result fail";
-      btn.disabled = false;
-    }
   }
 
   // ---------------------------------------------------------------
@@ -1560,7 +867,7 @@
   async function loadAncestorsShort(el, selectEl, resultEl) {
     resultEl.textContent = "讀取中..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
@@ -1593,7 +900,7 @@
     if (!xpath) { resultEl.textContent = "請先輸入 XPath"; resultEl.className = "xpath-editor-result error"; return; }
     resultEl.textContent = "測試中..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/test_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ xpath: xpath }) });
       var data = await res.json();
@@ -1610,13 +917,14 @@
   async function callAgentXPathShort(el, resultEl, onApplied) {
     resultEl.textContent = "AI生成中，可能需要幾次嘗試，請稍候..."; resultEl.className = "xpath-editor-result";
     try {
-      var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+      var base = API_BASE;
       await assertPlatformMatches(base, mapPlatform());
       var res = await fetch(base + "/agent_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
       if (data.success) {
         el.custom_xpath = data.xpath;
+        markMapDirty();
         resultEl.textContent = "AI已找到唯一XPath並套用（第" + data.attempts + "次嘗試成功）";
         resultEl.className = "xpath-editor-result pass";
         if (onApplied) onApplied(data.xpath);
@@ -1669,7 +977,7 @@
     btn.disabled = true;
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行點擊中…";
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
@@ -1696,6 +1004,7 @@
       resultEl.textContent = "PASS，已建立新節點「" + newName + "」";
       resultEl.className = "tap-result pass";
       rebuildAll();
+      markMapDirty();
       closeModal();
       selectScreen(newUid);
     } catch (err) {
@@ -1749,10 +1058,12 @@
       var value = xpathInput.value.trim();
       if (!value) { xpathResult.textContent = "請先輸入 XPath 再儲存"; xpathResult.className = "xpath-editor-result error"; return; }
       el.custom_xpath = value;
+      markMapDirty();
       renderModalPicked(el);
     });
     document.getElementById("modalClearXpathBtn").addEventListener("click", function () {
       delete el.custom_xpath;
+      markMapDirty();
       renderModalPicked(el);
     });
     document.getElementById("modalAgentXpathBtn").addEventListener("click", function () {
@@ -1766,7 +1077,7 @@
     btn.disabled = true;
     resultEl.className = "tap-result pending";
     resultEl.textContent = "執行中…";
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     var payload = toFullEl(el);
     try {
       await assertPlatformMatches(base, mapPlatform());
@@ -1784,7 +1095,7 @@
   }
 
   document.getElementById("modalServerCheckBtn").addEventListener("click", async function () {
-    var base = document.getElementById("modalServerUrl").value.replace(/\/$/, "");
+    var base = API_BASE;
     await renderServerStatus(base, document.getElementById("modalServerStatus"), mapPlatform());
   });
 
@@ -1829,209 +1140,6 @@
     onChange();
   }
 
-  // ================= 改版比對：相似度計分＋人工確認識別碼延續（整合自 viewer.html）=================
-  var oldData = null, newData = null, oldScreen = null, newScreen = null, scriptData = null;
-  var oldJsonInput = document.getElementById("oldJsonInput");
-  var newJsonInput = document.getElementById("newJsonInput");
-  var oldScreenSelect = document.getElementById("oldScreenSelect");
-  var newScreenSelect = document.getElementById("newScreenSelect");
-  var scriptJsonInput = document.getElementById("scriptJsonInput");
-  var compareBtn = document.getElementById("compareBtn");
-  var compareExportBtn = document.getElementById("compareExportBtn");
-  var compareResults = document.getElementById("compareResults");
-  var lastCompareResults = null;
-  var appliedMerges = new Set();
-
-  function loadCompareJson(file, onLoaded) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        var data = JSON.parse(reader.result);
-        if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列。"); return; }
-        onLoaded(data);
-      } catch (err) { alert("JSON 解析失敗：" + err.message); }
-    };
-    reader.readAsText(file);
-  }
-  function populateCompareScreenSelect(select, data) {
-    select.innerHTML = "";
-    data.screens.forEach(function (s, i) {
-      var opt = document.createElement("option");
-      opt.value = i;
-      opt.textContent = s.screen_name + "（" + (s.elements || []).length + " 個元件）";
-      select.appendChild(opt);
-    });
-    select.disabled = false;
-    select.selectedIndex = 0;
-  }
-  oldJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    loadCompareJson(file, function (data) {
-      oldData = data;
-      populateCompareScreenSelect(oldScreenSelect, oldData);
-      compareBtn.disabled = !(oldData && newData);
-    });
-  });
-  newJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    loadCompareJson(file, function (data) {
-      newData = data;
-      populateCompareScreenSelect(newScreenSelect, newData);
-      compareBtn.disabled = !(oldData && newData);
-    });
-  });
-  scriptJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { scriptData = JSON.parse(reader.result); } catch (err) { alert("測試腳本 JSON 解析失敗：" + err.message); }
-    };
-    reader.readAsText(file);
-  });
-
-  function nearbyTextOverlapRatio(a, b) {
-    a = a || []; b = b || [];
-    if (!a.length && !b.length) return 0;
-    var setA = new Set(a), setB = new Set(b);
-    var intersection = Array.from(setA).filter(function (x) { return setB.has(x); }).length;
-    var union = new Set(a.concat(b)).size;
-    return union === 0 ? 0 : intersection / union;
-  }
-  function computeSimilarity(newEl, oldEl) {
-    if (newEl.class !== oldEl.class) return null;
-    var newFp = newEl.fingerprint || {};
-    var oldFp = oldEl.fingerprint || {};
-    var breakdown = [];
-    var score = 0;
-    var newLabel = newFp.label_text != null ? newFp.label_text : (newEl.label || "");
-    var oldLabel = oldFp.label_text != null ? oldFp.label_text : (oldEl.label || "");
-    var overlap = nearbyTextOverlapRatio(newFp.nearby_text, oldFp.nearby_text);
-    if (newLabel && newLabel === oldLabel) { score += 40; breakdown.push("label_text 相同 +40"); }
-    else if (overlap >= 0.6) { score += 25; breakdown.push("nearby_text 高度重疊 " + Math.round(overlap * 100) + "% +25"); }
-    else if (overlap > 0) { var pts = Math.round(overlap * 10); score += pts; breakdown.push("nearby_text 部分重疊 " + Math.round(overlap * 100) + "% +" + pts); }
-    var newBucket = newFp.position_bucket != null ? newFp.position_bucket : newEl.position_bucket;
-    var oldBucket = oldFp.position_bucket != null ? oldFp.position_bucket : oldEl.position_bucket;
-    if (newBucket && newBucket === oldBucket) { score += 20; breakdown.push("position_bucket 相同 +20"); }
-    var newSib = newFp.sibling_index, oldSib = oldFp.sibling_index;
-    if (newSib !== undefined && newSib === oldSib) { score += 10; breakdown.push("sibling_index 相同 +10"); }
-    return { score: score, breakdown: breakdown };
-  }
-  function verdictOf(score) { return score >= 70 ? "confirmed" : score >= 30 ? "needs_review" : "new"; }
-  function verdictLabel(v) {
-    return { confirmed: "確定同一元件，沿用舊ID", needs_review: "疑似同一元件，需人工確認", new: "視為全新元件", missing: "舊元件已消失（畫面上找不到對應）" }[v];
-  }
-  function runComparison() {
-    var oldElements = oldScreen.elements || [];
-    var newElements = newScreen.elements || [];
-    var oldNativeById = new Map(oldElements.filter(function (e) { return e.id_source === "native"; }).map(function (e) { return [e.unique_id, e]; }));
-    var oldGenerated = oldElements.filter(function (e) { return e.id_source === "generated"; });
-    var matchedOldIds = new Set();
-    var results = [];
-    newElements.forEach(function (newEl) {
-      if (newEl.id_source === "native") {
-        if (oldNativeById.has(newEl.unique_id)) {
-          matchedOldIds.add(newEl.unique_id);
-          results.push({ verdict: "confirmed", newEl: newEl, oldEl: oldNativeById.get(newEl.unique_id), score: null, breakdown: ["native id 完全相同"] });
-        } else {
-          results.push({ verdict: "new", newEl: newEl, oldEl: null, score: null, breakdown: [] });
-        }
-        return;
-      }
-      var best = null;
-      oldGenerated.forEach(function (oldEl) {
-        var sim = computeSimilarity(newEl, oldEl);
-        if (sim && (!best || sim.score > best.score)) { best = Object.assign({}, sim, { oldEl: oldEl }); }
-      });
-      if (!best) { results.push({ verdict: "new", newEl: newEl, oldEl: null, score: null, breakdown: [] }); return; }
-      var verdict = verdictOf(best.score);
-      if (verdict !== "new") matchedOldIds.add(best.oldEl.unique_id);
-      results.push({ verdict: verdict, newEl: newEl, oldEl: best.oldEl, score: best.score, breakdown: best.breakdown });
-    });
-    var missing = oldElements.filter(function (e) { return !matchedOldIds.has(e.unique_id); });
-    return { results: results, missing: missing };
-  }
-  function findScriptStepsFor(uniqueId) {
-    if (!scriptData || !scriptData.steps) return [];
-    return scriptData.steps.map(function (step, i) { return { step: step, i: i }; }).filter(function (o) { return o.step.target === uniqueId; });
-  }
-  function renderScriptNote(oldUniqueId, verdict) {
-    if (!scriptData || !oldUniqueId) return "";
-    var steps = findScriptStepsFor(oldUniqueId);
-    if (steps.length === 0) return "";
-    var stepDesc = steps.map(function (o) { return "第" + (o.i + 1) + "步(" + o.step.action + ")"; }).join("、");
-    if (verdict === "confirmed") return '<div class="script-note">📜 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件——改版後已自動對應到新的 unique_id，腳本不用改就能繼續運作。</div>';
-    if (verdict === "needs_review") return '<div class="script-note warn">⚠️ 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件，比對結果是「疑似同一元件」，建議人工確認新對應正確後，腳本才能信任繼續使用。</div>';
-    return '<div class="script-note warn">⚠️ 舊版測試腳本的 ' + stepDesc + ' 原本鎖定這個元件，但改版後找不到對應，這幾個步驟需要人工複核腳本。</div>';
-  }
-  function renderMatchCard(r, idx) {
-    var verdict = r.verdict, newEl = r.newEl, oldEl = r.oldEl, score = r.score, breakdown = r.breakdown;
-    var oldColHtml = oldEl
-      ? '<div class="match-col"><div class="mc-id">' + escapeHtml(oldEl.unique_id) + '</div><div class="mc-desc">[' + escapeHtml(oldEl.class) + '] ' + escapeHtml(oldEl.description || oldEl.label || "") + '</div></div>'
-      : '<div class="match-col" style="color:var(--ink-soft);">（舊版沒有對應元件）</div>';
-    var scoreHtml = score !== null
-      ? '<div class="score-breakdown"><span class="score-total">分數: ' + score + '</span>　' + breakdown.join("、") + '</div>'
-      : (breakdown.length ? '<div class="score-breakdown">' + breakdown.join("、") + '</div>' : "");
-    var applyHtml = "";
-    if (oldEl && newEl.id_source === "generated") {
-      applyHtml = appliedMerges.has(idx)
-        ? '<div class="match-apply-row"><span class="match-applied-note">✓ 已套用，新版unique_id/fingerprint已改為舊版的</span></div>'
-        : '<div class="match-apply-row"><button class="match-apply-btn" data-result-index="' + idx + '" type="button">✅ 人工確認同一元件，套用舊ID</button></div>';
-    }
-    return '<div class="match-card ' + verdict + '"><span class="match-verdict ' + verdict + '">' + verdictLabel(verdict) + '</span>' +
-      '<div class="match-row">' + oldColHtml + '<div class="match-arrow">→</div>' +
-      '<div class="match-col"><div class="mc-id">' + escapeHtml(newEl.unique_id) + '</div><div class="mc-desc">[' + escapeHtml(newEl.class) + '] ' + escapeHtml(newEl.description || newEl.label || "") + '</div></div>' +
-      '</div>' + scoreHtml + applyHtml + renderScriptNote(oldEl ? oldEl.unique_id : null, verdict) + '</div>';
-  }
-  function applyMerge(idx) {
-    var r = lastCompareResults && lastCompareResults.results[idx];
-    if (!r || !r.oldEl || appliedMerges.has(idx)) return;
-    r.newEl.unique_id = r.oldEl.unique_id;
-    r.newEl.fingerprint = r.oldEl.fingerprint;
-    appliedMerges.add(idx);
-    compareExportBtn.disabled = false;
-    renderCompareResults(lastCompareResults);
-  }
-  function renderCompareResults(payload) {
-    var results = payload.results, missing = payload.missing;
-    var counts = { confirmed: 0, needs_review: 0, new: 0, missing: missing.length };
-    results.forEach(function (r) { counts[r.verdict]++; });
-    var html = '<div class="compare-summary">' +
-      '<div class="summary-card confirmed"><div class="num">' + counts.confirmed + '</div><div class="label">確定同一元件，沿用舊ID</div></div>' +
-      '<div class="summary-card needs_review"><div class="num">' + counts.needs_review + '</div><div class="label">疑似同一元件，需人工確認</div></div>' +
-      '<div class="summary-card new"><div class="num">' + counts.new + '</div><div class="label">全新元件</div></div>' +
-      '<div class="summary-card missing"><div class="num">' + counts.missing + '</div><div class="label">舊元件已消失</div></div>' +
-      '</div>';
-    var order = { confirmed: 0, needs_review: 1, new: 2 };
-    var indexed = results.map(function (r, idx) { return { r: r, idx: idx }; }).sort(function (a, b) { return order[a.r.verdict] - order[b.r.verdict]; });
-    indexed.forEach(function (o) { html += renderMatchCard(o.r, o.idx); });
-    missing.forEach(function (oldEl) {
-      html += '<div class="match-card missing"><span class="match-verdict missing">' + verdictLabel("missing") + '</span>' +
-        '<div class="match-row" style="grid-template-columns: 1fr;"><div class="match-col"><div class="mc-id">' + escapeHtml(oldEl.unique_id) + '</div>' +
-        '<div class="mc-desc">[' + escapeHtml(oldEl.class) + '] ' + escapeHtml(oldEl.description || oldEl.label || "") + '</div></div></div>' +
-        renderScriptNote(oldEl.unique_id, "missing") + '</div>';
-    });
-    compareResults.innerHTML = html || '<div class="empty-state">沒有元件資料可比對。</div>';
-    compareResults.querySelectorAll(".match-apply-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () { applyMerge(Number(btn.dataset.resultIndex)); });
-    });
-  }
-  compareBtn.addEventListener("click", function () {
-    oldScreen = oldData.screens[Number(oldScreenSelect.value)];
-    newScreen = newData.screens[Number(newScreenSelect.value)];
-    appliedMerges.clear();
-    compareExportBtn.disabled = true;
-    lastCompareResults = runComparison();
-    renderCompareResults(lastCompareResults);
-  });
-  compareExportBtn.addEventListener("click", function () {
-    if (!newData) return;
-    var blob = new Blob([JSON.stringify(newData, null, 2)], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url; a.download = "element_map.json"; a.click();
-    URL.revokeObjectURL(url);
-  });
-
   // ================= 測試情境產生 =================
   // 目的：先看過選定畫面的資料，推論出一批「值得測試的情境」描述清單，
   // 使用者從清單挑一個情境，直接送去下面的「LLM對話式產生跨畫面測案」，
@@ -2042,7 +1150,6 @@
   var scenarioScreensCount = document.getElementById("scenarioScreensCount");
   var scenarioSelectAllBtn = document.getElementById("scenarioSelectAllBtn");
   var scenarioSelectNoneBtn = document.getElementById("scenarioSelectNoneBtn");
-  var scenarioServerUrl = document.getElementById("scenarioServerUrl");
   var scenarioGenerateBtn = document.getElementById("scenarioGenerateBtn");
   var scenarioResultHost = document.getElementById("scenarioResultHost");
   var scenarioViewPromptBtn = document.getElementById("scenarioViewPromptBtn");
@@ -2052,7 +1159,7 @@
   var scenarioData = null, scenarioDataSource = null, scenarioLastList = null;
 
   async function fetchScenarioDefaultPrompt() {
-    var base = scenarioServerUrl.value.replace(/\/$/, "");
+    var base = API_BASE;
     var res = await fetch(base + "/llm_scenarios_prompt");
     var data = await res.json();
     if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
@@ -2166,7 +1273,7 @@
     scenarioGenerateBtn.textContent = "分析中...";
     scenarioResultHost.innerHTML = '<div class="empty-state">LLM 分析中，請稍候…</div>';
     try {
-      var base = scenarioServerUrl.value.replace(/\/$/, "");
+      var base = API_BASE;
       var reqBody = { screens_context: buildScenarioScreensContext() };
       var customPrompt = scenarioPromptInput.value.trim();
       if (customPrompt) reqBody.prompt_template = customPrompt;
@@ -2214,7 +1321,6 @@
   var llmgenScreensCount = document.getElementById("llmgenScreensCount");
   var llmgenSelectAllBtn = document.getElementById("llmgenSelectAllBtn");
   var llmgenSelectNoneBtn = document.getElementById("llmgenSelectNoneBtn");
-  var llmgenServerUrl = document.getElementById("llmgenServerUrl");
   var llmgenMessages = document.getElementById("llmgenMessages");
   var llmgenInput = document.getElementById("llmgenInput");
   var llmgenSendBtn = document.getElementById("llmgenSendBtn");
@@ -2223,6 +1329,7 @@
   var llmgenCaseJson = document.getElementById("llmgenCaseJson");
   var llmgenExportBtn = document.getElementById("llmgenExportBtn");
   var llmgenToRunBtn = document.getElementById("llmgenToRunBtn");
+  var llmgenSaveToProjectBtn = document.getElementById("llmgenSaveToProjectBtn");
   var llmgenAttachTray = document.getElementById("llmgenAttachTray");
   var llmgenAttachBtn = document.getElementById("llmgenAttachBtn");
   var llmgenAttachInput = document.getElementById("llmgenAttachInput");
@@ -2356,8 +1463,6 @@
     llmgenLatestCase = testCase;
     llmgenCaseUnsynced = !!manual;
     llmgenCaseJson.textContent = JSON.stringify(testCase, null, 2);
-    llmgenExportBtn.disabled = false;
-    llmgenToRunBtn.disabled = false;
     updateLlmgenCaseControls();
   }
   function updateLlmgenCaseControls() {
@@ -2371,6 +1476,7 @@
     llmgenSyncReviewBtn.disabled = !llmgenCaseUnsynced || llmgenEditing || llmgenSelectedScreens().length === 0;
     llmgenExportBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
+    llmgenSaveToProjectBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
   }
   // 自動勾選測案裡用到的畫面，回傳目前資料來源找不到的畫面名稱
   function checkLlmgenScreensUsedBy(testCase) {
@@ -2607,7 +1713,7 @@
     llmgenSendBtn.textContent = "傳送中...";
     var thinkingMsg = appendChatMessage("model", "思考中...");
     try {
-      var serverUrl = llmgenServerUrl.value.replace(/\/$/, "");
+      var serverUrl = API_BASE;
       var res = await fetch(serverUrl + "/llm_chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: llmgenChatHistory, screens_context: buildScreensContext() }),
@@ -2625,7 +1731,7 @@
       }
     } catch (err) {
       thinkingMsg.remove();
-      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動、上方連線網址正確；訊息和附件已放回輸入區）"));
+      appendChatMessage("system-note", failText("連線失敗", err, "（請確認 viewer_server.py 已啟動；訊息和附件已放回輸入區）"));
       restoreUnsentMessage();
     } finally {
       llmgenInput.disabled = false;
@@ -2668,36 +1774,40 @@
     reader.onload = function () {
       var testCase;
       try { testCase = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      if (!testCase || !Array.isArray(testCase.steps)) { alert("這不是測試案例 JSON（找不到 steps 陣列）"); return; }
-      if (!llmgenData) { alert("請先載入地圖或上傳 element_map.json，LLM 需要畫面元件資料才能修改測案"); return; }
-      if (llmgenChatHistory.length && !confirm("匯入會開始一段新對話，目前的對話紀錄會被清空，確定嗎？")) return;
-
-      if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消再匯入"); return; }
-      // 自動勾選測案裡用到的畫面，找不到的畫面列出來提醒使用者
-      var missingScreens = checkLlmgenScreensUsedBy(testCase);
-
-      var caseText = JSON.stringify(testCase, null, 2);
-      var ackText = "已讀入既有的測試案例「" + (testCase.test_name || "（未命名）") + "」（" + testCase.steps.length +
-        " 個步驟），請告訴我要怎麼調整，我會輸出修改後的完整 JSON。";
-      llmgenChatHistory = [
-        { role: "user", text: "以下是一份之前產生的測試案例，請以它為基礎，依照我接下來的指示修改（沒提到要改的步驟請保持原樣）：\n```json\n" + caseText + "\n```" },
-        { role: "model", text: ackText + "\n```json\n" + caseText + "\n```" },
-      ];
-      llmgenMessages.innerHTML = "";
-      appendChatMessage("user", "📂 匯入測試案例：" + file.name);
-      appendChatMessage("model", ackText);
-      if (missingScreens.length) {
-        appendChatMessage("system-note", "目前資料來源找不到這些畫面：" + missingScreens.join("、") +
-          "。LLM 看不到它們的元件，改到這些步驟時可能無法確認 unique_id，建議換成對應的地圖再匯入。");
-      }
-      renderLlmgenCase(testCase);
-      updateLlmgenSendEnabled();
-      updateLlmgenAttachHint();
-      llmgenInput.placeholder = "例如：第 3 步之後加一個驗證「委託成功」文字的步驟";
-      llmgenInput.focus();
+      importLlmgenCase(testCase, file.name);
     };
     reader.readAsText(file);
   });
+  // sourceLabel：對話裡顯示「從哪裡匯入」（檔名或專案測案名稱）
+  function importLlmgenCase(testCase, sourceLabel) {
+    if (!testCase || !Array.isArray(testCase.steps)) { alert("這不是測試案例 JSON（找不到 steps 陣列）"); return; }
+    if (!llmgenData) { alert("請先載入地圖或上傳 element_map.json，LLM 需要畫面元件資料才能修改測案"); return; }
+    if (llmgenChatHistory.length && !confirm("匯入會開始一段新對話，目前的對話紀錄會被清空，確定嗎？")) return;
+
+    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消再匯入"); return; }
+    // 自動勾選測案裡用到的畫面，找不到的畫面列出來提醒使用者
+    var missingScreens = checkLlmgenScreensUsedBy(testCase);
+
+    var caseText = JSON.stringify(testCase, null, 2);
+    var ackText = "已讀入既有的測試案例「" + (testCase.test_name || "（未命名）") + "」（" + testCase.steps.length +
+      " 個步驟），請告訴我要怎麼調整，我會輸出修改後的完整 JSON。";
+    llmgenChatHistory = [
+      { role: "user", text: "以下是一份之前產生的測試案例，請以它為基礎，依照我接下來的指示修改（沒提到要改的步驟請保持原樣）：\n```json\n" + caseText + "\n```" },
+      { role: "model", text: ackText + "\n```json\n" + caseText + "\n```" },
+    ];
+    llmgenMessages.innerHTML = "";
+    appendChatMessage("user", "📂 匯入測試案例：" + sourceLabel);
+    appendChatMessage("model", ackText);
+    if (missingScreens.length) {
+      appendChatMessage("system-note", "目前資料來源找不到這些畫面：" + missingScreens.join("、") +
+        "。LLM 看不到它們的元件，改到這些步驟時可能無法確認 unique_id，建議換成對應的地圖再匯入。");
+    }
+    renderLlmgenCase(testCase);
+    updateLlmgenSendEnabled();
+    updateLlmgenAttachHint();
+    llmgenInput.placeholder = "例如：第 3 步之後加一個驗證「委託成功」文字的步驟";
+    llmgenInput.focus();
+  }
   llmgenExportBtn.addEventListener("click", function () {
     if (!llmgenLatestCase) return;
     var blob = new Blob([JSON.stringify(llmgenLatestCase, null, 2)], { type: "application/json" });
@@ -2728,7 +1838,6 @@
   // ================= 測案執行（整合自 viewer.html）=================
   var runscriptElmapInput = document.getElementById("runscriptElmapInput");
   var runscriptCaseInput = document.getElementById("runscriptCaseInput");
-  var runscriptServerUrl = document.getElementById("runscriptServerUrl");
   var runscriptServerStatus = document.getElementById("runscriptServerStatus");
   var runscriptServerCheckBtn = document.getElementById("runscriptServerCheckBtn");
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
@@ -2849,7 +1958,7 @@
     return runscriptElementMap ? elementMapPlatform(runscriptElementMap) : mapPlatform();
   }
   async function checkRunscriptServer() {
-    await renderServerStatus(runscriptServerUrl.value.replace(/\/$/, ""), runscriptServerStatus, runscriptDataPlatform());
+    await renderServerStatus(API_BASE, runscriptServerStatus, runscriptDataPlatform());
   }
   runscriptServerCheckBtn.addEventListener("click", checkRunscriptServer);
   runscriptRunBtn.addEventListener("click", async function () {
@@ -2862,7 +1971,7 @@
     runscriptStopBtn.hidden = false;
     runscriptStopBtn.disabled = false;
     runscriptStopBtn.textContent = "⏹ 停止";
-    var progressBase = runscriptServerUrl.value.replace(/\/$/, "");
+    var progressBase = API_BASE;
     var progressTimer = null;
     try {
       await assertPlatformMatches(progressBase, runscriptDataPlatform());
@@ -2883,7 +1992,7 @@
         } catch (e) { /* 輪詢失敗不影響主流程 */ }
         polling = false;
       }, 1000);
-      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/run_test_script", {
+      var res = await fetch(API_BASE + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked }),
       });
@@ -2904,7 +2013,7 @@
     runscriptStopBtn.disabled = true;
     runscriptStopBtn.textContent = "停止中（等目前步驟跑完）...";
     try {
-      var res = await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+      var res = await fetch(API_BASE + "/stop_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       });
       var data = await res.json();
@@ -2936,14 +2045,16 @@
   runModeBatchBtn.addEventListener("click", function () { setRunMode("batch"); });
   try { if (localStorage.getItem("runMode") === "batch") setRunMode("batch"); } catch (e) { /* 照預設用單份 */ }
 
-  // batchGroups：[{ mapName, map（全名格式）, setup: {name, case} | null, cases: [{name, case}] }]
-  // 地圖、測案都整份存在這裡（匯出的批次設定檔也是），之後只要匯入就能重跑同一組回歸測試，
-  // 不用再一個一個找檔案；代價是地圖改版後，批次設定要重新選一次地圖。
+  // batchGroups：[{ mapName, map（全名格式）, mapRef, setup: {name, case, ref?} | null, cases: [{name, case, ref?}] }]
+  // 匯出成檔案時地圖、測案整份存進去（給沒有專案的人也能重跑）；存到專案時，
+  // 有 mapRef（專案地圖名稱）的地圖、有 ref（專案測案名稱）的測案只存引用，開啟和執行
+  // 當下才抓最新版，地圖或測案改了不用重新設定批次。
   var batchGroups = [];
   var batchGroupsEl = document.getElementById("batchGroups");
   var batchRunBtn = document.getElementById("batchRunBtn");
   var batchStopBtn = document.getElementById("batchStopBtn");
   var batchExportBtn = document.getElementById("batchExportBtn");
+  var batchSaveToProjectBtn = document.getElementById("batchSaveToProjectBtn");
   var batchResultsEl = document.getElementById("batchResults");
   var batchAutoNavigate = document.getElementById("batchAutoNavigate");
   var batchAllowRestart = document.getElementById("batchAllowRestart");
@@ -2986,7 +2097,7 @@
     var n = (item.case.steps || []).length;
     return '<div class="batch-case">' +
       '<span class="idx">' + (isSetup ? "🔑" : ci + 1) + "</span>" +
-      '<span class="name" title="' + escapeHtml(item.name) + '">' + escapeHtml(item.case.test_name || item.name) + "</span>" +
+      '<span class="name" title="' + escapeHtml(item.ref ? "專案測案：" + item.ref : item.name) + '">' + (item.ref ? "📁 " : "") + escapeHtml(item.case.test_name || item.name) + "</span>" +
       '<span class="meta">' + n + " 步・起點「" + escapeHtml(start || "—") + "」</span>" +
       (missing.length ? '<span class="warn" title="這些畫面不在這組的地圖裡，執行時會找不到元件">⚠️ 地圖缺少：' + escapeHtml(missing.join("、")) + "</span>" : "") +
       (isSetup ? "" :
@@ -3000,19 +2111,24 @@
       batchGroupsEl.innerHTML = '<div class="empty-state">還沒有任何一組。按「＋ 新增一組地圖」開始，或匯入之前匯出的批次設定。</div>';
     } else {
       batchGroupsEl.innerHTML = batchGroups.map(function (g, gi) {
-        var mapInfo = g.map ? escapeHtml(g.mapName) + "（" + mapScreenNames(g.map).length + " 個畫面）" : '<span class="warn">尚未選擇地圖</span>';
+        if (g.mapRef && g.mapRef === currentMapName) g.map = currentMapAsFull();
+        var mapInfo = g.mapRef ? "📁 專案地圖「" + escapeHtml(g.mapRef) + "」（執行時用最新版，" + mapScreenNames(g.map).length + " 個畫面）"
+          : g.map ? escapeHtml(g.mapName) + "（" + mapScreenNames(g.map).length + " 個畫面）" : '<span class="warn">尚未選擇地圖</span>';
         return '<div class="batch-group">' +
           '<div class="batch-group-head"><h3>第 ' + (gi + 1) + " 組</h3>" +
           '<button class="icon-btn" data-act="remove-group" data-g="' + gi + '" title="移除這一組">✕ 移除這組</button></div>' +
           '<div class="batch-row"><span class="lbl">地圖</span><span>' + mapInfo + "</span>" +
           '<button class="icon-btn" data-act="use-current-map" data-g="' + gi + '">使用目前地圖</button>' +
+          projectMapPickHtml(gi) +
           '<label class="icon-btn">📂 上傳地圖<input type="file" hidden accept="application/json" data-act="map-file" data-g="' + gi + '"></label></div>' +
           '<div class="batch-row"><span class="lbl">登入測案</span>' +
           (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
-          '<label class="icon-btn">📂 選擇<input type="file" hidden accept="application/json" data-act="setup-file" data-g="' + gi + '"></label></div>' +
+          '<label class="icon-btn">📂 選擇<input type="file" hidden accept="application/json" data-act="setup-file" data-g="' + gi + '"></label>' +
+          projectCasePickHtml("project-setup", gi, "📁 從專案選") + "</div>" +
           (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, g.map, true) + "</div>" : "") +
           '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
-          '<label class="icon-btn">📂 加入測案（可多選）<input type="file" hidden multiple accept="application/json" data-act="case-files" data-g="' + gi + '"></label></div>' +
+          '<label class="icon-btn">📂 加入測案（可多選）<input type="file" hidden multiple accept="application/json" data-act="case-files" data-g="' + gi + '"></label>' +
+          projectCasePickHtml("project-case", gi, "📁 從專案加入") + "</div>" +
           '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
             '<div style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
           "</div>";
@@ -3021,9 +2137,11 @@
     var ready = batchGroups.length > 0 && batchGroups.every(function (g) { return g.map && g.cases.length; });
     batchRunBtn.disabled = !ready || batchRunning;
     batchExportBtn.disabled = !batchGroups.length;
+    batchSaveToProjectBtn.disabled = !batchGroups.length || !currentProject || batchRunning;
   }
   function addBatchGroup(useCurrentMap) {
-    batchGroups.push({ mapName: useCurrentMap ? currentMapSourceName() : null, map: useCurrentMap ? currentMapAsFull() : null, setup: null, cases: [] });
+    batchGroups.push({ mapName: useCurrentMap ? currentMapSourceName() : null, map: useCurrentMap ? currentMapAsFull() : null,
+      mapRef: useCurrentMap && currentProject ? currentMapName : null, setup: null, cases: [] });
     renderBatchGroups();
   }
   document.getElementById("batchAddGroupBtn").addEventListener("click", function () {
@@ -3035,7 +2153,7 @@
     var gi = Number(btn.dataset.g), ci = Number(btn.dataset.c), g = batchGroups[gi];
     var act = btn.dataset.act;
     if (act === "remove-group") batchGroups.splice(gi, 1);
-    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); }
+    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); g.mapRef = currentProject ? currentMapName : null; }
     else if (act === "remove-case") g.cases.splice(ci, 1);
     else if (act === "remove-setup") g.setup = null;
     else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
@@ -3043,6 +2161,24 @@
     renderBatchGroups();
   });
   batchGroupsEl.addEventListener("change", async function (e) {
+    var pick = e.target.closest("select[data-act]");
+    if (pick) {
+      var name = pick.value, pg = batchGroups[Number(pick.dataset.g)];
+      pick.value = "";
+      if (!name) return;
+      if (pick.dataset.act === "project-map") {
+        try { pg.map = await fetchProjectMap(name); pg.mapRef = name; pg.mapName = name; }
+        catch (err) { alert("讀取專案地圖失敗：" + err.message); }
+        renderBatchGroups();
+        return;
+      }
+      try {
+        var item = { name: name, ref: name, case: await fetchProjectCase(name) };
+        if (pick.dataset.act === "project-setup") pg.setup = item; else pg.cases.push(item);
+      } catch (err) { alert("讀取專案測案失敗：" + err.message); }
+      renderBatchGroups();
+      return;
+    }
     var input = e.target.closest("input[type=file][data-act]");
     if (!input) return;
     var g = batchGroups[Number(input.dataset.g)], files = Array.prototype.slice.call(input.files);
@@ -3051,7 +2187,7 @@
       if (input.dataset.act === "map-file") {
         var map = await readJsonFile(files[0]);
         if (!Array.isArray(map.screens)) throw new Error("找不到 screens 陣列，請用「地圖檢視」匯出的地圖或 app_map_tree.json");
-        g.map = map; g.mapName = files[0].name;
+        g.map = map; g.mapName = files[0].name; g.mapRef = null;
       } else {
         for (var i = 0; i < files.length; i++) {
           var tc = await readJsonFile(files[i]);
@@ -3066,9 +2202,15 @@
   function batchOptions() {
     return { auto_navigate: batchAutoNavigate.checked, allow_restart: batchAllowRestart.checked, dismiss_dialogs: batchDismissDialogs.checked };
   }
-  batchExportBtn.addEventListener("click", function () {
+  // 匯出的檔案一律整份內嵌（不留專案引用），給沒有這個專案的人也能匯入重跑
+  function batchItemEmbedded(item) { return item ? { name: item.name, case: item.case } : null; }
+  batchExportBtn.addEventListener("click", async function () {
+    try { await refreshBatchRefs(); }
+    catch (err) { alert("讀取專案測案失敗（可能已改名或刪除）：" + err.message); return; }
     var data = { batch_version: 1, exported_at: new Date().toISOString(), options: batchOptions(),
-      groups: batchGroups.map(function (g) { return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases }; }) };
+      groups: batchGroups.map(function (g) {
+        return { map_name: g.mapName, map: g.map, setup_case: batchItemEmbedded(g.setup), cases: g.cases.map(batchItemEmbedded) };
+      }) };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -3083,17 +2225,57 @@
       var data = await readJsonFile(file);
       if (!Array.isArray(data.groups)) throw new Error("這不是批次設定檔（找不到 groups）");
       if (batchGroups.length && !confirm("匯入會取代目前的批次設定，確定嗎？")) return;
-      batchGroups = data.groups.map(function (g) {
-        return { mapName: g.map_name, map: g.map, setup: g.setup_case || null, cases: g.cases || [] };
-      });
-      var o = data.options || {};
-      if (o.auto_navigate !== undefined) batchAutoNavigate.checked = o.auto_navigate;
-      if (o.allow_restart !== undefined) batchAllowRestart.checked = o.allow_restart;
-      if (o.dismiss_dialogs !== undefined) batchDismissDialogs.checked = o.dismiss_dialogs;
-      batchResultsEl.innerHTML = "";
-      renderBatchGroups();
+      await loadBatchConfig(data);
     } catch (err) { alert(err.message); }
   });
+  // 批次設定（檔案或專案裡存的）載入成 batchGroups：整份內嵌的直接用，
+  // 引用專案的（map_ref／ref）去專案抓最新版，找不到的列出來提醒
+  async function loadBatchConfig(data) {
+    var missing = [];
+    async function resolveItem(item) {
+      if (!item) return null;
+      if (!item.ref) return item;
+      try { return { name: item.ref, ref: item.ref, case: await fetchProjectCase(item.ref) }; }
+      catch (err) { missing.push(item.ref); return null; }
+    }
+    var groups = [];
+    for (var i = 0; i < data.groups.length; i++) {
+      var g = data.groups[i];
+      var mapRef = g.map_ref || null;
+      if (mapRef && !currentProject) throw new Error("這份批次設定引用專案的地圖，請先開啟專案");
+      var refMap = null;
+      if (mapRef) {
+        try { refMap = await fetchProjectMap(mapRef); }
+        catch (err) { throw new Error("第 " + (i + 1) + " 組用的專案地圖「" + mapRef + "」讀不到（可能已改名或刪除）：" + err.message); }
+      }
+      var cases = [];
+      for (var j = 0; j < (g.cases || []).length; j++) {
+        var c = await resolveItem(g.cases[j]);
+        if (c) cases.push(c);
+      }
+      groups.push({ mapName: mapRef || g.map_name, map: mapRef ? refMap : g.map,
+        mapRef: mapRef, setup: await resolveItem(g.setup_case), cases: cases });
+    }
+    batchGroups = groups;
+    var o = data.options || {};
+    if (o.auto_navigate !== undefined) batchAutoNavigate.checked = o.auto_navigate;
+    if (o.allow_restart !== undefined) batchAllowRestart.checked = o.allow_restart;
+    if (o.dismiss_dialogs !== undefined) batchDismissDialogs.checked = o.dismiss_dialogs;
+    batchResultsEl.innerHTML = "";
+    renderBatchGroups();
+    if (missing.length) alert("專案裡找不到這些測案（可能已改名或刪除），已略過：\n" + missing.join("\n"));
+  }
+  // 執行前把引用專案的地圖／測案換成最新版
+  async function refreshBatchRefs() {
+    for (var i = 0; i < batchGroups.length; i++) {
+      var g = batchGroups[i];
+      if (g.mapRef) g.map = await fetchProjectMap(g.mapRef);
+      var items = g.cases.concat(g.setup ? [g.setup] : []);
+      for (var j = 0; j < items.length; j++) {
+        if (items[j].ref) items[j].case = await fetchProjectCase(items[j].ref);
+      }
+    }
+  }
 
   var BATCH_STATUS_LABEL = { pass: "PASS", fail: "FAIL", skip: "SKIP", running: "執行中", pending: "等待中" };
   function outcomeClass(outcome) {
@@ -3143,6 +2325,8 @@
     batchUserOpen[details.dataset.key] = !details.open;  // click 發生在展開/收合之前
   });
   batchRunBtn.addEventListener("click", async function () {
+    try { await refreshBatchRefs(); }
+    catch (err) { alert("讀取專案測案失敗（可能已改名或刪除）：" + err.message); return; }
     var total = batchGroups.reduce(function (sum, g) { return sum + g.cases.length; }, 0);
     var warnings = [];
     batchGroups.forEach(function (g, gi) {
@@ -3156,7 +2340,7 @@
     if (warnings.length) msg += "\n\n⚠️ 以下測案用到的畫面不在地圖裡，那些步驟會失敗：\n" + warnings.join("\n");
     if (!confirm(msg + "\n\n確定要執行嗎？")) return;
 
-    var base = runscriptServerUrl.value.replace(/\/$/, "");
+    var base = API_BASE;
     batchRunning = true;
     batchUserOpen = {};
     batchRunBtn.disabled = true;
@@ -3183,7 +2367,8 @@
       }, 1000);
       var res = await fetch(base + "/run_batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ options: batchOptions(), groups: batchGroups.map(function (g) {
+        // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 test_config／前景 App
+        body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null, groups: batchGroups.map(function (g) {
           return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases };
         }) }),
       });
@@ -3206,7 +2391,7 @@
     batchStopBtn.disabled = true;
     batchStopBtn.textContent = "停止中（等目前步驟跑完）...";
     try {
-      var data = await (await fetch(runscriptServerUrl.value.replace(/\/$/, "") + "/stop_test_script", {
+      var data = await (await fetch(API_BASE + "/stop_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       })).json();
       if (data.error || !data.stopped) throw new Error(data.error || data.message);
@@ -3218,6 +2403,546 @@
   });
   renderBatchGroups();
 
+  // ================= 專案（workspace）=================
+  // 地圖、截圖、測案、批次都存在伺服器的 workspace/projects/<專案>/ 底下：
+  // 地圖改了自動存檔，測案／批次按「💾 存到專案」存，重新整理或換台電腦
+  // （拿到專案 zip）都還在。沒開專案時照舊用檔案載入／匯出。
+  var projectSelect = document.getElementById("projectSelect");
+  var projectSaveStatus = document.getElementById("projectSaveStatus");
+  var projectExportBtn = document.getElementById("projectExportBtn");
+  var llmgenCaseProjectSelect = document.getElementById("llmgenCaseProjectSelect");
+  var runscriptCaseProjectSelect = document.getElementById("runscriptCaseProjectSelect");
+  var batchProjectSelect = document.getElementById("batchProjectSelect");
+  var mapSaveTimer = null, mapSaving = false, mapDirty = false, mapConflict = false;
+
+  async function apiJson(method, path, body) {
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    var res = await fetch(API_BASE + path, opts);
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || data.error) {
+      var err = new Error(data.error || ("HTTP " + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+  function projectApi(sub) { return "/api/projects/" + encodeURIComponent(currentProject.id) + (sub || ""); }
+  async function fetchProjectCase(name) {
+    if (!currentProject) throw new Error("沒有開啟專案");
+    return (await apiJson("GET", projectApi("/cases/" + encodeURIComponent(name)))).data;
+  }
+
+  function setProjectStatus(text, warn, actions) {
+    projectSaveStatus.className = "project-save-status" + (warn ? " warn" : "");
+    projectSaveStatus.textContent = text;
+    (actions || []).forEach(function (a) {
+      var btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = a.label;
+      btn.addEventListener("click", a.fn);
+      projectSaveStatus.appendChild(btn);
+    });
+  }
+
+  // 地圖每次修改都呼叫：停手 0.8 秒後存一次，連續操作只存最後一版
+  function markMapDirty() {
+    if (!currentProject) return;
+    mapDirty = true;
+    if (mapConflict) return;
+    setProjectStatus("有修改，準備存檔…");
+    clearTimeout(mapSaveTimer);
+    mapSaveTimer = setTimeout(saveMapNow, 800);
+  }
+  async function saveMapNow() {
+    clearTimeout(mapSaveTimer);
+    if (!currentProject || !mapDirty || mapConflict) return;
+    if (mapSaving) { mapSaveTimer = setTimeout(saveMapNow, 300); return; }
+    var project = currentProject, mapName = currentMapName, failed = false;
+    function switched() { return project !== currentProject || mapName !== currentMapName; }
+    mapSaving = true;
+    mapDirty = false;
+    setProjectStatus("儲存中…");
+    try {
+      var data = await apiJson("PUT", mapApi(mapName), { map: currentMapAsFull(), base_version: mapVersion });
+      if (switched()) return;
+      mapVersion = data.map_version;
+      projectMaps.forEach(function (m) { if (m.name === mapName) m.screens = screens.length; });
+      renderMapPicker();
+      if (!mapDirty) setProjectStatus("已自動儲存 " + new Date().toLocaleTimeString());
+    } catch (err) {
+      if (switched()) return;
+      failed = true;
+      mapDirty = true;
+      if (err.status === 409) {
+        mapConflict = true;
+        setProjectStatus("⚠️ " + err.message + "。這次的修改還沒存進專案，需要的話先「⬇️ 匯出目前地圖」留一份。", true,
+          [{ label: "重新載入地圖（放棄這次修改）", fn: function () { openMap(mapName, true); } }]);
+      } else {
+        setProjectStatus("⚠️ 存檔失敗：" + err.message, true, [{ label: "重試", fn: saveMapNow }]);
+      }
+    } finally {
+      mapSaving = false;
+      // 存檔途中又改了：再存一次（失敗的話等使用者按重試或下一次修改）
+      if (!failed && mapDirty && !switched()) mapSaveTimer = setTimeout(saveMapNow, 300);
+    }
+  }
+  // 切換／匯出專案前先把還沒存的地圖存掉；回傳 false 代表還有存不進去的修改
+  async function flushMapSave() {
+    while (mapSaving) await new Promise(function (r) { setTimeout(r, 100); });
+    if (mapDirty && !mapConflict) await saveMapNow();
+    return !mapDirty;
+  }
+  window.addEventListener("beforeunload", function (e) {
+    if (mapDirty || mapSaving) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  async function loadProjectList() {
+    projectList = (await apiJson("GET", "/api/projects")).projects;
+    projectSelect.innerHTML = '<option value="">（不使用專案：手動載入／匯出檔案）</option>' +
+      projectList.map(function (p) {
+        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name + "（" + platformName(p.platform) + "・" + p.id + "）") + "</option>";
+      }).join("");
+    projectSelect.value = currentProject ? currentProject.id : "";
+  }
+
+  async function openProject(id) {
+    if (currentProject && !(await flushMapSave()) &&
+        !confirm("專案「" + currentProject.name + "」的地圖還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) {
+      projectSelect.value = currentProject.id;
+      return;
+    }
+    var d = null;
+    if (id) {
+      try { d = await apiJson("GET", "/api/projects/" + encodeURIComponent(id)); }
+      catch (err) {
+        alert("開啟專案失敗：" + err.message);
+        projectSelect.value = currentProject ? currentProject.id : "";
+        return;
+      }
+    }
+    currentProject = d ? d.project : null;
+    projectMaps = d ? d.maps : [];
+    projectCases = d ? d.cases : [];
+    projectBatches = d ? d.batches : [];
+    currentMapName = null; mapVersion = null;
+    mapDirty = false; mapConflict = false;
+    batchGroups = [];  // 批次設定引用的是上一個專案的地圖／測案，換專案就清掉
+    batchResultsEl.innerHTML = "";
+    try { localStorage.setItem("lastProject", id || ""); } catch (e) { /* 存不了就下次手動選 */ }
+    projectSelect.value = id || "";
+    if (!d) {
+      applyMapData({ app: {}, screens: [], edges: [], skipped: [] }, null);
+      updateProjectUi();
+      setProjectStatus("沒有使用專案：地圖、測案改了要自己匯出存檔");
+      return;
+    }
+    // 開上次在這個專案開的地圖，沒有的話開 main，再沒有就開第一張
+    var names = projectMaps.map(function (m) { return m.name; }), lastMap = null;
+    try { lastMap = localStorage.getItem("lastMap:" + id); } catch (e) { /* 照預設 */ }
+    var mapName = names.indexOf(lastMap) >= 0 ? lastMap : names.indexOf("main") >= 0 ? "main" : names[0];
+    if (!(await openMap(mapName, true))) { updateProjectUi(); return; }
+    try {
+      var serverPlatform = await fetchServerPlatform(API_BASE);
+      if (serverPlatform && serverPlatform !== currentProject.platform) {
+        setProjectStatus("⚠️ 專案是 " + platformName(currentProject.platform) + "，但 viewer_server 目前接的是 " +
+          platformName(serverPlatform) + "：可以看地圖、編輯測案，但操作手機會被擋下來", true);
+      }
+    } catch (e) { /* 只是提醒，連不上不影響開專案 */ }
+  }
+
+  // ---- 專案裡的多張地圖 ----
+  function mapApi(name) { return projectApi("/maps/" + encodeURIComponent(name)); }
+  function mapSourceLabel() { return "專案：" + currentProject.name + "／地圖「" + currentMapName + "」"; }
+  // 批次用：目前開著的地圖拿記憶體裡的（可能還沒存檔），其他張去伺服器讀
+  async function fetchProjectMap(name) {
+    if (!currentProject) throw new Error("沒有開啟專案");
+    if (name === currentMapName) return currentMapAsFull();
+    return (await apiJson("GET", mapApi(name))).map;
+  }
+  // 切到專案裡的另一張地圖。discard=true 代表呼叫端已經處理過還沒存的修改。回傳 true＝有開成
+  async function openMap(name, discard) {
+    if (!discard && !(await flushMapSave()) &&
+        !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) {
+      renderMapPicker();
+      return false;
+    }
+    var d;
+    try { d = await apiJson("GET", mapApi(name)); }
+    catch (err) {
+      alert("開啟地圖「" + name + "」失敗：" + err.message);
+      renderMapPicker();
+      return false;
+    }
+    currentMapName = name;
+    mapVersion = d.map_version;
+    mapDirty = false; mapConflict = false;
+    clearTimeout(mapSaveTimer);
+    try { localStorage.setItem("lastMap:" + currentProject.id, name); } catch (e) { /* 下次開 main */ }
+    var map = d.map;
+    map.app = map.app || {};
+    if (!map.app.platform) map.app.platform = currentProject.platform;
+    applyMapData(map, mapSourceLabel());
+    updateProjectUi();
+    setProjectStatus("已開啟地圖「" + name + "」（" + screens.length + " 個畫面）・專案共 " + projectMaps.length + " 張地圖、" + projectCases.length + " 份測案");
+    return true;
+  }
+  function renderMapPicker() {
+    var on = !!currentProject;
+    document.getElementById("mapControls").hidden = !on;
+    var mapSelect = document.getElementById("mapSelect");
+    mapSelect.innerHTML = projectMaps.map(function (m) {
+      return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name + (m.screens != null ? "（" + m.screens + " 個畫面）" : "")) + "</option>";
+    }).join("");
+    mapSelect.value = currentMapName || "";
+    if (!mapManagerModal.hidden) renderMapManager();
+  }
+  // 新增一張地圖（map 沒給就是空白）並切過去。失敗會 throw，讓呼叫端決定錯誤顯示在哪裡
+  async function createProjectMap(name, map) {
+    if (!(await flushMapSave()) && !confirm("地圖「" + currentMapName + "」還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) return false;
+    var res = await apiJson("POST", mapApi(name), map ? { map: map } : {});
+    projectMaps = res.maps;
+    await openMap(name, true);
+    return true;
+  }
+  document.getElementById("mapSelect").addEventListener("change", function (e) { openMap(e.target.value); });
+
+  // ---- 管理地圖視窗：列出所有地圖，每一列直接改名／複製／刪除，不跳瀏覽器對話框 ----
+  var mapManagerModal = document.getElementById("mapManagerModal");
+  var mapManagerRows = document.getElementById("mapManagerRows");
+  var mapManagerMsg = document.getElementById("mapManagerMsg");
+  // 正在編輯的那一列：{ name, mode: "rename" | "copy" | "delete" }，同時只會有一列在編輯
+  var mapRowEdit = null;
+  var mapManagerBusy = false;
+
+  function setMapManagerMsg(text, isError) {
+    mapManagerMsg.textContent = text || "";
+    mapManagerMsg.className = "map-manager-msg" + (isError ? " error" : "");
+  }
+  function shortTime(t) { return t ? t.slice(5, 16).replace("-", "/") : ""; }  // 2026-10-07 14:20:33 → 10/07 14:20
+  // 名稱的基本檢查（空白、撞名）；格式不合法交給伺服器回錯誤
+  function mapNameProblem(name, exceptName) {
+    if (!name) return "請輸入名稱";
+    if (name !== exceptName && projectMaps.some(function (m) { return m.name === name; })) return "已經有地圖叫「" + name + "」了，換一個名稱";
+    return null;
+  }
+
+  function renderMapManager() {
+    document.getElementById("mapManagerTitle").textContent = "管理地圖：" + (currentProject ? currentProject.name : "");
+    document.getElementById("mapManagerProjectId").textContent = currentProject ? currentProject.id : "";
+    var onlyOne = projectMaps.length <= 1;
+    mapManagerRows.innerHTML = projectMaps.map(function (m) {
+      var name = escapeHtml(m.name), isCurrent = m.name === currentMapName;
+      var edit = mapRowEdit && mapRowEdit.name === m.name ? mapRowEdit.mode : null;
+      var first, actions;
+      if (edit === "rename") {
+        first = '<input type="text" data-row-input value="' + name + '" aria-label="新名稱">';
+        actions = '<button class="btn primary" data-act="save">✓ 改名</button><button class="btn" data-act="cancel">取消</button>';
+      } else if (edit === "delete") {
+        first = '<span class="map-row-confirm">確定刪除「' + name + '」？無法復原</span>';
+        actions = '<button class="btn danger" data-act="confirm-delete">刪除</button><button class="btn" data-act="cancel">取消</button>';
+      } else {
+        first = name + (isCurrent ? '<span class="map-current-badge">目前</span>' : "");
+        actions = (isCurrent ? "" : '<button class="btn" data-act="open">開啟</button>') +
+          '<button class="btn" data-act="rename">改名</button>' +
+          '<button class="btn" data-act="copy">複製</button>' +
+          '<button class="btn danger" data-act="delete"' + (onlyOne ? ' disabled title="專案最後一張地圖不能刪"' : "") + ">刪除</button>";
+      }
+      var html = '<tr data-name="' + name + '"' + (isCurrent ? ' class="current"' : "") + ">" +
+        "<td>" + first + '</td><td class="num">' + (m.screens != null ? m.screens : "?") + "</td>" +
+        '<td class="time">' + escapeHtml(shortTime(m.updated_at)) + '</td><td class="actions">' + actions + "</td></tr>";
+      // 複製：原本那一列不動，在下面多一列輸入複本名稱，看得出來是「多一張」不是改原本的名稱
+      if (edit === "copy") {
+        html += '<tr class="map-copy-row" data-name="' + name + '">' +
+          '<td><div class="map-copy-cell"><span class="map-copy-label">↳ 複本名稱</span><input type="text" data-row-input value="' + escapeHtml(m.name + "_copy") + '" aria-label="複本名稱"></div></td>' +
+          '<td class="num">' + (m.screens != null ? m.screens : "?") + '</td><td class="time">新的</td>' +
+          '<td class="actions"><button class="btn primary" data-act="save">✓ 建立複本</button><button class="btn" data-act="cancel">取消</button></td></tr>';
+      }
+      return html;
+    }).join("");
+    var input = mapManagerRows.querySelector("[data-row-input]");
+    if (input) { input.focus(); input.select(); }
+  }
+
+  async function openMapManager() {
+    if (!currentProject) return;
+    mapRowEdit = null;
+    setMapManagerMsg("");
+    document.getElementById("mapNewName").value = "";
+    mapManagerModal.hidden = false;
+    renderMapManager();
+    // 重新抓一次清單：畫面數、更新時間可能在別的分頁或爬蟲那邊變了
+    try {
+      projectMaps = (await apiJson("GET", projectApi())).maps;
+      renderMapPicker();
+    } catch (err) { setMapManagerMsg("更新地圖清單失敗：" + err.message, true); }
+  }
+  function closeMapManager() { mapManagerModal.hidden = true; mapRowEdit = null; }
+
+  async function runMapAction(name, act, input) {
+    if (act === "cancel") { mapRowEdit = null; setMapManagerMsg(""); renderMapManager(); return; }
+    if (act === "rename" || act === "copy" || act === "delete") { mapRowEdit = { name: name, mode: act }; setMapManagerMsg(""); renderMapManager(); return; }
+    if (mapManagerBusy) return;
+    mapManagerBusy = true;
+    try {
+      if (act === "open") {
+        if (await openMap(name)) closeMapManager();
+      } else if (act === "save" && mapRowEdit.mode === "rename") {
+        var newName = (input.value || "").trim();
+        var problem = mapNameProblem(newName, name);
+        if (problem) { setMapManagerMsg(problem, true); return; }
+        if (newName === name) { mapRowEdit = null; renderMapManager(); return; }
+        if (name === currentMapName && !(await flushMapSave())) { setMapManagerMsg("目前地圖還有修改沒存進去，請先處理存檔問題再改名", true); return; }
+        var res = await apiJson("POST", mapApi(name) + "/rename", { new_name: newName });
+        projectMaps = res.maps;
+        batchGroups.forEach(function (g) { if (g.mapRef === name) { g.mapRef = newName; g.mapName = newName; } });
+        if (name === currentMapName) {
+          currentMapName = newName;
+          currentMapFileName = mapSourceLabel();
+          try { localStorage.setItem("lastMap:" + currentProject.id, newName); } catch (e) { /* 無所謂 */ }
+        }
+        mapRowEdit = null;
+        updateProjectUi();
+        setMapManagerMsg("已改名為「" + newName + "」（專案裡存的批次設定也一起改了）");
+      } else if (act === "save" && mapRowEdit.mode === "copy") {
+        var copyName = (input.value || "").trim();
+        var copyProblem = mapNameProblem(copyName);
+        if (copyProblem) { setMapManagerMsg(copyProblem, true); return; }
+        // 目前這張用記憶體裡的（包含還沒存檔的修改），其他張去伺服器讀
+        if (await createProjectMap(copyName, await fetchProjectMap(name))) {
+          mapRowEdit = null;
+          renderMapManager();
+          setMapManagerMsg("已複製「" + name + "」成「" + copyName + "」，並切換過去");
+        }
+      } else if (act === "confirm-delete") {
+        var del = await apiJson("DELETE", mapApi(name));
+        projectMaps = del.maps;
+        mapRowEdit = null;
+        if (name === currentMapName) {
+          var names = projectMaps.map(function (m) { return m.name; });
+          mapDirty = false;  // 刪掉的地圖不用再存
+          await openMap(names.indexOf("main") >= 0 ? "main" : names[0], true);
+        } else {
+          renderMapPicker();
+        }
+        renderMapManager();
+        setMapManagerMsg("已刪除「" + name + "」。截圖不會刪，之後可以用 cleanup_images.py --project 清掉沒人用的");
+      }
+    } catch (err) {
+      setMapManagerMsg("失敗：" + err.message, true);
+    } finally {
+      mapManagerBusy = false;
+    }
+  }
+
+  document.getElementById("mapManageBtn").addEventListener("click", openMapManager);
+  document.getElementById("mapManagerCloseBtn").addEventListener("click", closeMapManager);
+  mapManagerModal.addEventListener("click", function (e) { if (e.target === mapManagerModal) closeMapManager(); });
+  mapManagerRows.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    var row = btn.closest("tr");
+    runMapAction(row.dataset.name, btn.dataset.act, row.querySelector("[data-row-input]"));
+  });
+  mapManagerRows.addEventListener("keydown", function (e) {
+    var input = e.target.closest("[data-row-input]");
+    if (!input) return;
+    if (e.key === "Enter") { e.preventDefault(); runMapAction(input.closest("tr").dataset.name, "save", input); }
+    if (e.key === "Escape") { e.stopPropagation(); runMapAction(null, "cancel"); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !mapManagerModal.hidden) closeMapManager();
+  });
+  document.getElementById("mapNewForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var input = document.getElementById("mapNewName");
+    var name = (input.value || "").trim();
+    var problem = mapNameProblem(name);
+    if (problem) { setMapManagerMsg(problem, true); return; }
+    if (mapManagerBusy) return;
+    mapManagerBusy = true;
+    try {
+      if (await createProjectMap(name, null)) {
+        input.value = "";
+        mapRowEdit = null;
+        renderMapManager();
+        setMapManagerMsg("已新增「" + name + "」並切換過去，關掉視窗就可以開始手動建樹");
+      }
+    } catch (err) {
+      setMapManagerMsg("新增失敗：" + err.message, true);
+    } finally {
+      mapManagerBusy = false;
+    }
+  });
+  // 批次每一組裡的「選專案地圖」下拉選單
+  function projectMapPickHtml(gi) {
+    if (!currentProject) return "";
+    return '<select class="project-pick" data-act="project-map" data-g="' + gi + '"><option value="">📁 選專案地圖…</option>' +
+      projectMaps.map(function (m) { return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name) + "</option>"; }).join("") + "</select>";
+  }
+
+  function caseOptionsHtml(placeholder) {
+    return '<option value="">' + escapeHtml(placeholder + (projectCases.length ? "" : "（專案還沒有測案）")) + "</option>" +
+      projectCases.map(function (c) {
+        var label = c.name + (c.test_name && c.test_name !== c.name ? "（" + c.test_name + "）" : "") + (c.steps != null ? "・" + c.steps + " 步" : "");
+        return '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(label) + "</option>";
+      }).join("");
+  }
+  // 批次每一組裡的「從專案選測案」下拉選單（沒開專案就不顯示）
+  function projectCasePickHtml(act, gi, placeholder) {
+    if (!currentProject) return "";
+    return '<select class="project-pick" data-act="' + act + '" data-g="' + gi + '">' + caseOptionsHtml(placeholder) + "</select>";
+  }
+  function renderProjectPickers() {
+    var on = !!currentProject;
+    llmgenCaseProjectSelect.hidden = !on;
+    llmgenCaseProjectSelect.innerHTML = caseOptionsHtml("📁 從專案開啟測案來修改…");
+    runscriptCaseProjectSelect.hidden = !on;
+    runscriptCaseProjectSelect.innerHTML = caseOptionsHtml("📁 選專案裡的測案…");
+    llmgenSaveToProjectBtn.hidden = !on;
+    batchSaveToProjectBtn.hidden = !on;
+    batchProjectSelect.hidden = !on;
+    batchProjectSelect.innerHTML = '<option value="">' + (projectBatches.length ? "📁 開啟專案裡的批次…" : "📁 專案還沒有存批次") + "</option>" +
+      projectBatches.map(function (b) { return '<option value="' + escapeHtml(b.name) + '">' + escapeHtml(b.name) + "</option>"; }).join("");
+  }
+  function updateProjectUi() {
+    var on = !!currentProject;
+    document.getElementById("mapTitle").textContent = on ? currentProject.name + " 畫面地圖" : "畫面地圖";
+    document.title = on ? currentProject.name + "｜畫面地圖" : "畫面地圖";
+    projectExportBtn.disabled = !on;
+    document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 匯入地圖檔成新地圖" : "📂 載入之前匯出的地圖";
+    renderMapPicker();
+    renderProjectPickers();
+    updateLlmgenCaseControls();
+    renderBatchGroups();
+  }
+
+  // 存一份測案／批次到專案；同名已存在會先問要不要覆蓋。回傳 true＝有存
+  async function saveProjectItem(kind, name, data) {
+    var path = projectApi("/" + kind + "/" + encodeURIComponent(name));
+    var res;
+    try { res = await apiJson("PUT", path, data); }
+    catch (err) {
+      if (err.status !== 409) throw err;
+      if (!confirm("專案裡已經有「" + name + "」，要覆蓋嗎？")) return false;
+      res = await apiJson("PUT", path + "?overwrite=1", data);
+    }
+    if (kind === "cases") projectCases = res.items; else projectBatches = res.items;
+    renderProjectPickers();
+    renderBatchGroups();
+    return true;
+  }
+
+  projectSelect.addEventListener("change", function () { openProject(projectSelect.value); });
+
+  projectExportBtn.addEventListener("click", async function () {
+    if (!currentProject) return;
+    if (!(await flushMapSave()) && !confirm("地圖還有修改沒存進專案，匯出的 zip 不會包含這些修改，還是要匯出嗎？")) return;
+    var a = document.createElement("a");
+    a.href = API_BASE + projectApi("/export");
+    a.download = currentProject.id + ".zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+
+  document.getElementById("projectImportInput").addEventListener("change", async function (e) {
+    var file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    var newId = "";
+    for (;;) {
+      var res = await fetch(API_BASE + "/api/projects/import" + (newId ? "?id=" + encodeURIComponent(newId) : ""),
+        { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+      var data = await res.json().catch(function () { return {}; });
+      if (res.ok && !data.error) {
+        await loadProjectList();
+        await openProject(data.project.id);
+        return;
+      }
+      if (res.status !== 409) { alert("匯入專案失敗：" + (data.error || ("HTTP " + res.status))); return; }
+      newId = (prompt((data.error || "專案已經存在") + "\n\n換一個專案代號匯入（留空取消）：", "") || "").trim();
+      if (!newId) return;
+    }
+  });
+
+  llmgenCaseProjectSelect.addEventListener("change", async function () {
+    var name = llmgenCaseProjectSelect.value;
+    llmgenCaseProjectSelect.value = "";
+    if (!name) return;
+    try { importLlmgenCase(await fetchProjectCase(name), "專案測案「" + name + "」"); }
+    catch (err) { alert("讀取專案測案失敗：" + err.message); }
+  });
+  llmgenSaveToProjectBtn.addEventListener("click", async function () {
+    if (!llmgenLatestCase || !currentProject) return;
+    var defaultName = (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
+    var name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
+    if (!name) return;
+    try {
+      if (await saveProjectItem("cases", name, llmgenLatestCase)) setProjectStatus("測案「" + name + "」已存進專案");
+    } catch (err) { alert("存檔失敗：" + err.message); }
+  });
+  runscriptCaseProjectSelect.addEventListener("change", async function () {
+    var name = runscriptCaseProjectSelect.value;
+    runscriptCaseProjectSelect.value = "";
+    if (!name) return;
+    try {
+      runscriptTestCase = await fetchProjectCase(name);
+      runscriptTestCaseSource = { kind: "專案測案", name: name };
+      renderRunscriptPreview();
+    } catch (err) { alert("讀取專案測案失敗：" + err.message); }
+  });
+
+  function batchItemToSaved(item) {
+    if (!item) return null;
+    return item.ref ? { ref: item.ref } : { name: item.name, case: item.case };
+  }
+  batchSaveToProjectBtn.addEventListener("click", async function () {
+    if (!currentProject || !batchGroups.length) return;
+    var name = (prompt("存成專案批次，名稱（也是檔名）：", "batch_" + new Date().toISOString().slice(0, 10)) || "").trim();
+    if (!name) return;
+    var data = { batch_version: 2, saved_at: new Date().toISOString(), options: batchOptions(),
+      groups: batchGroups.map(function (g) {
+        var out = g.mapRef ? { map_ref: g.mapRef } : { map_name: g.mapName, map: g.map };
+        out.setup_case = batchItemToSaved(g.setup);
+        out.cases = g.cases.map(batchItemToSaved);
+        return out;
+      }) };
+    try {
+      if (await saveProjectItem("batches", name, data)) setProjectStatus("批次「" + name + "」已存進專案");
+    } catch (err) { alert("存檔失敗：" + err.message); }
+  });
+  batchProjectSelect.addEventListener("change", async function () {
+    var name = batchProjectSelect.value;
+    batchProjectSelect.value = "";
+    if (!name || batchRunning) return;
+    if (batchGroups.length && !confirm("開啟會取代目前的批次設定，確定嗎？")) return;
+    try {
+      var data = (await apiJson("GET", projectApi("/batches/" + encodeURIComponent(name)))).data;
+      await loadBatchConfig(data);
+    } catch (err) { alert("開啟批次失敗：" + err.message); }
+  });
+
+  async function initProjects() {
+    renderProjectPickers();
+    if (!/^https?:$/.test(location.protocol)) return;
+    try { await loadProjectList(); }
+    catch (err) { setProjectStatus("⚠️ 讀不到專案清單：" + err.message, true); return; }
+    var last = null;
+    try { last = localStorage.getItem("lastProject"); } catch (e) { /* 照預設 */ }
+    // aitest.py start <專案> 打開的網址會帶 ?project=，優先開這個
+    var fromUrl = new URLSearchParams(location.search).get("project");
+    if (fromUrl) {
+      last = fromUrl;
+      // 只在打開頁面時用一次就拿掉：之後在網頁上切了別的專案，重新整理不會又被拉回網址指定的那個
+      try { history.replaceState(null, "", location.pathname); } catch (e) { /* 改不了網址不影響使用 */ }
+    }
+    var ids = projectList.map(function (p) { return p.id; });
+    var pick = ids.indexOf(last) >= 0 ? last : (ids.length === 1 && last !== "" ? ids[0] : null);
+    if (pick) { await openProject(pick); return; }
+    setProjectStatus(ids.length ? "選一個專案開始，地圖、測案都會自動存在專案裡"
+      : "還沒有專案：用 uv run python workspace.py create 建立（見 README 3.3），或匯入其他人給的專案 zip");
+  }
+
   initScenarioFromCurrentMap();
   initLlmgenFromCurrentMap();
   renderRunscriptPreview();
@@ -3225,5 +2950,5 @@
   // boot: select root
   var root = screens.filter(function (s) { return !s.parent; })[0] || screens[0];
   if (root) selectScreen(root.uid); else renderEmptyMapDetail();
+  initProjects();
 })();
-</script>

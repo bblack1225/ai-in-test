@@ -1,3 +1,9 @@
+# 本機設定（裝置 UDID、簽署 Team ID），範本是 config.example.toml
+config.toml
+
+# aitest.py start 自己啟動的 Appium log
+logs/
+
 # Python / uv
 .venv/
 __pycache__/
@@ -10,12 +16,17 @@ __pycache__/
 crops/
 test_results/
 
+# 專案資料夾（workspace.py）：地圖、截圖、測案，各團隊只拿自己 App 的專案 zip
+workspace/
+
 # 掃描資料：含 App 畫面上的文字與截圖，可能有帳號、金額等敏感資訊
 screenshots/
 app_map_tree.json
 app_map_tree_export_*.json
 element_map.json
 element_map_android*.json
+# 測試案例含特定 App 的畫面名稱和操作，跟著專案走（workspace/projects/<專案>/cases/），不放進工具 repo
+test_cases/
 
 # capture_transient.py 抓到的截圖 / page source（同樣含 App 畫面資料）
 transient_captures/

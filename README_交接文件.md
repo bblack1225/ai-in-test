@@ -4,40 +4,53 @@
 
 ## 快速導覽
 
+**環境裝好之後，每次使用只要一個指令**（詳見 3.1）：
+
+```
+uv run python aitest.py start cathaysec-ios
+```
+
+環境有沒有裝好、哪裡沒裝好，用 `uv run python aitest.py doctor` 檢查。
+
 ### 環境需要準備什麼
 
 - Mac + Xcode、Node.js + Appium 3（含 XCUITest driver）
 - **uv**（管理 Python 版本與套件）：`uv sync` 一個指令建好環境。系統內建的
   Python 3.9 跑不起來，專案固定用 Python 3.12
-- 環境變數 `GEMINI_API_KEY`（LLM 描述/定位/測案/情境產生都要用到，沒設定
-  的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
+- Gemini API key：填在 `config.toml` 的 `[llm] api_key`，或環境變數 `GEMINI_API_KEY`
+  （LLM 描述/定位/測案/情境產生都要用到，沒設定的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
 - iOS 實機：USB 接 Mac、開發者模式、Xcode 登入 Apple ID 並簽署過
-  WebDriverAgent；`test_config.py` 的 `udid`／`xcodeOrgId`／
-  `updatedWDABundleId` 要換成你自己的
+  WebDriverAgent；`config.toml`（從 `config.example.toml` 複製）的 `udid`／
+  `xcode_org_id`／`wda_bundle_id` 要填你自己的
 - 詳細步驟見下方「二、環境準備」；Android 的差異見「2.9」
 
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
 
 **iOS / Android 共用（用 `--platform` 切換）**
+- `aitest.py` — **一鍵啟動**（`start`：Appium＋viewer_server＋打開瀏覽器）與**環境檢查**（`doctor`）
 - `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
 - `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述，`--platform ios|android`
 - `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
 - `platforms/` — iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
 - `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
-- `test_config.py` — Appium連線設定＋Gemini LLM設定，**換裝置/App先改這裡**
+- `config.toml` — 本機設定（手機 UDID、簽署 Team ID、WDA bundle id、Gemini 模型），**換電腦/手機改這裡**；
+  不進 git，範本是 `config.example.toml`。App 的 bundle id 不在這裡，在專案設定（見 3.3）
+- `test_config.py` — 讀 `config.toml`，組出 Appium 連線設定、提供 Gemini 呼叫，其他程式都從這裡取用
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 - `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
+- `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
 
-**瀏覽器工具（純前端HTML，離線可開）**
-- `app_map_viewer.html` — **目前主力工具**：地圖檢視、手動建樹、改版比對、
-  測試情境產生、LLM測案產生、測案執行，全部整合在這一頁
-- `viewer.html` — 較早期的單畫面工具，Android測試目前還在用
+**瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
+- `web/app_map_viewer.html`（＋同資料夾的 `.css`、`.js`）— **目前主力工具**：地圖檢視、手動建樹、
+  測試情境產生、LLM測案產生、測案執行，全部整合在這一頁（「改版比對」分頁暫時移除，見第八節）
 
-**資料檔案（跟程式同層，不要搬動，程式用相對路徑讀寫）**
-- `app_map_tree.json` — 爬蟲產出的樹狀地圖，`app_map_viewer.html`主要吃這個
-- `element_map.json` — 單畫面掃描累積資料，`viewer.html`系列吃這個
+**資料檔案**
+- `workspace/projects/<專案>/` — **建議的存放方式**：`maps/`（地圖，可以依功能分好幾張）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
+- 以下是沒開專案時的舊方式（跟程式同層，程式用相對路徑讀寫，不要搬動）
+- `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
+- `element_map.json` — 單畫面掃描累積資料（`capture_screen_map.py` 產出，`run_test_case.py` 指令模式讀這個）
 - `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
-- `test_cases/`／`test_results/` — 範例測試案例／執行結果截圖
+- `test_cases/`／`test_results/` — `run_test_case.py` 指令模式讀的測試案例／執行結果截圖（都不進 git，測案建議放專案的 `cases/`）
 
 **其他**
 - `docs/` — 6份技術文件＋3份真實掃描XML參考資料，細節見「四、檔案總覽」
@@ -107,19 +120,22 @@ uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')
 
 ### 2.3 設定 Gemini API Key
 
-寫進 `~/.zshrc`，之後開新的終端機都會自動生效（`test_config.py` 用
-`os.environ.get()` 讀取，不會寫死在程式碼裡）：
+兩種方式擇一（都有設的話用環境變數）：
+
+- **寫進 `config.toml`**（建議，`config.toml` 不進 git）：先做完 2.6 建立 `config.toml`，
+  在 `[llm]` 填 `api_key = "你的key"`。注意這個檔案含 key，不要傳給別人
+- **環境變數**：寫進 `~/.zshrc`，之後開新的終端機都會自動生效
+  ```
+  echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
+  ```
+
+確認（不會印出 key 本身）：
 
 ```
-echo 'export GEMINI_API_KEY="你的key"' >> ~/.zshrc && source ~/.zshrc
+uv run python -c "import test_config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
 ```
 
-確認（只會顯示有沒有設定，不會印出 key 本身）：
-
-```
-echo ${GEMINI_API_KEY:+已設定}
-uv run python -c "import test_config; print('設定 OK，模型：', test_config.LLM_MODEL)"
-```
+沒設 key 的話只有 LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，看地圖、點擊、爬蟲照常能跑。
 
 ### 2.4 準備 iPhone
 
@@ -164,7 +180,7 @@ WebDriverAgent（WDA）是 Appium 裝到手機上、實際操作畫面的 XCTest
    Product → Test（⌘U）。手機跳出「不受信任的開發者」的話：設定 → 一般 →
    VPN 與裝置管理 → 信任，再按一次 ⌘U。看到測試開始執行、手機顯示
    **Automation Running** 就代表成功，按 ⌘. 停止
-4. 查 Team ID（`test_config.py` 要用）。**Xcode 的 Accounts 頁面只顯示
+4. 查 Team ID（`config.toml` 要用）。**Xcode 的 Accounts 頁面只顯示
    團隊名稱、看不到 ID**，用以下任一方式：
    - 終端機（`organizationalUnitName` 那一行就是 Team ID）：
      ```
@@ -182,26 +198,35 @@ WebDriverAgent（WDA）是 Appium 裝到手機上、實際操作畫面的 XCTest
 > - 每 7 天最多只能註冊 10 個新的 App ID，所以 bundle id 決定後就不要一直換
 > - 加入公司的付費開發者團隊後，效期是 1 年，也沒有 App ID 數量限制
 
-### 2.6 修改 `test_config.py`
+### 2.6 建立 `config.toml`
 
-打開 `test_config.py`，修改 `DESIRED_CAPS`：
+```
+cp config.example.toml config.toml
+```
+
+打開 `config.toml`，填 `[ios]` 這一段：
 
 | 欄位 | 填什麼 |
 |---|---|
 | `udid` | 2.4 查到的手機 UDID |
-| `xcodeOrgId` | 2.5 查到的 Team ID |
-| `xcodeSigningId` | 維持 `"iPhone Developer"`，不用改 |
-| `bundleId` | 待測 App 的 bundle id（目前是樹精靈 Demo：`com.cathay.securities.tw.mBroker.Demo`） |
-| `updatedWDABundleId` | 2.5 在 Xcode 設定的 WDA Bundle Identifier |
+| `xcode_org_id` | 2.5 查到的 Team ID |
+| `wda_bundle_id` | 2.5 在 Xcode 設定的 WDA Bundle Identifier |
+| `launch_bundle_id` | 選填。留空＝連線時不打開任何 App，直接操作手機上目前在前景的 App（換測不同 App 時在手機上切過去就好）；填了就是每次連線都先打開這支 App |
 
-> 注意 key 是 `updatedWDABundleId`（**WDA**）。舊版設定檔曾經拼成
-> `updatedWDIBundleId`，拼錯的話 Appium 會直接忽略這個設定。
+待測 App 的 bundle id 不填在這裡，填在專案設定（`workspace.py create`／`update`，見 3.3）：
+爬蟲用它判斷有沒有跑出 App、連線時打開它；批次執行用它重開 App。
 
-確認設定有被讀到（第三個值是 `None` 代表 key 拼錯）：
+`config.toml` 不進 git（每台電腦、每支手機不一樣）。要切換好幾份設定（例如同一台電腦接兩支
+手機），可以用環境變數 `AITEST_CONFIG=其他檔案.toml` 指定。
+
+確認設定有被讀到：
 
 ```
-uv run python -c "import test_config as t; c = t.DESIRED_CAPS; print(c['udid'], c['xcodeOrgId'], c.get('updatedWDABundleId'))"
+uv run python -c "import test_config as t; print(t.ios_capabilities())"
 ```
+
+缺欄位的話會直接說缺哪個、要填在哪裡。WDA 建置失敗（`xcodebuild failed with code 65`）想看
+詳細錯誤時，在 `config.toml` 的 `[capabilities.ios]` 加 `showXcodeLog = true`。
 
 ### 2.7 第一次連線測試
 
@@ -219,9 +244,9 @@ appium --address 127.0.0.1
 uv run python - <<'EOF'
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
-from test_config import APPIUM_SERVER_URL, DESIRED_CAPS
+from test_config import APPIUM_SERVER_URL, ios_capabilities
 
-d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(DESIRED_CAPS))
+d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(ios_capabilities()))
 try:
     print("連線成功")
     print("螢幕大小：", d.get_window_size())
@@ -231,7 +256,7 @@ finally:
 EOF
 ```
 
-看到「連線成功」，而且「前景 App」的 `bundleId` 是待測 App，就代表整條
+看到「連線成功」，而且「前景 App」的 `bundleId` 是手機上目前開著的那支 App，就代表整條
 路徑（Python → Appium → WDA → 手機）都通了。
 
 ### 2.8 常見問題
@@ -260,13 +285,13 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
     最省事
   - 金融類 App 常會偵測並擋掉模擬器，擋住的話要改用實機
   - 安裝：把 APK 拖進模擬器視窗，或 `adb install 檔案.apk`
-- `test_config.py` 的 `ANDROID_DESIRED_CAPS["udid"]` 換成你的裝置代號
+- `config.toml` 的 `[android]` `udid` 填你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
 - 對應的程式：`capture_screen_map.py --platform android`／`run_test_case.py --platform android`／
   `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
   iOS 一樣用 `app_map_viewer.html`。地圖可以用
   `crawl_app_tree.py --platform android` 自動爬（先加 `--dry_run --safe_keywords`
-  看會點哪些），或用「手動建樹」建立（底層呼叫 `/scan_screen`；要用 Android
+  看會點哪些），或用「手動建樹」建立（節點詳情的「🌱 從這裡點出新畫面…」按鈕，底層呼叫 `/scan_screen`；要用 Android
   的地圖或新建空白地圖，載入 iOS 的 `app_map_tree.json` 會因平台不一致被擋）。Android 爬蟲目前只做過離線驗證
   （用真實畫面 XML），還沒有在能正常使用的 App 上實際爬過
 
@@ -277,20 +302,37 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 以下指令都在這個資料夾底下執行（`cd` 進來這個資料夾再跑，因為程式用
 相對路徑讀寫 `screenshots/`／`crops/`／`element_map.json` 等檔案）。
 
-### 3.1 每次使用的啟動順序
+### 3.1 每次使用的啟動方式
 
-1. iPhone 接上 USB、解鎖，打開待測 App
-2. **視窗 1**：`appium --address 127.0.0.1`（一直開著）
-3. **視窗 2**：`uv run python viewer_server.py --platform ios`（一直開著），看到
-   `已啟動（平台：ios）：http://127.0.0.1:8767` 就代表成功
-4. 用瀏覽器打開 `app_map_viewer.html`（雙擊檔案即可），按「📂 載入地圖
-   JSON」選 `app_map_tree.json`
-5. 網頁裡的「裝置橋接」網址預設是 `http://127.0.0.1:8767`，不用改；按
-   「檢查連線」顯示「已連線」就代表網頁 → Python 這段通了
+1. iPhone 接上 USB、解鎖，打開待測 App（停在要操作的畫面）
+2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話開上次用的專案、平台 ios）：
+   ```
+   uv run python aitest.py start cathaysec-ios
+   ```
+   - Appium 已經開著就直接用；沒開的話自動啟動（只綁 127.0.0.1，log 在 `logs/`）
+   - 接著啟動 `viewer_server.py`，好了之後自動用瀏覽器打開 http://127.0.0.1:8767/ 並切到這個專案
+   - 這個視窗一直開著；按 `Ctrl+C` 結束，會一起關掉這次自動啟動的 Appium
+     （原本就開著的 Appium 不會動）
+3. 常用選項：
+   - `--no-appium`：只看地圖、編輯測案，不接手機
+   - `--no-browser`：不自動開瀏覽器
+   - `--platform android`：沒指定專案時切到 Android
+4. 啟動失敗、或不確定環境有沒有裝好時：
+   ```
+   uv run python aitest.py doctor
+   ```
+   逐項檢查 Python 套件、`config.toml`、API key、Appium 與 driver、Xcode／簽署憑證、手機有沒有
+   接上、adb、專案、port，每一項失敗都會寫怎麼修。只讀取、不會操作手機；只用一個平台的話加
+   `--platform ios`
+
+> 網頁一定要從 http://127.0.0.1:8767/ 開（**不要雙擊 HTML 檔**：用 `file://` 開的話截圖
+> 顯示不出來、也連不到伺服器，頁面頂端會出現提醒）。想手動分開啟動的話，跟以前一樣：
+> 視窗 1 `appium --address 127.0.0.1`、視窗 2 `uv run python viewer_server.py --platform ios`。
 
 > `viewer_server.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
 > 不要再另外跑 `crawl_app_tree.py`／`capture_screen_map.py` 這類直接連
-> 裝置的腳本**，會搶連線。要跑的話先在視窗 2 按 `Ctrl+C` 關掉它。
+> 裝置的腳本**，會搶連線。要跑的話先在 `aitest.py start` 的視窗按 `Ctrl+C` 關掉；
+> 如果 Appium 是 `aitest.py` 自動開的會一起被關掉，跑腳本前要自己開 `appium --address 127.0.0.1`。
 
 ### 3.2 第一次跑最小流程（確認環境是通的）
 
@@ -303,14 +345,66 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    ```
    跑完會看到 `element_map.json` 多一筆 `my_first_screen`，`screenshots/`
    多一張截圖
-3. 試跑自動爬蟲（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
+3. 建一個專案（見 3.3），試跑自動爬蟲寫進這個專案（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
    ```
-   uv run python crawl_app_tree.py --root_name my_first_screen --max_depth 1 --max_screens 5
+   uv run python crawl_app_tree.py --project my-app-ios --map main --root_name my_first_screen --max_depth 1 --max_screens 5
    ```
-   跑完會產生/更新 `app_map_tree.json`。注意：爬蟲預設**會點擊所有元件**，
-   「下單、送出、確認」這類風險關鍵字的黑名單要加 `--safe_keywords` 才會
-   啟用，連到正式環境或真實帳號時一定要加
-4. 照 3.1 啟動橋接伺服器和網頁，載入剛產生的 `app_map_tree.json`
+   跑完會更新 `workspace/projects/my-app-ios/maps/main.json`（這張地圖原本有畫面的話先備份到
+   `backups/main-<時間>.json`）。依功能分開爬就換 `--map` 名稱，例如 `--map trading`，
+   不會蓋到其他地圖。不加 `--project` 的話照舊寫 `app_map_tree.json`。
+   注意：爬蟲預設**會點擊所有元件**，「下單、送出、確認」這類風險關鍵字的黑名單
+   要加 `--safe_keywords` 才會啟用，連到正式環境或真實帳號時一定要加
+4. 照 3.1 啟動橋接伺服器和網頁，選剛才的專案
+
+### 3.3 專案（workspace）
+
+地圖、截圖、測案、批次設定都存在 `workspace/projects/<專案代號>/`，一支 App 的一個
+平台一個專案（iOS 和 Android 畫面結構不同，地圖不能共用）。一個專案可以有很多張地圖，
+通常是依功能分開爬（例如交易、帳務各一張），彼此不會互相覆蓋。`workspace/` 不進 git
+（含畫面資料），交付給其他團隊時用「⬇ 匯出專案 zip」，對方用「📂 匯入專案 zip」。
+
+```
+workspace/projects/mbroker-demo-ios/
+├── project.json     專案設定：名稱、平台、bundle_id（爬蟲判斷有沒有跑出 App、批次執行重開 App 都用這個）
+├── maps/            地圖（跟 app_map_tree.json 同格式），預設 main，依功能可以有很多張
+│   ├── main.json
+│   └── trading.json
+├── backups/         爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
+├── screenshots/     所有地圖共用
+├── cases/*.json     測案（不綁地圖）
+└── batches/*.json   批次設定（地圖、測案都用名稱引用，執行時用最新版）
+```
+
+- **建立專案**：
+  ```
+  uv run python workspace.py create mbroker-demo-ios --platform ios --name "樹精靈 Demo iOS" --bundle_id com.cathay.securities.tw.mBroker.Demo
+  ```
+- **把舊資料搬進專案**（複製，原檔不動；截圖會一起複製、路徑會改成相對專案資料夾）：
+  ```
+  uv run python workspace.py import-legacy mbroker-demo-ios --map app_map_tree.json --cases test_cases/*.json
+  ```
+  地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
+  第一次被讀到時會自動搬成 `maps/main.json`
+- **修改專案設定**（名稱、bundle id／package；平台不能改，地圖是照那個平台掃出來的）：
+  ```
+  uv run python workspace.py update mbroker-demo-ios --bundle_id com.cathay.securities.tw.mBroker.Demo
+  ```
+  bundle id 留空的話，iOS 用 `config.toml` 的 `launch_bundle_id`、再沒有就用當下前景的 App，Android 用當下前景的 App；
+  兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到
+- **網頁上的行為**：
+  - 頁首「地圖」切換專案裡的地圖（記住每個專案上次開哪張）。旁邊「⚙ 管理地圖」打開的視窗會列出
+    所有地圖的畫面數、更新時間，每一列可以開啟、改名（專案裡存的批次會跟著改）、複製、刪除
+    （最後一張不能刪），下面可以新增空白地圖；名稱直接在列上輸入，錯誤訊息顯示在視窗裡
+  - 地圖（手動建樹、刪節點、自訂 XPath）改了**自動存檔**到目前這張，頁首顯示存檔狀態；
+    掃描的截圖直接存進專案資料夾
+  - 「📂 匯入地圖檔成新地圖」：開著專案時載入地圖檔會新增一張，不會蓋掉現有的
+  - 地圖同時被別的地方改過（另一個分頁、爬蟲）會擋下來不覆蓋，頁首提示重新載入
+  - 「LLM測案產生」按「💾 存到專案」存測案，「📁 從專案開啟…」載入來修改
+  - 「測案執行」可以直接從下拉選單選專案測案；批次每一組可以「📁 選專案地圖」、「📁 從專案加入」測案，
+    整份批次按「💾 存到專案」，之後從「📁 開啟專案裡的批次」叫回來
+  - 原本的檔案載入／匯出都還在，給沒有專案的人交換單一檔案用
+- 伺服器預設讀 `./workspace`，要放別的地方用 `viewer_server.py --workspace <路徑>`
+  （`crawl_app_tree.py`、`workspace.py`、`cleanup_images.py` 也都有 `--workspace`）
 
 ---
 
@@ -323,7 +417,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 | `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py`。可選「步驟失敗時自動關閉非預期彈窗並重試」（網頁勾選框／`--dismiss_dialogs`），沿用爬蟲 `dismiss_modal()` 的按鈕清單，只在失敗時才檢查；系統權限視窗刻意不處理（偵測到就跳過） |
-| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html`／`viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，可匯出／匯入批次設定檔，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，可匯出／匯入批次設定檔，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 
@@ -335,15 +429,20 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 | 檔案 | 用途 |
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
-| `test_config.py` | Appium 連線設定（iOS/Android 各一組 `DESIRED_CAPS`）＋ Gemini LLM 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `generate_content_with_retry()`（503錯誤自動重試）。**換裝置/App 主要改這裡** |
-| `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**，`app_map_viewer.html`「改版比對」分頁裡的 JS 是從這支移植的展示版，兩邊邏輯要保持一致，但正式流程以這支 Python 版為準 |
+| `test_config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503錯誤自動重試）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
+| `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次的讀寫，以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面）；`viewer_server.py` 的 `/api/projects/...`、`crawl_app_tree.py --project` 都透過它。CLI：`list`／`create`／`import-legacy` |
+| `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**。`app_map_viewer.html` 原本有一個從這支移植的「改版比對」展示分頁，目前暫時移除（見第八節） |
 
-### 4.4 瀏覽器工具（純前端 HTML，離線可開）
+### 4.4 瀏覽器工具（由 `viewer_server.py` 提供）
+
+`app_map_viewer.html` 由 `viewer_server.py` 直接提供（`http://127.0.0.1:8767/`），截圖
+（`screenshots/` 等資料夾）也從同一個網址讀。網頁和 API 同源，伺服器只接受
+自己網頁發出的請求（檢查 `Host`／`Origin`），其他網站沒辦法借瀏覽器操作手機。
+只看地圖不接手機也要開伺服器，但不需要 Appium（只有操作手機的功能才會連 Appium）。
 
 | 檔案 | 用途 |
 |---|---|
-| `app_map_viewer.html` | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、重新掃描既有節點、改版比對、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。**這個頁面本身沒有寫檔案的權限**，靠「⬇️匯出／📂載入」JSON 檔案的方式手動存檔，重新整理頁面不會保留手動編輯的內容 |
-| `viewer.html` | 更早期的單畫面校對+測試工具（重新定義XPath、AI定位、改版比對demo、LLM測案產生、測案執行這五個功能最初都在這支上開發），`app_map_viewer.html` 已經整合了這五個功能到樹狀地圖介面裡，Android 現在也能用 `app_map_viewer.html`，這支之後會退役 |
+| `web/app_map_viewer.html`（樣式在 `app_map_viewer.css`、程式在 `app_map_viewer.js`） | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
 > 元件、手動加節點/邊，不用連裝置）——已從交接包移除，因為
@@ -354,19 +453,22 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 > （原本在 `手機測試/` 資料夾裡，如果你拿到的是連同原始資料夾一起交接，
 > 這支應該還在；如果只拿到這個交接包本身，這支就沒有隨附）。
 
-### 4.5 資料檔案（跟程式放同一層，程式用相對路徑讀寫，不要搬動位置）
+### 4.5 資料檔案
 
-> 除了 `test_cases/` 之外，下表的檔案都列在 `.gitignore` 裡，**不會進
+建議用 `workspace/projects/<專案>/`（見 3.3）。下表是沒開專案時的舊方式，跟程式放同一層，
+程式用相對路徑讀寫，不要搬動位置。
+
+> 下表的檔案和 `workspace/` 都列在 `.gitignore` 裡，**不會進
 > git**：圖片體積大且可以重新產生；地圖 JSON 和截圖則會記錄畫面上的文字，
 > 可能包含帳號、金額等敏感資訊。要保留的話請另外備份。
 
 | 路徑 | 用途 |
 |---|---|
 | `app_map_tree.json` | `crawl_app_tree.py` 最新一次爬蟲產出的樹狀地圖（全名欄位格式：`screen_uid`/`screen_name`/`elements[]`/`unique_id`...），`app_map_viewer.html` 主要吃這個檔案 |
-| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`viewer.html`/`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
+| `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
 | `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `cleanup_images.py` 清掉沒有地圖在用的 |
 | `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `cleanup_images.py --all_crops` 清掉 |
-| `test_cases/` | 幾份範例測試案例 JSON（`generate_test_case.py`/LLM對話產生的格式），給 `run_test_case.py` 執行 |
+| `test_cases/` | `run_test_case.py --screen_name xxx` 讀的 `test_cases/xxx.json`。測案含特定 App 的畫面和操作，不放進工具 repo；網頁用的測案放在專案的 `cases/`，舊的用 `workspace.py import-legacy --cases` 搬進去 |
 | `test_results/` | 範例：執行測案後存下來的截圖 |
 
 ### 4.6 docs/（文件）
@@ -389,7 +491,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 2. `docs/CRAWLER_TREE_HANDOFF.md` — 了解自動爬蟲目前的完成度跟已知問題
 3. `docs/JUDGMENT_LOGIC_REFERENCE.md` — 了解解析/定位邏輯的設計依據
 4. `docs/AUTOMATION_ARCHITECTURE_FLOW.md` — 了解整體資料流程
-5. 打開 `app_map_viewer.html`，載入 `app_map_tree.json`，實際操作一輪
+5. 啟動 `viewer_server.py`、打開 http://127.0.0.1:8767/ ，選一個專案（沒有的話照 3.3 建立或匯入），實際操作一輪
    熟悉介面（地圖檢視→手動建樹→情境產生→測案產生→測案執行）
 6. 需要時再查 `docs/TROUBLESHOOTING.md`
 
@@ -403,19 +505,24 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    landing 到錯誤畫面。已經嘗試兩種修法（naive path-replay、anchor驗證
    的 path-replay）都在實機測試失敗，目前只有人工手動點擊能可靠脫困。
    詳見 `docs/CRAWLER_TREE_HANDOFF.md`
-2. **`app_map_viewer.html` 手動新增節點時，若勾選「同時捲動收集完整
+2. **`app_map_viewer.html` 手動建樹（「🌱 從這裡點出新畫面…」）時，若勾選「同時捲動收集完整
    清單」，捲動後抓到的元件座標會跟畫面截圖對不齊**（因為代表截圖固定是
    捲動前最頂部那張，捲動後各輪的座標是相對那一輪自己的畫面，不是相對
    代表截圖）——這是已知限制，介面上有提示文字，預設不勾選這個選項
 3. **手動建樹產生的節點沒有真正的 `skeleton` 簽章**：`app_map_viewer.html`
-   匯出成全名格式給 `app_map_tree.json` 用時，`skeleton` 欄位會是
-   `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章）。
+   手動新增的節點存檔／匯出成全名格式時，`skeleton` 欄位會是
+   `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章；爬蟲
+   產生的節點會保留原本的 `skeleton`）。另外 `crawl_app_tree.py --project`
+   對同一張地圖是整份重爬、會蓋掉那張地圖（覆蓋前會先備份到 `backups/<地圖>-<時間>.json`），
+   手動建樹的節點要自己從備份補回來；想保留的話爬到另一張（換 `--map` 名稱）。
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
    多長出重複節點，需要人工核對合併
-4. **`gemini-flash-latest`／`gemini-pro-latest` 是會自動換版本的別名**，
-   API 回應不會告訴你實際解析到哪個確切版本，`test_config.py` 沿用這個
-   設計但要注意：Google 更新別名指向的版本時可能導致行為/計費突然改變，
-   正式上線前建議改成寫死的版本號
+4. **Gemini 模型版本是寫死的，Pro 用的是預覽版**：`config.example.toml` 預設
+   `gemini-3.8-flash`／`gemini-3.1-pro-preview`（2026-10-02 當時 `gemini-flash-latest`／
+   `gemini-pro-latest` 別名實際指向的版本），避免 Google 更新別名時行為／計費突然改變。
+   `gemini-3.1-pro-preview` 是預覽版，Google 可能提前下架或改變行為，`aitest.py doctor`
+   會提醒；下架時在 `config.toml` 的 `[llm] model_pro` 換成當下的正式版。要換版本時，
+   回應物件的 `model_version` 會告訴你實際用到的是哪一版
 5. **`viewer_server.py` 同一時間只能服務一個 Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）
    又開著橋接伺服器對同一台裝置操作，會搶同一個連線
 
@@ -447,3 +554,37 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   跟工程交接無關
 
 如果需要找這些檔案，跟交接的人要原始 `手機測試/` 資料夾即可。
+
+---
+
+## 八、暫時移除的功能
+
+目前用不到、先從網頁拿掉，程式碼留在 git 裡，之後要用可以找回來。
+
+| 功能 | 原本做什麼 | 為什麼拿掉 |
+|---|---|---|
+| 「改版比對」分頁 | 上傳新舊兩份 `element_map.json`，用相似度計分比對同一畫面的元件（同一個／疑似同一個／全新／已消失），人工確認後把舊的 `unique_id` 延續到新版，可以連同舊測案一起檢查 | 暫時用不到。正式的比對邏輯在 `compare_versions.py`（沒有移除），網頁分頁只是從它移植的展示版 |
+| 地圖檢視的「🔄 重新掃描這個畫面」 | 對已經掃過的節點重掃一次，套用前會列出哪些子節點的入口元件消失了 | 暫時用不到。還沒掃描的手動節點仍然有「🔍 掃描目前畫面」 |
+| `viewer.html`（整支） | 早期的單畫面工具：讀 `element_map.json`，元件校對／篩選、重新定義 XPath、AI 定位、改版比對 demo、LLM 測案產生、測案執行 | 功能都已整合進 `app_map_viewer.html`（改版比對除外，見上一列），兩套前端並存容易混淆 |
+
+**找回來的方法**（git tag `archive/before-ui-trim` 標記的是移除前的最後一個版本）：
+
+- 只想看當時的程式碼：
+  ```
+  git show archive/before-ui-trim:app_map_viewer.html > /tmp/app_map_viewer_old.html
+  ```
+  改版比對在 `<section class="tab-panel" id="tab-compare">` 和 `// ===== 改版比對：` 那兩段；
+  重新掃描在 `runRescanScreen()`
+- 整個加回來：網頁後來拆成 `web/app_map_viewer.html`／`.css`／`.js` 三個檔案，移除的那個 commit
+  沒辦法直接 `git revert`，要對照上面 tag 版本裡的那兩段，手動加回對應的檔案（HTML 結構放
+  `.html`、樣式放 `.css`、程式放 `.js`）
+
+`viewer.html` 的版本標記在 tag `archive/before-viewer-retire`：
+```
+git show archive/before-viewer-retire:viewer.html > web/viewer.html
+```
+放到 `web/` 資料夾後，還要在 `viewer_server.py` 的 `WEB_PAGES` 加回 `"/viewer.html": "viewer.html"`，
+才能從 http://127.0.0.1:8767/viewer.html 打開。
+
+> tag 只存在本機，推上 GitHub 要另外 `git push origin --tags`（或逐一 push 這兩個 tag），
+> 其他人才拿得到。
