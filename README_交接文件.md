@@ -42,7 +42,7 @@ uv run python aitest.py start cathaysec-ios
 
 **瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
 - `web/app_map_viewer.html`（＋同資料夾的 `.css`、`.js`）— **目前主力工具**：地圖檢視、手動建樹、
-  測試情境產生、LLM測案產生、測案執行，全部整合在這一頁（「改版比對」分頁暫時移除，見第八節）
+  測試情境產生、測案編輯（LLM 產生／修改測案）、測案執行，全部整合在這一頁（「改版比對」分頁暫時移除，見第八節）
 
 **資料檔案**
 - `workspace/projects/<專案>/` — **建議的存放方式**：`maps/`（地圖，可以依功能分好幾張）、`screenshots/`、`cases/`（測案）、`batches/`（批次），見「3.3 專案」
@@ -407,10 +407,14 @@ workspace/projects/mbroker-demo-ios/
     （地圖會先備份到 `backups/`）或「兩個都留」（匯入的改名成「名稱 (匯入)」）；專案設定用本機的。
     平台不同不能合併；不想合併也可以改代號匯入成新專案
   - 地圖同時被別的地方改過（另一個分頁、爬蟲）會擋下來不覆蓋，頁首提示重新載入
-  - 「LLM測案產生」按「💾 存到專案」存測案，「📁 從專案開啟…」載入來修改
-  - 「測案執行」可以直接從下拉選單選專案測案；批次每一組可以「📁 選專案地圖」、「📁 從專案加入」測案，
-    整份批次按「💾 存到專案」，之後從「📁 開啟專案裡的批次」叫回來
-  - 原本的檔案載入／匯出都還在，給沒有專案的人交換單一檔案用
+  - 各分頁分工：**地圖只從「地圖檢視」進來**（其他分頁一律用地圖檢視目前開著的那張），
+    **測案只從「測案編輯」進來**，「測案執行」只負責選測案、執行
+  - 「測案編輯」：最上面先選「＋ 新測案」「📁 開啟專案測案」「📂 匯入測案 JSON」，下面顯示目前是哪一份、存了沒；
+    接著用 LLM 對話產生或修改，最後「💾 存到專案」（存回原本那份不用再確認）／「⬇ 匯出 JSON」／「➡ 送去執行」。
+    換一份測案會清掉之前的對話，有修改還沒存會先問
+  - 「測案執行」單份：測案從下拉選單選專案測案，或由「測案編輯」送過來；批次要開專案，每一組「📁 選專案地圖」、
+    「📁 從專案加入」測案，整份批次按「💾 存到專案」，之後從「📁 開啟專案裡的批次」叫回來
+  - 沒開專案時：地圖照舊在地圖檢視載入／匯出 JSON，測案在「測案編輯」匯入／匯出 JSON，單份執行可以用，批次不行
 - 伺服器預設讀 `./workspace`，要放別的地方用 `viewer_server.py --workspace <路徑>`
   （`crawl_app_tree.py`、`workspace.py`、`cleanup_images.py` 也都有 `--workspace`）
 
@@ -425,7 +429,7 @@ workspace/projects/mbroker-demo-ios/
 | `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照 native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py`。可選「步驟失敗時自動關閉非預期彈窗並重試」（網頁勾選框／`--dismiss_dialogs`），沿用爬蟲 `dismiss_modal()` 的按鈕清單，只在失敗時才檢查；系統權限視窗刻意不處理（偵測到就跳過） |
-| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，可匯出／匯入批次設定檔，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案）」，要開專案才能用、批次設定存在專案裡，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/scan_screen`（單畫面掃描） |
 
 ### 4.2 Android 核心程式
 

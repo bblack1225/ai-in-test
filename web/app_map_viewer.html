@@ -46,7 +46,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="map">地圖檢視</button>
     <button class="tab-btn" data-tab="scenario">測試情境產生</button>
-    <button class="tab-btn" data-tab="llmgen">LLM測案產生</button>
+    <button class="tab-btn" data-tab="llmgen">測案編輯</button>
     <button class="tab-btn" data-tab="runscript">測案執行</button>
   </div>
 
@@ -90,10 +90,6 @@
     <section class="panel">
       <div class="panel-head"><h2>測試情境產生：從畫面資料推論可能的測試情境</h2></div>
       <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
-          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="scenarioJsonInput" accept="application/json"></label>
-        </div>
         <div class="source-line" id="scenarioSourceLine"></div>
         <div class="field-row">
           <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
@@ -114,20 +110,28 @@
             裡面的 <span class="mono">&lt;&lt;畫面資料JSON會插入這裡&gt;&gt;</span> 標記不要刪掉，按「分析並產生情境列表」時會自動把你選的畫面資料換進去這個位置；改完不用另外存檔，下面的按鈕會直接套用這裡目前的內容，換了畫面選擇再送出也會沿用你改過的版本。
           </div>
         </div>
-        <div id="scenarioResultHost"><div class="empty-state">選好畫面後，按下分析，會列出根據這些畫面資料推論出的可能測試情境；每個情境旁邊有按鈕可以直接送去「LLM測案產生」，產生詳細的逐步驟操作。</div></div>
+        <div id="scenarioResultHost"><div class="empty-state">選好畫面後，按下分析，會列出根據這些畫面資料推論出的可能測試情境；每個情境旁邊有按鈕可以直接送去「測案編輯」，產生詳細的逐步驟操作。</div></div>
       </div>
     </section>
   </section>
 
   <section class="tab-panel" id="tab-llmgen">
     <section class="panel">
-      <div class="panel-head"><h2>LLM 對話式產生跨畫面測案</h2></div>
+      <div class="panel-head"><h2>測案編輯：新增或修改測試案例，用 LLM 對話產生／調整</h2></div>
       <div class="detail-body" style="max-height:none;">
-        <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳一份 element_map.json 取代</span>
-          <label class="file-btn-label">📂 上傳 element_map.json<input type="file" id="llmgenJsonInput" accept="application/json"></label>
+        <div>
+          <span class="section-label">① 測案</span>
+          <div class="btn-row">
+            <button class="btn" id="llmgenNewBtn">＋ 新測案</button>
+            <select class="project-pick" id="llmgenCaseProjectSelect" hidden title="開啟專案裡的測案來修改"></select>
+            <label class="file-btn-label" title="匯入別人給的或之前匯出的測試案例 JSON，接著可以用 LLM 或手動修改">📂 匯入測案 JSON<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
+          </div>
+          <div class="source-line" id="llmgenCaseStatus"></div>
         </div>
-        <div class="source-line" id="llmgenSourceLine"></div>
+        <div>
+          <span class="section-label">② 用 LLM 產生／修改</span>
+          <div class="source-line" id="llmgenSourceLine"></div>
+        </div>
         <div class="field-row">
           <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
           <button class="btn" id="llmgenSelectNoneBtn">全部取消</button>
@@ -150,20 +154,18 @@
           </div>
         </div>
         <div>
-          <span class="section-label">目前產生的測試案例</span><span class="case-sync-badge" id="llmgenCaseSyncBadge" hidden>✏️ 手動修改過，LLM 還不知道</span>
+          <span class="section-label">③ 測案內容</span><span class="case-sync-badge" id="llmgenCaseSyncBadge" hidden>✏️ 手動修改過，LLM 還不知道</span>
           <pre class="case-json" id="llmgenCaseJson">（尚未產生）</pre>
           <textarea class="case-json-editor" id="llmgenCaseEditor" spellcheck="false" hidden></textarea>
           <div class="btn-row" style="margin-bottom:8px;">
-            <button class="btn" id="llmgenEditBtn" disabled>✏️ 編輯</button>
+            <button class="btn" id="llmgenEditBtn" disabled>✏️ 手動編輯</button>
             <button class="btn primary" id="llmgenEditSaveBtn" hidden>💾 儲存修改</button>
             <button class="btn" id="llmgenEditCancelBtn" hidden>取消</button>
             <button class="btn" id="llmgenSyncReviewBtn" disabled title="同步後請 LLM 檢查你改過的部分，有問題會修正並輸出完整 JSON。只是要接著下別的指令的話，直接在對話框輸入即可，送出前會自動同步">🔍 同步並請 LLM 檢查調整</button>
           </div>
           <div class="btn-row">
-            <label class="file-btn-label" title="匯入之前匯出的測試案例，接著在上方對話框描述要怎麼改，LLM 會以它為基礎修改">📂 匯入既有測試案例來修改<input type="file" id="llmgenCaseImportInput" accept="application/json"></label>
-            <select class="project-pick" id="llmgenCaseProjectSelect" hidden title="開啟專案裡的測案來修改"></select>
             <button class="btn" id="llmgenSaveToProjectBtn" disabled hidden>💾 存到專案</button>
-            <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出測試案例</button>
+            <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出 JSON</button>
             <button class="btn primary" id="llmgenToRunBtn" disabled>➡ 送去執行</button>
           </div>
         </div>
@@ -188,27 +190,23 @@
         </div>
         <div id="runModeSingle" role="tabpanel" style="display:flex;flex-direction:column;gap:10px;">
         <div class="field-row">
-          <span>資料來源：預設用目前載入的地圖；也可以另外上傳</span>
-          <label class="file-btn-label">📂 element_map.json<input type="file" id="runscriptElmapInput" accept="application/json"></label>
-          <label class="file-btn-label">📂 測試案例 JSON<input type="file" id="runscriptCaseInput" accept="application/json"></label>
+          <span>測試案例：</span>
           <select class="project-pick" id="runscriptCaseProjectSelect" hidden title="選專案裡的測案"></select>
+          <span id="runscriptCaseHint" style="color:var(--ink-soft);">測案在「測案編輯」新增、修改或匯入，按「➡ 送去執行」也會帶過來</span>
         </div>
         <div class="source-line" id="runscriptMapSourceLine"></div>
-        <div class="source-line" id="runscriptCaseSourceLine"></div>
         <div class="btn-row">
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
           <label class="field-row" style="gap:4px;"><input type="checkbox" id="runscriptCheckScreen" checked> 執行前先檢查手機是否停在第一步的畫面（第0步）</label>
           <label class="field-row" style="gap:4px;" title="步驟失敗時，先關掉擋在前面的彈窗（稍後再說／不用了／關閉…）再重試一次；只在失敗時才檢查，不會誤關測案本來要操作的對話框"><input type="checkbox" id="runscriptDismissDialogs"> 步驟失敗時自動關閉非預期彈窗並重試（行銷／評分／推播邀請…）</label>
         </div>
-        <div id="runscriptBody"><div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div></div>
+        <div id="runscriptBody"><div class="empty-state">選好測案後，這裡會列出所有步驟預覽。</div></div>
         </div>
         <div id="runModeBatch" role="tabpanel" hidden style="display:flex;flex-direction:column;gap:10px;">
         <div class="script-note">一次跑多份測案：每一組選一張地圖，再加入用這張地圖的一份或多份測案。每份測案開始前會自動回到它的起始畫面（先辨識目前在哪一頁 → 按返回或往下點 → 都不行才重開 App）。重開 App 後要登入的話，請在該組指定「登入測案」，登入頁也要在同一張地圖裡。</div>
         <div class="btn-row">
           <button class="btn" id="batchAddGroupBtn">＋ 新增一組地圖</button>
-          <label class="file-btn-label" title="匯入之前匯出的批次設定（內含地圖跟測案）">📂 匯入批次設定<input type="file" id="batchImportInput" accept="application/json"></label>
-          <button class="btn" id="batchExportBtn" disabled>⬇ 匯出批次設定</button>
           <select class="project-pick" id="batchProjectSelect" hidden title="開啟專案裡存的批次設定"></select>
           <button class="btn" id="batchSaveToProjectBtn" disabled hidden title="存進專案：測案用名稱引用、地圖用專案的，之後改了測案或地圖，批次自動用最新版">💾 存到專案</button>
         </div>
