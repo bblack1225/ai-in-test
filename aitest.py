@@ -58,13 +58,34 @@ def http_json(url: str, timeout: float = 2.0) -> dict | None:
         return None
 
 
+IS_WINDOWS = os.name == "nt"
+
+
 def listening_pids(port: int) -> list[str]:
     """在這個 port 上 LISTEN 的程式（同時開好幾個 Appium 會連錯，README 2.8）。"""
+    if IS_WINDOWS:
+        # netstat -ano 的每一行：協定  本機位址  外部位址  狀態  PID
+        out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, errors="replace").stdout
+        pids = set()
+        for line in out.splitlines():
+            cols = line.split()
+            if len(cols) == 5 and cols[1].endswith(f":{port}") and cols[3] == "LISTENING":
+                pids.add(cols[4])
+        return sorted(pids)
     if not shutil.which("lsof"):
         return []
     out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
                          capture_output=True, text=True).stdout
     return sorted(set(out.split()))
+
+
+def who_listens_hint(port: int) -> str:
+    """查是誰佔用 port 的指令，照作業系統給。"""
+    return f"netstat -ano | findstr :{port}" if IS_WINDOWS else f"lsof -nP -iTCP:{port} -sTCP:LISTEN"
+
+
+def kill_hint() -> str:
+    return "taskkill /PID <PID> /F" if IS_WINDOWS else "kill <PID>"
 
 
 def wait_until(check, timeout: float, proc: subprocess.Popen | None = None) -> bool:
@@ -150,9 +171,11 @@ def _raise_interrupt(signum, frame):
 
 
 def cmd_start(args) -> None:
-    # 關掉終端機視窗（SIGHUP）或被 kill（SIGTERM）時也要走 Ctrl+C 的收尾，不然 Appium 會被留在背景
-    for sig in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, _raise_interrupt)
+    # 關掉終端機視窗（SIGHUP）或被 kill（SIGTERM）時也要走 Ctrl+C 的收尾，不然 Appium 會被留在背景。
+    # Windows 沒有 SIGHUP，只註冊有的
+    for sig in (signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+        if sig is not None:
+            signal.signal(sig, _raise_interrupt)
     # 輸出導到檔案時也要即時看得到（例如用 > log 記錄）
     sys.stdout.reconfigure(line_buffering=True)
     platform, project = resolve_project(args.project, args.platform, args.workspace)
@@ -169,7 +192,7 @@ def cmd_start(args) -> None:
             webbrowser.open(viewer_url)
         return
     if listening_pids(args.port):
-        sys.exit(f"錯誤：port {args.port} 被其他程式佔用（lsof -nP -iTCP:{args.port} -sTCP:LISTEN 看是誰），"
+        sys.exit(f"錯誤：port {args.port} 被其他程式佔用（{who_listens_hint(args.port)} 看是誰），"
                  "關掉它或用 --port 換一個")
 
     # ---- Appium ----
@@ -182,7 +205,7 @@ def cmd_start(args) -> None:
         print(f"[aitest] Appium 已經在跑（{test_config.APPIUM_SERVER_URL}），直接使用")
         if len(pids) > 1:
             print(f"[aitest] [警告] port {port} 上有 {len(pids)} 個程式在聽（PID {', '.join(pids)}），"
-                  "可能同時開了好幾個 Appium，Python 會連到錯的那個（README 2.8）。只留一個，多的用 kill 關掉")
+                  f"可能同時開了好幾個 Appium，Python 會連到錯的那個（README 2.8）。只留一個，多的用 {kill_hint()} 關掉")
     elif host not in LOCAL_HOSTS:
         sys.exit(f"錯誤：config.toml 的 Appium 位址 {test_config.APPIUM_SERVER_URL} 不是本機，"
                  "連不上也不能幫你啟動，請先確認那台的 Appium 有開")
@@ -336,7 +359,7 @@ def check_appium(r: Report, platforms: list[str]) -> None:
         r.ok(f"Appium 正在執行（{test_config.APPIUM_SERVER_URL}）")
         if len(pids) > 1:
             r.fail(f"port {port} 上有 {len(pids)} 個程式在聽（PID {', '.join(pids)}），可能同時開了好幾個 Appium",
-                   "只留一個，多的用 kill <PID> 關掉（README 2.8）")
+                   f"只留一個，多的用 {kill_hint()} 關掉（README 2.8）")
     else:
         r.info("Appium 目前沒在跑（aitest.py start 會自動啟動）")
 
@@ -409,7 +432,7 @@ def check_workspace(r: Report, workspace: str, port: int) -> None:
     if ping is not None:
         r.ok(f"viewer_server 正在執行（{ping.get('platform')}）：http://127.0.0.1:{port}/")
     elif listening_pids(port):
-        r.fail(f"port {port} 被其他程式佔用", f"lsof -nP -iTCP:{port} -sTCP:LISTEN 看是誰，或 aitest.py start --port 換一個")
+        r.fail(f"port {port} 被其他程式佔用", f"{who_listens_hint(port)} 看是誰，或 aitest.py start --port 換一個")
     else:
         r.ok(f"port {port} 空著，可以啟動 viewer_server")
 
