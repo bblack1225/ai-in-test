@@ -6,7 +6,7 @@
   var screens = DATA.screens, edges = DATA.edges, skipped = DATA.skipped, app = DATA.app;
   var byUid = {}, elStatus = {}, edgesByFrom = {}, edgesByTo = {}, skippedByScreen = {};
   var selectedUid = null, nodeGroups = {};
-  // 目前地圖是從哪個檔案載入的，給「測試情境產生」「LLM測案產生」「測案執行」
+  // 目前地圖是從哪個檔案載入的，給「測試情境產生」「測案編輯」「測案執行」
   // 顯示資料來源用；頁面內嵌的資料沒有檔名
   var currentMapFileName = null;
   // 目前開啟的 workspace 專案（{id, name, platform, bundle_id}），null＝沒用專案；
@@ -396,13 +396,11 @@
     rebuildAll();
     var r = screens.filter(function (sc) { return !sc.parent; })[0] || screens[0];
     if (r) selectScreen(r.uid); else renderEmptyMapDetail();
-    // 「測試情境產生」「LLM測案產生」預設也是抓目前地圖的資料，換了地圖
-    // 這兩邊要跟著刷新，不然會一直停在換地圖之前的舊資料——但使用者
-    // 自己在那兩個分頁另外上傳過 element_map.json 的話，尊重那個選擇，
-    // 不要蓋掉。
-    if (scenarioDataSource !== "uploaded") initScenarioFromCurrentMap();
-    if (llmgenDataSource !== "uploaded") initLlmgenFromCurrentMap();
-    if (!runscriptElementMap) renderRunscriptPreview(); // 測案執行預設也是用目前地圖
+    // 「測試情境產生」「測案編輯」「測案執行」都用目前地圖的資料，換了地圖要跟著刷新，
+    // 不然會一直停在換地圖之前的舊資料
+    initScenarioFromCurrentMap();
+    initLlmgenFromCurrentMap();
+    renderRunscriptPreview();
     renderBatchGroups();
     document.getElementById("mapSaveStatus").textContent = "已載入（" + screens.length + " 個畫面）";
   }
@@ -1155,19 +1153,14 @@
   });
 
   // 地圖檢視裡新增／刪除／掃描節點都是直接改 screens，不會通知其他分頁；
-  // 切換分頁時重新抓一次目前地圖，其他分頁才看得到剛建好的節點。
-  // 使用者另外上傳 element_map.json 的分頁不動；已勾選的畫面依名稱保留。
+  // 切換分頁時重新抓一次目前地圖，其他分頁才看得到剛建好的節點。已勾選的畫面依名稱保留。
   function syncTabsWithCurrentMap() {
-    if (scenarioDataSource !== "uploaded") {
-      rebuildKeepingChecks(scenarioScreenChecklist, "scenario-screen-cb", function () { return scenarioData; },
-        initScenarioFromCurrentMap, updateScenarioGenerateEnabled);
-    }
-    if (llmgenDataSource !== "uploaded") {
-      rebuildKeepingChecks(llmgenScreenChecklist, "llmgen-screen-cb", function () { return llmgenData; },
-        initLlmgenFromCurrentMap, updateLlmgenSendEnabled);
-    }
+    rebuildKeepingChecks(scenarioScreenChecklist, "scenario-screen-cb", function () { return scenarioData; },
+      initScenarioFromCurrentMap, updateScenarioGenerateEnabled);
+    rebuildKeepingChecks(llmgenScreenChecklist, "llmgen-screen-cb", function () { return llmgenData; },
+      initLlmgenFromCurrentMap, updateLlmgenSendEnabled);
     // 測案執行在執行當下才抓目前地圖，這裡只更新來源標示，不重畫預覽以免洗掉執行結果
-    if (!runscriptElementMap) renderRunscriptSources();
+    renderRunscriptSources();
   }
   function rebuildKeepingChecks(container, cbClass, getData, reinit, onChange) {
     var prevChecked = Object.create(null);
@@ -1190,7 +1183,6 @@
   // 使用者從清單挑一個情境，直接送去下面的「LLM對話式產生跨畫面測案」，
   // 由那邊根據情境描述產生真正逐步驟的測試案例——這裡只做「情境發想」，
   // 不直接產生測試步驟。
-  var scenarioJsonInput = document.getElementById("scenarioJsonInput");
   var scenarioScreenChecklist = document.getElementById("scenarioScreenChecklist");
   var scenarioScreensCount = document.getElementById("scenarioScreensCount");
   var scenarioSelectAllBtn = document.getElementById("scenarioSelectAllBtn");
@@ -1201,7 +1193,7 @@
   var scenarioPromptPanel = document.getElementById("scenarioPromptPanel");
   var scenarioPromptInput = document.getElementById("scenarioPromptInput");
   var scenarioPromptResetBtn = document.getElementById("scenarioPromptResetBtn");
-  var scenarioData = null, scenarioDataSource = null, scenarioLastList = null;
+  var scenarioData = null, scenarioLastList = null;
 
   async function fetchScenarioDefaultPrompt() {
     var base = API_BASE;
@@ -1236,22 +1228,9 @@
   var scenarioSourceLine = document.getElementById("scenarioSourceLine");
   function initScenarioFromCurrentMap() {
     scenarioData = { screens: shortScreensToLlmgenFormat(screens) };
-    scenarioDataSource = "default";
-    setSourceLine(scenarioSourceLine, "目前使用", "預設：目前地圖", currentMapSourceName());
+    setSourceLine(scenarioSourceLine, "畫面資料", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     buildScenarioScreenChecklist();
   }
-  scenarioJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { scenarioData = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      scenarioDataSource = "uploaded";
-      setSourceLine(scenarioSourceLine, "目前使用", "上傳檔案", file.name + "（" + (scenarioData.screens || []).length + " 個畫面）", initScenarioFromCurrentMap);
-      buildScenarioScreenChecklist();
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  });
   function buildScenarioScreenChecklist() {
     scenarioScreenChecklist.innerHTML = "";
     (scenarioData.screens || []).forEach(function (screen, idx) {
@@ -1340,13 +1319,12 @@
       scenarioGenerateBtn.textContent = "🔍 分析並產生情境列表";
     }
   });
-  // 把選定的情境交給下面的 LLM測案產生：資料來源整包沿用（保留使用者原本
-  // 上傳的 element_map.json 或目前地圖），畫面清單只預先勾選這個情境有
-  // 用到的畫面，聊天輸入框帶入情境描述，切到那個分頁讓使用者確認後自己送出
-  // （不自動送出，情境描述可能需要使用者微調後再送）。
+  // 把選定的情境交給「測案編輯」：開一份新測案（目前的有修改沒存會先問），畫面清單
+  // 只預先勾選這個情境有用到的畫面，聊天輸入框帶入情境描述，切到那個分頁讓使用者
+  // 確認後自己送出（不自動送出，情境描述可能需要使用者微調後再送）。
   function sendScenarioToLlmgen(scenario) {
+    if (!startNewLlmgenCase()) return;
     llmgenData = scenarioData;
-    llmgenDataSource = scenarioDataSource;
     buildLlmgenScreenChecklist();
     var involved = scenario.screens_involved || [];
     llmgenScreenChecklist.querySelectorAll(".llmgen-screen-cb").forEach(function (cb) {
@@ -1360,8 +1338,9 @@
     llmgenInput.focus();
   }
 
-  // ================= LLM 對話式產生跨畫面測案（整合自 viewer.html）=================
-  var llmgenJsonInput = document.getElementById("llmgenJsonInput");
+  // ================= 測案編輯：新增／開啟／匯入測案，用 LLM 對話產生或修改 =================
+  var llmgenNewBtn = document.getElementById("llmgenNewBtn");
+  var llmgenCaseStatus = document.getElementById("llmgenCaseStatus");
   var llmgenScreenChecklist = document.getElementById("llmgenScreenChecklist");
   var llmgenScreensCount = document.getElementById("llmgenScreensCount");
   var llmgenSelectAllBtn = document.getElementById("llmgenSelectAllBtn");
@@ -1386,7 +1365,11 @@
   var llmgenEditSaveBtn = document.getElementById("llmgenEditSaveBtn");
   var llmgenEditCancelBtn = document.getElementById("llmgenEditCancelBtn");
   var llmgenSyncReviewBtn = document.getElementById("llmgenSyncReviewBtn");
-  var llmgenData = null, llmgenDataSource = null, llmgenChatHistory = [], llmgenLatestCase = null;
+  var llmgenData = null, llmgenChatHistory = [], llmgenLatestCase = null;
+  // 目前這份測案是哪來的、有沒有存：llmgenProjectName＝在專案裡的名稱（開啟或存過才有），
+  // llmgenFileName＝匯入的檔名，llmgenSavedText＝上次開啟／存檔／匯出時的內容，跟現在不同就是有修改還沒存
+  var llmgenProjectName = null, llmgenFileName = null, llmgenSavedText = null;
+  var LLMGEN_DEFAULT_PLACEHOLDER = "例如：在自選庫存點第一支股票，確認能進到個股總覽頁";
   // llmgenCaseUnsynced：測案被手動改過、還沒放進對話紀錄，LLM 看到的還是舊版
   var llmgenCaseUnsynced = false, llmgenEditing = false;
 
@@ -1422,27 +1405,11 @@
     });
   }
   var llmgenSourceLine = document.getElementById("llmgenSourceLine");
-  var llmgenSourceFileName = null;
   function initLlmgenFromCurrentMap() {
     llmgenData = { screens: shortScreensToLlmgenFormat(screens) };
-    llmgenDataSource = "default";
-    llmgenSourceFileName = null;
-    setSourceLine(llmgenSourceLine, "目前使用", "預設：目前地圖", currentMapSourceName());
+    setSourceLine(llmgenSourceLine, "畫面資料", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     buildLlmgenScreenChecklist();
   }
-  llmgenJsonInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { llmgenData = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      llmgenDataSource = "uploaded";
-      llmgenSourceFileName = file.name;
-      setSourceLine(llmgenSourceLine, "目前使用", "上傳檔案", file.name + "（" + (llmgenData.screens || []).length + " 個畫面）", initLlmgenFromCurrentMap);
-      buildLlmgenScreenChecklist();
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  });
   function buildLlmgenScreenChecklist() {
     llmgenScreenChecklist.innerHTML = "";
     (llmgenData.screens || []).forEach(function (screen, idx) {
@@ -1522,7 +1489,45 @@
     llmgenExportBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenSaveToProjectBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
+    renderLlmgenCaseStatus();
   }
+  function llmgenHasUnsaved() {
+    return !!llmgenLatestCase && JSON.stringify(llmgenLatestCase) !== llmgenSavedText;
+  }
+  // ① 測案下面那一行：目前編的是哪一份、存了沒
+  function renderLlmgenCaseStatus() {
+    if (!llmgenLatestCase) {
+      setSourceLine(llmgenCaseStatus, "目前", "新測案", "還沒產生：在下面選畫面，跟 LLM 描述要測的流程");
+      return;
+    }
+    var unsaved = llmgenHasUnsaved();
+    var kind = llmgenProjectName ? "專案測案「" + llmgenProjectName + "」" : llmgenFileName ? "匯入的檔案 " + llmgenFileName : "新測案";
+    var state = llmgenProjectName ? (unsaved ? "⚠️ 有修改還沒存" : "已存進專案")
+      : currentProject ? "⚠️ 還沒存進專案"
+      : unsaved ? "⚠️ 沒開專案，記得按「⬇ 匯出 JSON」存成檔案" : "已匯出";
+    setSourceLine(llmgenCaseStatus, "目前", kind, (llmgenLatestCase.test_name || "（未命名）") + "・" + state);
+  }
+  // 開始一份新的測案：清掉對話和目前的測案。目前這份有修改還沒存會先問，回傳 false＝使用者取消
+  function startNewLlmgenCase() {
+    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消"); return false; }
+    if (llmgenHasUnsaved() && !confirm("目前的測案「" + (llmgenLatestCase.test_name || "（未命名）") + "」有修改還沒存，換一份會丟掉這些修改，確定嗎？")) return false;
+    llmgenChatHistory = [];
+    llmgenMessages.innerHTML = '<div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div>';
+    llmgenLatestCase = null;
+    llmgenCaseUnsynced = false;
+    llmgenProjectName = null; llmgenFileName = null; llmgenSavedText = null;
+    llmgenCaseJson.textContent = "（尚未產生）";
+    llmgenPendingAttachments = [];
+    renderLlmgenAttachTray();
+    llmgenInput.placeholder = LLMGEN_DEFAULT_PLACEHOLDER;
+    updateLlmgenCaseControls();
+    updateLlmgenSendEnabled();
+    updateLlmgenAttachHint();
+    return true;
+  }
+  llmgenNewBtn.addEventListener("click", function () {
+    if (startNewLlmgenCase()) llmgenInput.focus();
+  });
   // 自動勾選測案裡用到的畫面，回傳目前資料來源找不到的畫面名稱
   function checkLlmgenScreensUsedBy(testCase) {
     var usedScreens = [];
@@ -1819,17 +1824,17 @@
     reader.onload = function () {
       var testCase;
       try { testCase = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      importLlmgenCase(testCase, file.name);
+      importLlmgenCase(testCase, "📂 匯入測案：" + file.name, { fileName: file.name });
     };
     reader.readAsText(file);
   });
-  // sourceLabel：對話裡顯示「從哪裡匯入」（檔名或專案測案名稱）
-  function importLlmgenCase(testCase, sourceLabel) {
+  // sourceLabel：對話裡顯示「從哪裡來」；origin：{ projectName } 或 { fileName }，顯示在 ① 測案下面
+  function importLlmgenCase(testCase, sourceLabel, origin) {
     if (!testCase || !Array.isArray(testCase.steps)) { alert("這不是測試案例 JSON（找不到 steps 陣列）"); return; }
-    if (!llmgenData) { alert("請先載入地圖或上傳 element_map.json，LLM 需要畫面元件資料才能修改測案"); return; }
-    if (llmgenChatHistory.length && !confirm("匯入會開始一段新對話，目前的對話紀錄會被清空，確定嗎？")) return;
-
-    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消再匯入"); return; }
+    if (!startNewLlmgenCase()) return;
+    llmgenProjectName = origin.projectName || null;
+    llmgenFileName = origin.fileName || null;
+    llmgenSavedText = JSON.stringify(testCase);
     // 自動勾選測案裡用到的畫面，找不到的畫面列出來提醒使用者
     var missingScreens = checkLlmgenScreensUsedBy(testCase);
 
@@ -1841,7 +1846,7 @@
       { role: "model", text: ackText + "\n```json\n" + caseText + "\n```" },
     ];
     llmgenMessages.innerHTML = "";
-    appendChatMessage("user", "📂 匯入測試案例：" + sourceLabel);
+    appendChatMessage("user", sourceLabel);
     appendChatMessage("model", ackText);
     if (missingScreens.length) {
       appendChatMessage("system-note", "目前資料來源找不到這些畫面：" + missingScreens.join("、") +
@@ -1855,6 +1860,7 @@
   }
   llmgenExportBtn.addEventListener("click", function () {
     if (!llmgenLatestCase) return;
+    if (!llmgenProjectName) { llmgenSavedText = JSON.stringify(llmgenLatestCase); renderLlmgenCaseStatus(); }
     var blob = new Blob([JSON.stringify(llmgenLatestCase, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
@@ -1863,26 +1869,16 @@
     URL.revokeObjectURL(url);
   });
   llmgenToRunBtn.addEventListener("click", function () {
-    if (!llmgenLatestCase || !llmgenData) return;
-    // llmgenData 預設來源（目前地圖）欄位是精簡過的，缺 native_id/bounds，
-    // 執行端定位不出來會整個失敗，這裡要換成完整欄位版本；使用者自己上傳的
-    // element_map.json 本來就是完整格式，直接用沒問題。
-    runscriptElementMap = llmgenDataSource === "default"
-      ? { screens: shortScreensToExecutionFormat(screens) }
-      : llmgenData;
-    runscriptElementMapSource = llmgenDataSource === "default"
-      ? { kind: "LLM測案產生用的地圖（目前地圖）", name: currentMapSourceName() }
-      : { kind: "LLM測案產生用的地圖（上傳檔案）", name: llmgenSourceFileName };
+    if (!llmgenLatestCase) return;
     runscriptTestCase = llmgenLatestCase;
-    runscriptTestCaseSource = { kind: "LLM測案產生的測案", name: llmgenLatestCase.test_name || "（未命名）" };
+    runscriptTestCaseSource = { kind: "從測案編輯送來" + (llmgenHasUnsaved() ? "（還沒存）" : ""),
+      name: llmgenProjectName || llmgenLatestCase.test_name || "（未命名）" };
     renderRunscriptPreview();
     setRunMode("single");
     document.querySelector('.tab-btn[data-tab="runscript"]').click();
   });
 
   // ================= 測案執行（整合自 viewer.html）=================
-  var runscriptElmapInput = document.getElementById("runscriptElmapInput");
-  var runscriptCaseInput = document.getElementById("runscriptCaseInput");
   var runscriptServerStatus = document.getElementById("runscriptServerStatus");
   var runscriptServerCheckBtn = document.getElementById("runscriptServerCheckBtn");
   var runscriptRunBtn = document.getElementById("runscriptRunBtn");
@@ -1890,44 +1886,17 @@
   var runscriptCheckScreen = document.getElementById("runscriptCheckScreen");
   var runscriptDismissDialogs = document.getElementById("runscriptDismissDialogs");
   var runscriptBody = document.getElementById("runscriptBody");
-  var runscriptElementMap = null, runscriptTestCase = null;
-  // runscriptElementMap 為 null 時代表用目前地圖（即時抓，地圖換了會跟著變）
-  var runscriptElementMapSource = null, runscriptTestCaseSource = null;
+  // 地圖一律用「地圖檢視」目前開著的那張（執行當下才抓，地圖換了會跟著變）
+  var runscriptTestCase = null, runscriptTestCaseSource = null;
   var runscriptMapSourceLine = document.getElementById("runscriptMapSourceLine");
   var runscriptCaseSourceLine = document.getElementById("runscriptCaseSourceLine");
   function renderRunscriptSources() {
-    if (runscriptElementMap) setSourceLine(runscriptMapSourceLine, "地圖", runscriptElementMapSource.kind, runscriptElementMapSource.name, function () {
-      runscriptElementMap = null;
-      runscriptElementMapSource = null;
-      renderRunscriptPreview();
-    });
-    else setSourceLine(runscriptMapSourceLine, "地圖", "預設：目前地圖", currentMapSourceName());
+    setSourceLine(runscriptMapSourceLine, "地圖", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     if (runscriptTestCase) setSourceLine(runscriptCaseSourceLine, "測試案例", runscriptTestCaseSource.kind, runscriptTestCaseSource.name);
-    else setSourceLine(runscriptCaseSourceLine, "測試案例", null, "上傳測試案例 JSON，或在「LLM測案產生」按「送去執行」");
+    else setSourceLine(runscriptCaseSourceLine, "測試案例", null, currentProject ? "從上面選專案測案，或在「測案編輯」按「➡ 送去執行」" : "在「測案編輯」按「➡ 送去執行」");
   }
+  function currentExecutionMap() { return { screens: shortScreensToExecutionFormat(screens) }; }
 
-  runscriptElmapInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { runscriptElementMap = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      runscriptElementMapSource = { kind: "上傳檔案", name: file.name + "（" + (runscriptElementMap.screens || []).length + " 個畫面）" };
-      renderRunscriptPreview();
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  });
-  runscriptCaseInput.addEventListener("change", function (e) {
-    var file = e.target.files[0]; if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try { runscriptTestCase = JSON.parse(reader.result); } catch (err) { alert("JSON 格式錯誤：" + err.message); return; }
-      runscriptTestCaseSource = { kind: "上傳檔案", name: file.name };
-      renderRunscriptPreview();
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  });
   function findElementInMap(elementMap, screenName, targetId) {
     if (!elementMap) return null;
     var screen = (elementMap.screens || []).find(function (s) { return s.screen_name === screenName; });
@@ -1937,11 +1906,11 @@
   function renderRunscriptPreview(results, stopped, precheck, runningIndex) {
     renderRunscriptSources();
     if (!runscriptTestCase) {
-      runscriptBody.innerHTML = '<div class="empty-state">上傳或用預設地圖 + 測試案例後，這裡會列出所有步驟預覽。</div>';
+      runscriptBody.innerHTML = '<div class="empty-state">選好測案後，這裡會列出所有步驟預覽。</div>';
       runscriptRunBtn.disabled = true;
       return;
     }
-    var elementMap = runscriptElementMap || { screens: shortScreensToExecutionFormat(screens) };
+    var elementMap = currentExecutionMap();
     var steps = runscriptTestCase.steps || [];
     var html = "";
     if (runscriptTestCase.test_name) {
@@ -1999,15 +1968,12 @@
     runscriptBody.innerHTML = html;
     runscriptRunBtn.disabled = false;
   }
-  function runscriptDataPlatform() {
-    return runscriptElementMap ? elementMapPlatform(runscriptElementMap) : mapPlatform();
-  }
   async function checkRunscriptServer() {
-    await renderServerStatus(API_BASE, runscriptServerStatus, runscriptDataPlatform());
+    await renderServerStatus(API_BASE, runscriptServerStatus, mapPlatform());
   }
   runscriptServerCheckBtn.addEventListener("click", checkRunscriptServer);
   runscriptRunBtn.addEventListener("click", async function () {
-    var elementMap = runscriptElementMap || { screens: shortScreensToExecutionFormat(screens) };
+    var elementMap = currentExecutionMap();
     if (!runscriptTestCase) return;
     var stepCount = (runscriptTestCase.steps || []).length;
     if (!confirm('即將依序執行「' + (runscriptTestCase.test_name || "這份測試案例") + '」共 ' + stepCount + ' 個步驟，會實際操作模擬器/裝置，確定要執行嗎？')) return;
@@ -2019,7 +1985,7 @@
     var progressBase = API_BASE;
     var progressTimer = null;
     try {
-      await assertPlatformMatches(progressBase, runscriptDataPlatform());
+      await assertPlatformMatches(progressBase, mapPlatform());
       // 執行是同步請求要跑完才回傳，執行中另外輪詢 /test_progress 顯示目前跑到哪一步
       var polling = false, runFinished = false;
       progressTimer = setInterval(async function () {
@@ -2091,14 +2057,14 @@
   try { if (localStorage.getItem("runMode") === "batch") setRunMode("batch"); } catch (e) { /* 照預設用單份 */ }
 
   // batchGroups：[{ mapName, map（全名格式）, mapRef, setup: {name, case, ref?} | null, cases: [{name, case, ref?}] }]
-  // 匯出成檔案時地圖、測案整份存進去（給沒有專案的人也能重跑）；存到專案時，
-  // 有 mapRef（專案地圖名稱）的地圖、有 ref（專案測案名稱）的測案只存引用，開啟和執行
-  // 當下才抓最新版，地圖或測案改了不用重新設定批次。
+  // 批次要開專案才能用：地圖、測案都從專案選，存到專案時 mapRef（專案地圖名稱）、
+  // ref（專案測案名稱）只存引用，開啟和執行當下才抓最新版，地圖或測案改了不用重新設定批次。
+  // 舊的批次設定裡整份內嵌的地圖／測案照樣能開。
   var batchGroups = [];
   var batchGroupsEl = document.getElementById("batchGroups");
   var batchRunBtn = document.getElementById("batchRunBtn");
   var batchStopBtn = document.getElementById("batchStopBtn");
-  var batchExportBtn = document.getElementById("batchExportBtn");
+  var batchAddGroupBtn = document.getElementById("batchAddGroupBtn");
   var batchSaveToProjectBtn = document.getElementById("batchSaveToProjectBtn");
   var batchResultsEl = document.getElementById("batchResults");
   var batchAutoNavigate = document.getElementById("batchAutoNavigate");
@@ -2110,16 +2076,6 @@
 
   function currentMapAsFull() {
     return { app: app, screens: screens.map(shortScreenToFull), edges: edges, skipped: skipped };
-  }
-  function readJsonFile(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        try { resolve(JSON.parse(reader.result)); } catch (err) { reject(new Error(file.name + " 不是合法 JSON：" + err.message)); }
-      };
-      reader.onerror = function () { reject(reader.error); };
-      reader.readAsText(file);
-    });
   }
   function mapScreenNames(map) {
     return (map && map.screens || []).map(function (s) { return s.screen_name || s.name; });
@@ -2152,8 +2108,11 @@
       "</div>";
   }
   function renderBatchGroups() {
-    if (!batchGroups.length) {
-      batchGroupsEl.innerHTML = '<div class="empty-state">還沒有任何一組。按「＋ 新增一組地圖」開始，或匯入之前匯出的批次設定。</div>';
+    batchAddGroupBtn.disabled = !currentProject || batchRunning;
+    if (!currentProject) {
+      batchGroupsEl.innerHTML = '<div class="empty-state">批次執行要先開專案（頁首「專案」選一個）：每一組的地圖、測案都從專案裡選。</div>';
+    } else if (!batchGroups.length) {
+      batchGroupsEl.innerHTML = '<div class="empty-state">還沒有任何一組。按「＋ 新增一組地圖」開始，或開啟專案裡存的批次。</div>';
     } else {
       batchGroupsEl.innerHTML = batchGroups.map(function (g, gi) {
         if (g.mapRef && g.mapRef === currentMapName) g.map = currentMapAsFull();
@@ -2164,33 +2123,29 @@
           '<button class="icon-btn" data-act="remove-group" data-g="' + gi + '" title="移除這一組">✕ 移除這組</button></div>' +
           '<div class="batch-row"><span class="lbl">地圖</span><span>' + mapInfo + "</span>" +
           '<button class="icon-btn" data-act="use-current-map" data-g="' + gi + '">使用目前地圖</button>' +
-          projectMapPickHtml(gi) +
-          '<label class="icon-btn">📂 上傳地圖<input type="file" hidden accept="application/json" data-act="map-file" data-g="' + gi + '"></label></div>' +
+          projectMapPickHtml(gi) + "</div>" +
           '<div class="batch-row"><span class="lbl">登入測案</span>' +
           (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
-          '<label class="icon-btn">📂 選擇<input type="file" hidden accept="application/json" data-act="setup-file" data-g="' + gi + '"></label>' +
           projectCasePickHtml("project-setup", gi, "📁 從專案選") + "</div>" +
           (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, g.map, true) + "</div>" : "") +
           '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
-          '<label class="icon-btn">📂 加入測案（可多選）<input type="file" hidden multiple accept="application/json" data-act="case-files" data-g="' + gi + '"></label>' +
           projectCasePickHtml("project-case", gi, "📁 從專案加入") + "</div>" +
           '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
             '<div style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
           "</div>";
       }).join("");
     }
-    var ready = batchGroups.length > 0 && batchGroups.every(function (g) { return g.map && g.cases.length; });
+    var ready = !!currentProject && batchGroups.length > 0 && batchGroups.every(function (g) { return g.map && g.cases.length; });
     batchRunBtn.disabled = !ready || batchRunning;
-    batchExportBtn.disabled = !batchGroups.length;
     batchSaveToProjectBtn.disabled = !batchGroups.length || !currentProject || batchRunning;
   }
   function addBatchGroup(useCurrentMap) {
-    batchGroups.push({ mapName: useCurrentMap ? currentMapSourceName() : null, map: useCurrentMap ? currentMapAsFull() : null,
-      mapRef: useCurrentMap && currentProject ? currentMapName : null, setup: null, cases: [] });
+    batchGroups.push({ mapName: useCurrentMap ? currentMapName : null, map: useCurrentMap ? currentMapAsFull() : null,
+      mapRef: useCurrentMap ? currentMapName : null, setup: null, cases: [] });
     renderBatchGroups();
   }
-  document.getElementById("batchAddGroupBtn").addEventListener("click", function () {
-    addBatchGroup(screens.length > 0);
+  batchAddGroupBtn.addEventListener("click", function () {
+    if (currentProject) addBatchGroup(!!currentMapName);
   });
   batchGroupsEl.addEventListener("click", function (e) {
     var btn = e.target.closest("button[data-act]");
@@ -2198,7 +2153,7 @@
     var gi = Number(btn.dataset.g), ci = Number(btn.dataset.c), g = batchGroups[gi];
     var act = btn.dataset.act;
     if (act === "remove-group") batchGroups.splice(gi, 1);
-    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapSourceName(); g.mapRef = currentProject ? currentMapName : null; }
+    else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapName; g.mapRef = currentMapName; }
     else if (act === "remove-case") g.cases.splice(ci, 1);
     else if (act === "remove-setup") g.setup = null;
     else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
@@ -2222,58 +2177,12 @@
         if (pick.dataset.act === "project-setup") pg.setup = item; else pg.cases.push(item);
       } catch (err) { alert("讀取專案測案失敗：" + err.message); }
       renderBatchGroups();
-      return;
     }
-    var input = e.target.closest("input[type=file][data-act]");
-    if (!input) return;
-    var g = batchGroups[Number(input.dataset.g)], files = Array.prototype.slice.call(input.files);
-    input.value = "";
-    try {
-      if (input.dataset.act === "map-file") {
-        var map = await readJsonFile(files[0]);
-        if (!Array.isArray(map.screens)) throw new Error("找不到 screens 陣列，請用「地圖檢視」匯出的地圖或 app_map_tree.json");
-        g.map = map; g.mapName = files[0].name; g.mapRef = null;
-      } else {
-        for (var i = 0; i < files.length; i++) {
-          var tc = await readJsonFile(files[i]);
-          if (!Array.isArray(tc.steps)) throw new Error(files[i].name + " 不是測試案例（找不到 steps 陣列）");
-          var item = { name: files[i].name, case: tc };
-          if (input.dataset.act === "setup-file") g.setup = item; else g.cases.push(item);
-        }
-      }
-    } catch (err) { alert(err.message); }
-    renderBatchGroups();
   });
   function batchOptions() {
     return { auto_navigate: batchAutoNavigate.checked, allow_restart: batchAllowRestart.checked, dismiss_dialogs: batchDismissDialogs.checked };
   }
-  // 匯出的檔案一律整份內嵌（不留專案引用），給沒有這個專案的人也能匯入重跑
-  function batchItemEmbedded(item) { return item ? { name: item.name, case: item.case } : null; }
-  batchExportBtn.addEventListener("click", async function () {
-    try { await refreshBatchRefs(); }
-    catch (err) { alert("讀取專案測案失敗（可能已改名或刪除）：" + err.message); return; }
-    var data = { batch_version: 1, exported_at: new Date().toISOString(), options: batchOptions(),
-      groups: batchGroups.map(function (g) {
-        return { map_name: g.mapName, map: g.map, setup_case: batchItemEmbedded(g.setup), cases: g.cases.map(batchItemEmbedded) };
-      }) };
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "batch_" + new Date().toISOString().slice(0, 10) + ".json";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
-  document.getElementById("batchImportInput").addEventListener("change", async function (e) {
-    var file = e.target.files[0]; e.target.value = "";
-    if (!file) return;
-    try {
-      var data = await readJsonFile(file);
-      if (!Array.isArray(data.groups)) throw new Error("這不是批次設定檔（找不到 groups）");
-      if (batchGroups.length && !confirm("匯入會取代目前的批次設定，確定嗎？")) return;
-      await loadBatchConfig(data);
-    } catch (err) { alert(err.message); }
-  });
-  // 批次設定（檔案或專案裡存的）載入成 batchGroups：整份內嵌的直接用，
+  // 專案裡存的批次設定載入成 batchGroups：整份內嵌的（舊版存法）直接用，
   // 引用專案的（map_ref／ref）去專案抓最新版，找不到的列出來提醒
   async function loadBatchConfig(data) {
     var missing = [];
@@ -2841,7 +2750,7 @@
   function renderProjectPickers() {
     var on = !!currentProject;
     llmgenCaseProjectSelect.hidden = !on;
-    llmgenCaseProjectSelect.innerHTML = caseOptionsHtml("📁 從專案開啟測案來修改…");
+    llmgenCaseProjectSelect.innerHTML = caseOptionsHtml("📁 開啟專案測案…");
     runscriptCaseProjectSelect.hidden = !on;
     runscriptCaseProjectSelect.innerHTML = caseOptionsHtml("📁 選專案裡的測案…");
     llmgenSaveToProjectBtn.hidden = !on;
@@ -2864,10 +2773,11 @@
   }
 
   // 存一份測案／批次到專案；同名已存在會先問要不要覆蓋。回傳 true＝有存
-  async function saveProjectItem(kind, name, data) {
+  // overwrite＝存回原本開啟的那一份，同名直接覆蓋不用問
+  async function saveProjectItem(kind, name, data, overwrite) {
     var path = projectApi("/" + kind + "/" + encodeURIComponent(name));
     var res;
-    try { res = await apiJson("PUT", path, data); }
+    try { res = await apiJson("PUT", path + (overwrite ? "?overwrite=1" : ""), data); }
     catch (err) {
       if (err.status !== 409) throw err;
       if (!confirm("專案裡已經有「" + name + "」，要覆蓋嗎？")) return false;
@@ -2991,16 +2901,21 @@
     var name = llmgenCaseProjectSelect.value;
     llmgenCaseProjectSelect.value = "";
     if (!name) return;
-    try { importLlmgenCase(await fetchProjectCase(name), "專案測案「" + name + "」"); }
+    try { importLlmgenCase(await fetchProjectCase(name), "📁 開啟專案測案「" + name + "」", { projectName: name }); }
     catch (err) { alert("讀取專案測案失敗：" + err.message); }
   });
   llmgenSaveToProjectBtn.addEventListener("click", async function () {
     if (!llmgenLatestCase || !currentProject) return;
-    var defaultName = (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
-    var name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
+    var defaultName = llmgenProjectName || (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
+    var name = (prompt("存成專案測案，名稱（也是檔名；跟原本同名就是覆蓋）：", defaultName) || "").trim();
     if (!name) return;
     try {
-      if (await saveProjectItem("cases", name, llmgenLatestCase)) setProjectStatus("測案「" + name + "」已存進專案");
+      if (!(await saveProjectItem("cases", name, llmgenLatestCase, name === llmgenProjectName))) return;
+      llmgenProjectName = name;
+      llmgenFileName = null;
+      llmgenSavedText = JSON.stringify(llmgenLatestCase);
+      renderLlmgenCaseStatus();
+      setProjectStatus("測案「" + name + "」已存進專案");
     } catch (err) { alert("存檔失敗：" + err.message); }
   });
   runscriptCaseProjectSelect.addEventListener("change", async function () {
