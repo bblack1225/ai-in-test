@@ -56,7 +56,7 @@ import time
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
@@ -1032,6 +1032,8 @@ class Handler(BaseHTTPRequestHandler):
           POST   /api/projects/<id>/maps/<name>         新增地圖 {map?}（沒給就是空白），同名已存在回 409
           PUT    /api/projects/<id>/maps/<name>         存地圖 {map, base_version}，版本不符回 409
           POST   /api/projects/<id>/maps/<name>/rename  改名 {new_name}
+          GET    /api/projects/<id>/maps/<name>/export  下載這張地圖＋用到的截圖（zip）
+          POST   /api/projects/<id>/maps/<name>/import[?overwrite=1]  匯入地圖 zip（body 是 zip），同名已存在又沒 overwrite 回 409
           DELETE /api/projects/<id>/maps/<name>         刪地圖（最後一張不能刪）
           GET    /api/projects/<id>/<kind>/<name>       讀一份
           PUT    /api/projects/<id>/<kind>/<name>[?overwrite=1]  存一份（已存在又沒 overwrite 回 409）
@@ -1070,7 +1072,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             elif len(parts) >= 3 and parts[1] == "maps":
-                self._handle_map_api(method, parts[0], parts[2], parts[3:])
+                self._handle_map_api(method, parts[0], parts[2], parts[3:], query)
             elif len(parts) == 3 and method == "GET":
                 self._send_json(200, {"data": WORKSPACE.read_item(*parts)})
             elif len(parts) == 3 and method == "PUT":
@@ -1087,7 +1089,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
-    def _handle_map_api(self, method: str, project_id: str, name: str, rest: list):
+    def _handle_map_api(self, method: str, project_id: str, name: str, rest: list, query: dict):
         if method == "GET" and not rest:
             map_data, version = WORKSPACE.read_map(project_id, name)
             self._send_json(200, {"map": map_data, "map_version": version})
@@ -1103,6 +1105,17 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json_body() or {}
             WORKSPACE.rename_map(project_id, name, str(body.get("new_name", "")).strip())
             self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})
+        elif method == "GET" and rest == ["export"]:
+            body = WORKSPACE.export_map_zip(project_id, name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}.zip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif method == "POST" and rest == ["import"]:
+            overwrite = (query.get("overwrite") or ["0"])[0] == "1"
+            self._send_json(200, WORKSPACE.import_map_zip(project_id, name, self._read_body(), overwrite))
         elif method == "DELETE" and not rest:
             WORKSPACE.delete_map(project_id, name)
             self._send_json(200, {"maps": WORKSPACE.list_maps(project_id)})

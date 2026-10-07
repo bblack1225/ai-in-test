@@ -327,7 +327,19 @@
     return out;
   }
 
-  document.getElementById("exportMapBtn").addEventListener("click", function () {
+  document.getElementById("exportMapBtn").addEventListener("click", async function () {
+    if (currentProject && currentMapName) {
+      // 開著專案：先存檔，再從伺服器下載「地圖＋用到的截圖」zip，對方用「📂 匯入地圖」連截圖一起收
+      if (!(await flushMapSave())) { alert("地圖還有修改存不進專案（看頁首的訊息），先處理好再匯出"); return; }
+      var link = document.createElement("a");
+      link.href = API_BASE + mapApi(currentMapName) + "/export";
+      link.download = currentMapName + ".zip";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      document.getElementById("mapSaveStatus").textContent = "已匯出「" + currentMapName + "」（含截圖的 zip）";
+      return;
+    }
     var exportData = { app: app, screens: screens.map(shortScreenToFull), edges: edges, skipped: skipped };
     var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
@@ -395,7 +407,40 @@
     document.getElementById("mapSaveStatus").textContent = "已載入（" + screens.length + " 個畫面）";
   }
 
+  // 「匯出目前地圖」的 zip（地圖＋截圖）匯入成專案裡的地圖；同名的話問要不要取代
+  async function importMapZip(file) {
+    var name = (prompt("匯入成專案「" + currentProject.name + "」的地圖，地圖名稱：\n\n" +
+      "（zip 裡的截圖本機沒有的會一起補進專案；跟現有地圖同名的話，下一步會問要不要取代）",
+      file.name.replace(/\.zip$/i, "")) || "").trim();
+    if (!name) return;
+    if (!(await flushMapSave()) && !confirm("地圖「" + currentMapName + "」還有修改沒存進去，匯入後會丟掉這些修改，確定嗎？")) return;
+    var overwrite = false;
+    for (;;) {
+      var r = await postZip(mapApi(name) + "/import" + (overwrite ? "?overwrite=1" : ""), file);
+      if (r.ok) {
+        projectMaps = r.data.maps;
+        mapDirty = false;
+        await openMap(name, true);
+        alert("已匯入地圖「" + name + "」" + (r.data.screenshots ? "，補進 " + r.data.screenshots + " 張截圖" : "") +
+          (r.data.backup ? "\n原本的地圖已備份到 backups/" : ""));
+        return;
+      }
+      if (r.status !== 409 || overwrite) { alert("匯入地圖失敗：" + (r.data.error || ("HTTP " + r.status))); return; }
+      if (confirm("地圖「" + name + "」已經存在，要用匯入的取代嗎？\n（原本的會先備份到 backups/；按取消可以換一個名稱）")) {
+        overwrite = true;
+        continue;
+      }
+      name = (prompt("另存成新的地圖名稱（留空取消）：", name + " (匯入)") || "").trim();
+      if (!name) return;
+    }
+  }
+
   function loadMapFromFile(file) {
+    if (/\.zip$/i.test(file.name)) {
+      if (!currentProject) { alert("地圖 zip（含截圖）要先開一個專案才能匯入，截圖會放進專案資料夾"); return; }
+      importMapZip(file).catch(function (err) { alert("匯入地圖失敗：" + err.message); });
+      return;
+    }
     var reader = new FileReader();
     reader.onload = function () {
       var data;
@@ -2810,7 +2855,8 @@
     document.getElementById("mapTitle").textContent = on ? currentProject.name + " 畫面地圖" : "畫面地圖";
     document.title = on ? currentProject.name + "｜畫面地圖" : "畫面地圖";
     projectExportBtn.disabled = !on;
-    document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 匯入地圖檔成新地圖" : "📂 載入之前匯出的地圖";
+    document.getElementById("importMapLabel").firstChild.textContent = on ? "📂 匯入地圖（zip／json）" : "📂 載入之前匯出的地圖";
+    document.getElementById("exportMapBtn").textContent = on ? "⬇️ 匯出目前地圖（zip，含截圖）" : "⬇️ 匯出目前地圖（含手動新增的節點）";
     renderMapPicker();
     renderProjectPickers();
     updateLlmgenCaseControls();

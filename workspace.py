@@ -264,6 +264,72 @@ class Workspace:
         shutil.copy2(path, backup)
         return backup
 
+    # 單張地圖的 zip：maps/<名稱>.json ＋ 它用到的 screenshots/xxx.png（跟專案資料夾同樣的結構），
+    # 兩個人互相更新某一張地圖的成果用，不用整個專案匯出匯入
+    def export_map_zip(self, project_id: str, name: str) -> bytes:
+        map_data, _ = self.read_map(project_id, name)
+        d = self._existing_dir(project_id)
+        shots = set()
+        for s in map_data.get("screens") or []:
+            rel = s.get("screenshot") if isinstance(s, dict) else None
+            if isinstance(rel, str) and rel.startswith("screenshots/") and (d / rel).is_file():
+                shots.add(rel)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(self.map_path(project_id, name), f"maps/{name}.json")
+            for rel in sorted(shots):
+                zf.write(d / rel, rel)
+        return buf.getvalue()
+
+    def import_map_zip(self, project_id: str, name: str, data: bytes, overwrite: bool = False) -> dict:
+        """
+        匯入 export_map_zip 產生的 zip，存成專案裡的地圖 name：截圖本機沒有的補進來，已經有的不動
+        （檔名含毫秒時間，不同人拍的不會撞名）。同名地圖已存在：overwrite 才取代（先備份），不然回 409。
+        """
+        if len(data) > MAX_IMPORT_BYTES:
+            raise WorkspaceError("檔案太大（超過 2GB）")
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile:
+            raise WorkspaceError("這不是 zip 檔")
+        with zf:
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+            maps = [n for n in names if n.startswith("maps/") and n.endswith(".json") and n.count("/") == 1]
+            if len(maps) != 1:
+                raise WorkspaceError("zip 內容不對：要是「匯出目前地圖」產生的檔案（裡面有一個 maps/<名稱>.json）")
+            try:
+                map_data = json.loads(zf.read(maps[0]))
+            except json.JSONDecodeError:
+                raise WorkspaceError(f"zip 裡的 {maps[0]} 不是合法 JSON")
+            self._check_map(map_data)
+            path = self.map_path(project_id, name)
+            backup = None
+            if path.exists():
+                if not overwrite:
+                    raise WorkspaceError(f"地圖「{name}」已經存在", 409)
+                project = self.get_project(project_id)
+                platform = (map_data.get("app") or {}).get("platform")
+                if platform and platform != project["platform"]:
+                    raise WorkspaceError(f"這張地圖是 {platform}，專案是 {project['platform']}，不能放進這個專案")
+                backup = self.backup_map(project_id, name)
+                _write_json_atomic(path, map_data)
+            else:
+                self.create_map(project_id, name, map_data)
+            shots_dir = self._existing_dir(project_id) / "screenshots"
+            added = 0
+            for n in names:
+                folder, _, fname = n.partition("/")
+                if folder != "screenshots" or not fname or "/" in fname or fname.startswith(".") or ".." in fname:
+                    continue
+                dest = shots_dir / fname
+                if dest.exists():
+                    continue
+                with zf.open(n) as src, open(dest, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                added += 1
+        return {"screenshots": added, "backup": str(backup) if backup else None,
+                "maps": self.list_maps(project_id)}
+
     # ---- 測案／批次 ----------------------------------------------------
 
     def _item_path(self, project_id: str, kind: str, name: str) -> Path:
