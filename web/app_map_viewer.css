@@ -271,7 +271,7 @@ a { color: var(--accent); }
 .map-manager-box { max-width: 680px; }
 .map-manager-body { padding: 14px 16px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .map-table { width: 100%; border-collapse: collapse; font-size: calc(12.5px * var(--font-scale)); }
-.map-table th { text-align: left; font-weight: 600; color: var(--ink-soft); font-size: calc(11.5px * var(--font-scale)); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.map-table th { white-space: nowrap; text-align: left; font-weight: 600; color: var(--ink-soft); font-size: calc(11.5px * var(--font-scale)); padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .map-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .map-table td.num, .map-table td.time { color: var(--ink-soft); white-space: nowrap; font-family: "IBM Plex Mono", monospace; font-size: calc(11.5px * var(--font-scale)); }
 .map-table td.actions { text-align: right; white-space: nowrap; }
@@ -281,6 +281,9 @@ a { color: var(--accent); }
 .map-table input[type="text"], .map-new-row input { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: calc(12.5px * var(--font-scale)); }
 .map-table input[type="text"] { width: 100%; min-width: 120px; }
 .map-row-confirm { color: var(--danger); }
+.map-copy-row td { background: var(--accent-soft); }
+.map-copy-cell { display: flex; align-items: center; gap: 8px; }
+.map-copy-label { color: var(--accent-ink); font-weight: 600; white-space: nowrap; font-size: calc(12px * var(--font-scale)); }
 .map-new-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .map-new-row input { flex: 1 1 200px; }
 .map-manager-msg { min-height: 1.2em; font-size: calc(12px * var(--font-scale)); color: var(--ink-soft); }

@@ -2635,11 +2635,9 @@
       var name = escapeHtml(m.name), isCurrent = m.name === currentMapName;
       var edit = mapRowEdit && mapRowEdit.name === m.name ? mapRowEdit.mode : null;
       var first, actions;
-      if (edit === "rename" || edit === "copy") {
-        var value = edit === "rename" ? m.name : m.name + "_copy";
-        first = '<input type="text" data-row-input value="' + escapeHtml(value) + '" aria-label="' + (edit === "rename" ? "新名稱" : "複製後的名稱") + '">';
-        actions = '<button class="btn primary" data-act="save">' + (edit === "rename" ? "✓ 改名" : "✓ 複製") + '</button>' +
-          '<button class="btn" data-act="cancel">取消</button>';
+      if (edit === "rename") {
+        first = '<input type="text" data-row-input value="' + name + '" aria-label="新名稱">';
+        actions = '<button class="btn primary" data-act="save">✓ 改名</button><button class="btn" data-act="cancel">取消</button>';
       } else if (edit === "delete") {
         first = '<span class="map-row-confirm">確定刪除「' + name + '」？無法復原</span>';
         actions = '<button class="btn danger" data-act="confirm-delete">刪除</button><button class="btn" data-act="cancel">取消</button>';
@@ -2650,9 +2648,17 @@
           '<button class="btn" data-act="copy">複製</button>' +
           '<button class="btn danger" data-act="delete"' + (onlyOne ? ' disabled title="專案最後一張地圖不能刪"' : "") + ">刪除</button>";
       }
-      return '<tr data-name="' + name + '"' + (isCurrent ? ' class="current"' : "") + ">" +
+      var html = '<tr data-name="' + name + '"' + (isCurrent ? ' class="current"' : "") + ">" +
         "<td>" + first + '</td><td class="num">' + (m.screens != null ? m.screens : "?") + "</td>" +
         '<td class="time">' + escapeHtml(shortTime(m.updated_at)) + '</td><td class="actions">' + actions + "</td></tr>";
+      // 複製：原本那一列不動，在下面多一列輸入複本名稱，看得出來是「多一張」不是改原本的名稱
+      if (edit === "copy") {
+        html += '<tr class="map-copy-row" data-name="' + name + '">' +
+          '<td><div class="map-copy-cell"><span class="map-copy-label">↳ 複本名稱</span><input type="text" data-row-input value="' + escapeHtml(m.name + "_copy") + '" aria-label="複本名稱"></div></td>' +
+          '<td class="num">' + (m.screens != null ? m.screens : "?") + '</td><td class="time">新的</td>' +
+          '<td class="actions"><button class="btn primary" data-act="save">✓ 建立複本</button><button class="btn" data-act="cancel">取消</button></td></tr>';
+      }
+      return html;
     }).join("");
     var input = mapManagerRows.querySelector("[data-row-input]");
     if (input) { input.focus(); input.select(); }
