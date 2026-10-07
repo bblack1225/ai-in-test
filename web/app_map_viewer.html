@@ -190,11 +190,11 @@
         </div>
         <div id="runModeSingle" role="tabpanel" style="display:flex;flex-direction:column;gap:10px;">
         <div class="field-row">
+          <span>測試案例：</span>
           <select class="project-pick" id="runscriptCaseProjectSelect" hidden title="選專案裡的測案"></select>
-          <span id="runscriptCaseHint">在「測案編輯」新增、修改或匯入測案，按「➡ 送去執行」就會帶過來</span>
+          <span id="runscriptCaseHint" style="color:var(--ink-soft);">測案在「測案編輯」新增、修改或匯入，按「➡ 送去執行」也會帶過來</span>
         </div>
         <div class="source-line" id="runscriptMapSourceLine"></div>
-        <div class="source-line" id="runscriptCaseSourceLine"></div>
         <div class="btn-row">
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>

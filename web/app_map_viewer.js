@@ -1494,18 +1494,22 @@
   function llmgenHasUnsaved() {
     return !!llmgenLatestCase && JSON.stringify(llmgenLatestCase) !== llmgenSavedText;
   }
-  // ① 測案下面那一行：目前編的是哪一份、存了沒
+  // ① 測案：選單停在目前開啟的專案測案；下面那行寫狀態（專案測案的名稱已經在選單上，不重複寫）
   function renderLlmgenCaseStatus() {
+    llmgenCaseProjectSelect.value = llmgenProjectName || "";
     if (!llmgenLatestCase) {
-      setSourceLine(llmgenCaseStatus, "目前", "新測案", "還沒產生：在下面選畫面，跟 LLM 描述要測的流程");
+      setSourceLine(llmgenCaseStatus, "狀態", "新測案", "還沒產生：在下面選畫面，跟 LLM 描述要測的流程");
       return;
     }
     var unsaved = llmgenHasUnsaved();
-    var kind = llmgenProjectName ? "專案測案「" + llmgenProjectName + "」" : llmgenFileName ? "匯入的檔案 " + llmgenFileName : "新測案";
-    var state = llmgenProjectName ? (unsaved ? "⚠️ 有修改還沒存" : "已存進專案")
-      : currentProject ? "⚠️ 還沒存進專案"
+    if (llmgenProjectName) {
+      setSourceLine(llmgenCaseStatus, "狀態", unsaved ? "⚠️ 有修改還沒存" : "已存進專案", null);
+      return;
+    }
+    var state = currentProject ? "⚠️ 還沒存進專案"
       : unsaved ? "⚠️ 沒開專案，記得按「⬇ 匯出 JSON」存成檔案" : "已匯出";
-    setSourceLine(llmgenCaseStatus, "目前", kind, (llmgenLatestCase.test_name || "（未命名）") + "・" + state);
+    setSourceLine(llmgenCaseStatus, "狀態", state,
+      (llmgenFileName ? "匯入的檔案 " + llmgenFileName + "：" : "新測案：") + (llmgenLatestCase.test_name || "（未命名）"));
   }
   // 開始一份新的測案：清掉對話和目前的測案。目前這份有修改還沒存會先問，回傳 false＝使用者取消
   function startNewLlmgenCase() {
@@ -1871,8 +1875,10 @@
   llmgenToRunBtn.addEventListener("click", function () {
     if (!llmgenLatestCase) return;
     runscriptTestCase = llmgenLatestCase;
-    runscriptTestCaseSource = { kind: "從測案編輯送來" + (llmgenHasUnsaved() ? "（還沒存）" : ""),
-      name: llmgenProjectName || llmgenLatestCase.test_name || "（未命名）" };
+    var unsaved = llmgenHasUnsaved();
+    runscriptCaseRef = llmgenProjectName && !unsaved ? llmgenProjectName : null;
+    runscriptEditorLabel = (llmgenProjectName || llmgenLatestCase.test_name || "（未命名）") +
+      (llmgenProjectName ? "（有修改還沒存）" : "（還沒存進專案）");
     renderRunscriptPreview();
     setRunMode("single");
     document.querySelector('.tab-btn[data-tab="runscript"]').click();
@@ -1887,13 +1893,19 @@
   var runscriptDismissDialogs = document.getElementById("runscriptDismissDialogs");
   var runscriptBody = document.getElementById("runscriptBody");
   // 地圖一律用「地圖檢視」目前開著的那張（執行當下才抓，地圖換了會跟著變）
-  var runscriptTestCase = null, runscriptTestCaseSource = null;
+  // runscriptCaseRef：選的是專案測案時的名稱；null＝測案編輯送來、不在專案裡（或有修改沒存）的那份
+  var runscriptTestCase = null, runscriptCaseRef = null, runscriptEditorLabel = "";
   var runscriptMapSourceLine = document.getElementById("runscriptMapSourceLine");
-  var runscriptCaseSourceLine = document.getElementById("runscriptCaseSourceLine");
   function renderRunscriptSources() {
     setSourceLine(runscriptMapSourceLine, "地圖", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
-    if (runscriptTestCase) setSourceLine(runscriptCaseSourceLine, "測試案例", runscriptTestCaseSource.kind, runscriptTestCaseSource.name);
-    else setSourceLine(runscriptCaseSourceLine, "測試案例", null, currentProject ? "從上面選專案測案，或在「測案編輯」按「➡ 送去執行」" : "在「測案編輯」按「➡ 送去執行」");
+    renderRunscriptCasePicker();
+  }
+  function renderRunscriptCasePicker() {
+    var fromEditor = runscriptTestCase && !runscriptCaseRef;
+    var editorOption = fromEditor ? '<option value="__editor__">➡ 測案編輯送來的：' + escapeHtml(runscriptEditorLabel) + "</option>" : "";
+    runscriptCaseProjectSelect.hidden = !currentProject && !fromEditor;
+    runscriptCaseProjectSelect.innerHTML = caseOptionsHtml(currentProject ? "📁 選專案裡的測案…" : "（沒開專案）", editorOption);
+    runscriptCaseProjectSelect.value = runscriptCaseRef || (fromEditor ? "__editor__" : "");
   }
   function currentExecutionMap() { return { screens: shortScreensToExecutionFormat(screens) }; }
 
@@ -2735,8 +2747,9 @@
       projectMaps.map(function (m) { return '<option value="' + escapeHtml(m.name) + '">' + escapeHtml(m.name) + "</option>"; }).join("") + "</select>";
   }
 
-  function caseOptionsHtml(placeholder) {
-    return '<option value="">' + escapeHtml(placeholder + (projectCases.length ? "" : "（專案還沒有測案）")) + "</option>" +
+  // extraHtml：放在提示文字後面、專案測案前面的額外選項
+  function caseOptionsHtml(placeholder, extraHtml) {
+    return '<option value="">' + escapeHtml(placeholder + (projectCases.length || !currentProject ? "" : "（專案還沒有測案）")) + "</option>" + (extraHtml || "") +
       projectCases.map(function (c) {
         var label = c.name + (c.test_name && c.test_name !== c.name ? "（" + c.test_name + "）" : "") + (c.steps != null ? "・" + c.steps + " 步" : "");
         return '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(label) + "</option>";
@@ -2751,8 +2764,8 @@
     var on = !!currentProject;
     llmgenCaseProjectSelect.hidden = !on;
     llmgenCaseProjectSelect.innerHTML = caseOptionsHtml("📁 開啟專案測案…");
-    runscriptCaseProjectSelect.hidden = !on;
-    runscriptCaseProjectSelect.innerHTML = caseOptionsHtml("📁 選專案裡的測案…");
+    llmgenCaseProjectSelect.value = llmgenProjectName || "";
+    renderRunscriptCasePicker();
     llmgenSaveToProjectBtn.hidden = !on;
     batchSaveToProjectBtn.hidden = !on;
     batchProjectSelect.hidden = !on;
@@ -2899,10 +2912,10 @@
 
   llmgenCaseProjectSelect.addEventListener("change", async function () {
     var name = llmgenCaseProjectSelect.value;
-    llmgenCaseProjectSelect.value = "";
-    if (!name) return;
+    if (!name) { renderLlmgenCaseStatus(); return; }
     try { importLlmgenCase(await fetchProjectCase(name), "📁 開啟專案測案「" + name + "」", { projectName: name }); }
     catch (err) { alert("讀取專案測案失敗：" + err.message); }
+    renderLlmgenCaseStatus();
   });
   llmgenSaveToProjectBtn.addEventListener("click", async function () {
     if (!llmgenLatestCase || !currentProject) return;
@@ -2920,13 +2933,15 @@
   });
   runscriptCaseProjectSelect.addEventListener("change", async function () {
     var name = runscriptCaseProjectSelect.value;
-    runscriptCaseProjectSelect.value = "";
-    if (!name) return;
+    if (!name || name === "__editor__") { renderRunscriptCasePicker(); return; }
     try {
       runscriptTestCase = await fetchProjectCase(name);
-      runscriptTestCaseSource = { kind: "專案測案", name: name };
+      runscriptCaseRef = name;
       renderRunscriptPreview();
-    } catch (err) { alert("讀取專案測案失敗：" + err.message); }
+    } catch (err) {
+      alert("讀取專案測案失敗：" + err.message);
+      renderRunscriptCasePicker();
+    }
   });
 
   function batchItemToSaved(item) {
