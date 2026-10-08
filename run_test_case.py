@@ -51,6 +51,8 @@ from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidElementStateException, InvalidSessionIdException, NoSuchElementException
 
+# set_stop_checker、xpath_literal 這裡沒用到，留著是因為 viewer_server、crawl_app_tree 從這支 import
+from common import StopRequested, raise_if_stopped, set_stop_checker, xpath_literal
 from test_config import APPIUM_SERVER_URL
 
 ELEMENT_MAP_PATH = Path("element_map.json")
@@ -73,14 +75,6 @@ def load_element_lookup(screen_name: str) -> dict:
         if screen["screen_name"] == screen_name:
             return {el["unique_id"]: el for el in screen["elements"]}
     raise SystemExit(f"element_map.json 裡找不到畫面「{screen_name}」")
-
-
-class StopRequested(Exception):
-    """執行端（viewer_server 的「⏹ 停止」）要求中斷時，從捲動搜尋這類長迴圈裡丟出來，
-    一路往上跳出 run_tap 等函式，不會再退回座標點擊。"""
-
-
-_stop_checker = None
 
 
 # 執行測案時「步驟失敗先關掉非預期彈窗再重試」的開關（viewer 的勾選框／命令列 --dismiss_dialogs），
@@ -137,17 +131,6 @@ def idle_wait_disabled(driver):
                 pass
 
 
-def set_stop_checker(checker) -> None:
-    """viewer_server 啟動時把自己的停止旗標註冊進來；命令列執行不註冊，行為不變。"""
-    global _stop_checker
-    _stop_checker = checker
-
-
-def raise_if_stopped() -> None:
-    if _stop_checker is not None and _stop_checker():
-        raise StopRequested()
-
-
 def retry_assert(check, timeout=None, poll_interval: float = 0.5,
                  on_fail=None, on_fail_interval: float = 3.0) -> str:
     """
@@ -193,16 +176,6 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5,
             next_on_fail_at = time.time() + on_fail_interval
             continue  # 處理完馬上再檢查一次，不用多睡一輪
         time.sleep(poll_interval)
-
-
-def xpath_literal(value: str) -> str:
-    """把字串安全地組成 XPath 字面值，處理內含雙引號的情況"""
-    if '"' not in value:
-        return f'"{value}"'
-    if "'" not in value:
-        return f"'{value}'"
-    parts = value.split('"')
-    return "concat(" + ', \'"\', '.join(f'"{p}"' for p in parts) + ")"
 
 
 def _locate_by_custom_xpath(driver, el: dict):

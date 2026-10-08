@@ -20,8 +20,8 @@ from contextlib import contextmanager
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from capture_screen_map import identity_keys_in_region, position_bucket, read_and_merge_round
-from run_test_case import raise_if_stopped
+from common import raise_if_stopped
+from scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
 from test_config import CONFIG, ios_capabilities
 
 

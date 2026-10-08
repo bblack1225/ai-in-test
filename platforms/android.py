@@ -31,8 +31,8 @@ from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException
 
-from capture_screen_map import position_bucket, read_and_merge_round
-from run_test_case import raise_if_stopped, xpath_literal
+from common import raise_if_stopped, xpath_literal
+from scan_core import position_bucket, read_and_merge_round
 from test_config import android_capabilities
 
 
