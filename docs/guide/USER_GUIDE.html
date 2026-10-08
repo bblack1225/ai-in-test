@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-in-Test 使用說明</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：左側固定目錄＋右側單欄內文（約 70 字寬）；窄螢幕時目錄收到最上面。配色沿用工具網頁的深石板＋青綠 */
+:root {
+  --bg: #f5f7f7;
+  --surface: #ffffff;
+  --fg: #1b2426;
+  --muted: #56666a;
+  --line: #d9e1e2;
+  --accent: #127a72;
+  --accent-soft: #e0f1ef;
+  --code-bg: #eef2f2;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --ios: #2f5fb3;
+  --ios-soft: #e3ebf8;
+  --android: #3b7d23;
+  --android-soft: #e4f1dc;
+  --font-body: "Noto Sans TC", "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+    --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+    --warn: #e9b35a; --warn-soft: #332714;
+    --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+  --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+  --warn: #e9b35a; --warn-soft: #332714;
+  --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.75 var(--font-body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.layout {
+  max-width: 1120px; margin: 0 auto;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px;
+}
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+/* ---- 目錄 ---- */
+nav.toc {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  padding-block: 40px 24px; font-size: 14px; max-height: 100vh; overflow-y: auto;
+}
+nav.toc .toc-title { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.5; }
+nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
+nav.toc .grp { margin-top: 12px; font-size: 12px; color: var(--muted); padding-left: 10px; letter-spacing: .04em; }
+@media (max-width: 900px) {
+  nav.toc { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-block: 24px 16px; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  nav.toc .grp { grid-column: 1 / -1; }
+}
+
+/* ---- 內文 ---- */
+main { min-width: 0; max-width: 760px; padding-block: 40px 0; }
+header.hero { padding-bottom: 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 13px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: 34px; line-height: 1.3; margin: 6px 0 12px; text-wrap: balance; font-weight: 700; }
+.lede { font-size: 17px; color: var(--muted); margin: 0; max-width: 62ch; }
+h2 {
+  font-size: 24px; line-height: 1.35; margin: 56px 0 12px; text-wrap: balance;
+  scroll-margin-top: 16px; display: flex; align-items: baseline; gap: 12px;
+}
+h2 .num { font-family: var(--font-mono); font-size: 15px; color: var(--accent); font-weight: 600; flex: none; }
+h3 { font-size: 18px; margin: 32px 0 8px; scroll-margin-top: 16px; text-wrap: balance; }
+h4 { font-size: 16px; margin: 24px 0 4px; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin-bottom: 4px; }
+li > ul, li > ol { margin-top: 4px; }
+strong { font-weight: 700; }
+.muted { color: var(--muted); }
+
+code { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* 指令區塊：右上角有「複製」 */
+.cmd { position: relative; margin: 8px 0 16px; }
+.cmd pre {
+  margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 84px 12px 14px; overflow-x: auto; font: 14px/1.6 var(--font-mono);
+}
+.cmd pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+.cmd .copy {
+  position: absolute; top: 8px; right: 8px; font: 12px var(--font-body);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer;
+}
+.cmd .copy:hover { border-color: var(--accent); color: var(--accent); }
+.cmd .copy.done { color: var(--accent); border-color: var(--accent); }
+
+/* 提示框 */
+.callout { border-radius: 8px; padding: 12px 16px; margin: 12px 0 18px; font-size: 15px; }
+.callout > :last-child { margin-bottom: 0; }
+.callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+.callout.note { background: var(--accent-soft); }
+.callout.warn { background: var(--warn-soft); }
+.callout.warn .callout-title { color: var(--warn); }
+
+/* 平台標籤 */
+.chip { display: inline-block; font: 600 12px/1 var(--font-mono); padding: 4px 8px; border-radius: 999px; vertical-align: 3px; letter-spacing: .02em; }
+.chip.ios { background: var(--ios-soft); color: var(--ios); }
+.chip.android { background: var(--android-soft); color: var(--android); }
+.chip.both { background: var(--accent-soft); color: var(--accent); }
+.chip.os { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.os-label { font: 600 12.5px/1 var(--font-mono); color: var(--muted); margin: 14px 0 -2px; letter-spacing: .02em; }
+.os-label + .cmd { margin-top: 6px; }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 8px 0 18px; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; font-size: 13px; color: var(--muted); background: var(--code-bg); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td code { white-space: nowrap; }
+
+/* 交付內容：四樣東西 */
+.kit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 18px; }
+@media (max-width: 560px) { .kit { grid-template-columns: minmax(0, 1fr); } }
+.kit > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.kit .k-name { font-weight: 700; }
+.kit .k-from { font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+.kit p { margin: 0; font-size: 14.5px; color: var(--muted); }
+
+/* 工具網頁的分頁流程 */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 14px 0 20px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.flow > div { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.flow > div:last-child { border-right: none; }
+.flow .f-tab { font-weight: 700; font-size: 15px; }
+.flow .f-do { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+@media (max-width: 680px) {
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .flow > div { border-right: none; border-bottom: 1px solid var(--line); }
+  .flow > div:last-child { border-bottom: none; }
+}
+
+/* 檢查清單 */
+ul.checks { list-style: none; padding: 0; }
+ul.checks li { padding-left: 28px; position: relative; }
+ul.checks li::before {
+  content: ""; position: absolute; left: 2px; top: 6px; width: 14px; height: 14px;
+  border: 2px solid var(--accent); border-radius: 3px;
+}
+
+figure.shot { margin: 12px 0 20px; }
+figure.shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+figure.shot figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+figure.shot a { display: block; cursor: zoom-in; }
+
+/* 點截圖放大：⌘／Ctrl＋滾輪或雙指縮放、拖曳移動 */
+.lightbox { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 56px 24px 24px; background: rgba(0, 0, 0, .85); overflow: hidden; touch-action: none; }
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 8px 32px rgba(0, 0, 0, .5); transform-origin: center; user-select: none; -webkit-user-drag: none; cursor: zoom-in; }
+.lightbox img.zoomed { cursor: grab; }
+.lightbox img.dragging { cursor: grabbing; }
+.lightbox .lb-bar { position: absolute; top: 10px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 6px; padding: 0 12px; flex-wrap: wrap; }
+.lightbox .lb-bar button { font: 600 14px/1 inherit; color: #fff; background: rgba(255, 255, 255, .15); border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+.lightbox .lb-bar button:hover { background: rgba(255, 255, 255, .28); }
+.lightbox .lb-zoom { min-width: 56px; }
+.lightbox .lb-hint { color: rgba(255, 255, 255, .7); font-size: 12.5px; margin-left: 6px; }
+@media (max-width: 560px) { .lightbox .lb-hint { display: none; } }
+
+hr { border: none; border-top: 1px solid var(--line); margin: 48px 0 0; }
+footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="目錄">
+  <div class="toc-title">目錄</div>
+  <ol>
+    <li><a href="#overview">這套工具做什麼</a></li>
+    <li><a href="#kit">你會拿到什麼</a></li>
+    <li><a href="#project">準備專案</a></li>
+    <li><a href="#daily">每次使用</a></li>
+    <li><a href="#web">網頁四個分頁</a></li>
+    <li><a href="#share">團隊內交換資料</a></li>
+    <li><a href="#update">更新工具</a></li>
+    <li><a href="#faq">常見問題</a></li>
+    <li><a href="#limits">已知限制</a></li>
+    <li><a href="#more">延伸閱讀</a></li>
+    <li class="grp">另一份文件</li>
+    <li><a href="INSTALL.html">← 安裝步驟</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">ai-in-test ・ 使用說明</div>
+  <h1>手機 App 自動化測試工具使用說明</h1>
+  <p class="lede">還沒裝好環境的話，先照<a href="INSTALL.html">安裝步驟</a>做到 doctor 沒有失敗項目。</p>
+</header>
+<div class="callout note">
+  <p>下面的指令都分兩種寫法：<strong>uv</strong> 和 <strong>venv + pip</strong>，照你安裝時用的方式選。用 venv + pip 的話，每次開新的終端機要先啟用 <code>.venv</code>（macOS：<code>source .venv/bin/activate</code>，Windows：<code>.venv\Scripts\Activate.ps1</code>）。</p>
+</div>
+
+<h2 id="overview">這套工具做什麼</h2>
+<p>不用手寫 selector 的手機 App UI 自動化測試工具。它掃描 App 畫面上的元件，用 LLM 幫沒有 id 的元件寫用途說明，整理成「畫面地圖」。測案只要寫「在哪個畫面點哪個元件」，執行時工具會依序用原生 id、XPath、鄰近文字、座標找到元件。</p>
+<p>操作都在一個本機網頁裡完成：</p>
+<div class="flow" role="list">
+  <div role="listitem"><div class="f-tab">AI 定錨</div><div class="f-do">掃描手機畫面，建立每個元件的資訊與用途描述</div></div>
+  <div role="listitem"><div class="f-tab">測試情境產生</div><div class="f-do">讓 LLM 從畫面推想值得測的情境</div></div>
+  <div role="listitem"><div class="f-tab">測案編輯</div><div class="f-do">用對話產生或修改測案，存進專案</div></div>
+  <div role="listitem"><div class="f-tab">測案執行</div><div class="f-do">在手機上跑單份或整批測案</div></div>
+</div>
+
+<h2 id="kit">你會拿到什麼</h2>
+<div class="kit">
+  <div><div class="k-from">GitHub</div><div class="k-name">工具程式（repo）</div><p>所有團隊共用，裡面沒有任何 App 的資料。</p></div>
+  <div><div class="k-from">交付窗口另外給</div><div class="k-name">專案 zip</div><p>你們 App 的地圖、截圖、測案、批次設定。沒有的話可以從頭建立。</p></div>
+  <div><div class="k-from">交付窗口另外給</div><div class="k-name">Gemini API key</div><p>LLM 功能要用，沒有的話其他功能照常能用。</p></div>
+  <div><div class="k-from">你自己建立</div><div class="k-name">config.toml</div><p>這台電腦、這支手機的設定，含 API key，不要傳給別人。</p></div>
+</div>
+<p class="muted">截圖裡可能有帳號、金額等資訊，所以 App 的資料不放進 git，另外交付。</p>
+
+<h2 id="project">準備專案</h2>
+<p>一支 App 的一個平台是一個專案，例如 <code>xxx-ios</code> 和 <code>xxx-android</code>。資料放在 <code>workspace/projects/&lt;專案代號&gt;/</code>，不進 git。</p>
+
+<h3>A. 從頭建立</h3>
+<p>先查待測 App 的 bundle id（iOS）或 package（Android）：</p>
+<div class="os-label">iOS</div>
+<div class="cmd"><pre><code>xcrun devicectl device info apps --device 你的UDID</code></pre><button class="copy" type="button">複製</button></div>
+<div class="os-label">Android（先在手機打開待測 App，輸出裡 / 前面那段就是 package）</div>
+<div class="cmd"><pre><code>adb shell "dumpsys window | grep mCurrentFocus"</code></pre><button class="copy" type="button">複製</button></div>
+<p>再建立專案，它會一步一步問代號、平台、名稱、bundle id／package：</p>
+<div class="os-label">uv</div>
+<div class="cmd"><pre><code>uv run python workspace.py create</code></pre><button class="copy" type="button">複製</button></div>
+<div class="os-label">venv + pip（先啟用 .venv）</div>
+<div class="cmd"><pre><code>python workspace.py create</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">bundle id 之後可以用 <code>workspace.py update &lt;專案代號&gt; --bundle_id ...</code> 改。填錯的話連線會失敗。</p>
+<p>新專案的地圖是空的，兩種方式補畫面：</p>
+<ul>
+  <li><strong>網頁手動建</strong>：地圖檢視的節點詳情按「🌱 從這裡點出新畫面…」。</li>
+  <li><strong>自動爬蟲</strong> <span class="chip warn">待驗證</span>：<strong>這個流程還沒有實際測過</strong>，結果可能跟這裡寫的不一樣，遇到問題請回報給交付窗口。關掉網頁伺服器、自己開 Appium（<code>appium --address 127.0.0.1</code>），手機停在起始畫面，先用小範圍試：
+    <div class="os-label">uv</div>
+    <div class="cmd"><pre><code>uv run python crawl_app_tree.py --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="os-label">venv + pip（先啟用 .venv）</div>
+    <div class="cmd"><pre><code>python crawl_app_tree.py --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div></li>
+</ul>
+<div class="callout warn">
+  <div class="callout-title">爬蟲預設會點所有元件</div>
+  <p>連正式環境或真實帳號時一定要加 <code>--safe_keywords</code>（跳過下單、送出、確認這類按鈕），可以先加 <code>--dry_run</code> 看它要點哪些。重爬同一張地圖會整張蓋掉（會先備份到 <code>backups/</code>），分功能爬時換 <code>--map</code> 名稱。</p>
+</div>
+
+<h3>B. 有交付的專案 zip</h3>
+<ol>
+  <li>只開網頁、不接手機或是本身已經啟動 Appium：
+    <div class="os-label">uv</div>
+    <div class="cmd"><pre><code>uv run python aitest.py start --no-appium</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="os-label">venv + pip（先啟用 .venv）</div>
+    <div class="cmd"><pre><code>python aitest.py start --no-appium</code></pre><button class="copy" type="button">複製</button></div></li>
+  <li>頁首按「📂 匯入專案 zip」，選拿到的 zip。</li>
+  <li>終端機按 <code>Ctrl+C</code>，之後照<a href="#daily">每次使用</a>帶專案代號啟動。專案代號用 <code>uv run python workspace.py list</code> 查（venv + pip：<code>python workspace.py list</code>）。</li>
+</ol>
+
+<h2 id="daily">每次使用</h2>
+<ol>
+  <li>手機接上、解鎖，打開待測 App。</li>
+  <li>帶專案代號啟動，會自動開 Appium、網頁伺服器和瀏覽器：
+    <div class="os-label">uv</div>
+    <div class="cmd"><pre><code>uv run python aitest.py start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="os-label">venv + pip（先啟用 .venv）</div>
+    <div class="cmd"><pre><code>python aitest.py start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div></li>
+  <li>終端機視窗要一直開著，用完按 <code>Ctrl+C</code>。</li>
+</ol>
+<div class="table-wrap"><table>
+  <thead><tr><th>常用選項</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><code>--no-appium</code></td><td>不啟動 Appium，只看地圖、編輯測案(或是在另外的終端機已經啟動 Appium)</td></tr>
+    <tr><td><code>--no-browser</code></td><td>不自動打開瀏覽器</td></tr>
+    <tr><td><code>--port 8768</code></td><td>8767 被佔用時換 port</td></tr>
+    <tr><td><code>--platform android</code></td><td>沒帶專案代號時，指定網頁伺服器接 Android（不加就是 iOS）</td></tr>
+  </tbody>
+</table></div>
+<div class="callout warn">
+  <div class="callout-title">不帶專案代號的話，要先決定接哪個平台</div>
+  <p>網頁伺服器在啟動的那一刻就決定要接 iOS 還是 Android，之後不能在網頁上切換。帶專案代號時照專案的平台；<strong>沒帶的話一律是 iOS</strong>，而網頁會打開這個瀏覽器上次用的專案。所以上次用的是 Android 專案，或打算進網頁後再選 Android 專案的話，至少要加 <code>--platform android</code>：</p>
+  <div class="os-label">uv</div>
+  <div class="cmd"><pre><code>uv run python aitest.py start --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="os-label">venv + pip（先啟用 .venv）</div>
+  <div class="cmd"><pre><code>python aitest.py start --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <p>平台跟專案對不上時，網頁頁首會提示「專案是 Android，但 viewer_server 目前接的是 iOS」，可以看地圖、編輯測案，但操作手機會被擋下來。這時在終端機按 <code>Ctrl+C</code>，用正確的平台重新啟動。</p>
+</div>
+<div class="callout note">
+  <ul>
+    <li>網頁要從 <code>http://127.0.0.1:8767/</code> 開，不要直接雙擊 HTML 檔。</li>
+    <li>網頁伺服器開著時會佔用手機連線，不要同時跑 <code>crawl_app_tree.py</code>、<code>capture_screen_map.py</code>。</li>
+  </ul>
+</div>
+
+<h2 id="web">網頁四個分頁</h2>
+<h3>地圖檢視</h3>
+<ul>
+  <li>頁首選「專案」和「地圖」。一個專案可以有好幾張地圖，「⚙ 管理地圖」新增、改名、複製、刪除。</li>
+  <li>點節點看畫面和元件，點截圖可以直接選元件。修改會自動存檔。</li>
+</ul>
+<h3>測試情境產生</h3>
+<p>勾選畫面後按「分析並產生情境列表」，每個情境旁的按鈕會帶到測案編輯開一份新測案。</p>
+<h3>測案編輯</h3>
+<ol>
+  <li>「＋ 新測案」「📁 開啟專案測案」或「📂 匯入測案 JSON」。</li>
+  <li>勾選相關畫面，用自然語言描述流程讓 LLM 產生或修改，可以附流程圖或規格書。 <span class="chip warn">待優化</span></li>
+  <li>「💾 存到專案」，或「➡ 送去執行」直接試跑。</li>
+</ol>
+<div class="callout note">
+  <div class="callout-title">測案裡的變數</div>
+  <p>帳號密碼、委託數量、股票代號這類每次可能換的值，測案裡寫成 <code>${KEY}</code>，執行時換成選的變數檔裡的值（頁首「🧩 變數」編輯）。可以用在輸入文字、驗證文字、跑馬燈驗證的值。</p>
+  <ul>
+    <li>LLM 產生測案時，帳號密碼一定會寫成變數，股票代號、張數這類測試資料通常也會，但由 LLM 判斷、不保證；想確保的話在對話裡直接說「張數用變數 QTY」。</li>
+    <li>產生的測案用到還沒有值的變數時，會跳出視窗讓你建立變數檔，值要自己填（LLM 的回覆會列出你提到的值）；也可以「稍後再說」，之後按「🧩 檢查變數」叫回來。</li>
+    <li>執行時：單份在「變數檔」選；批次在每份測案旁的「登入：」和「＋ 變數」選。</li>
+  </ul>
+</div>
+<figure class="shot">
+  <a href="變數設定視窗.png" target="_blank" rel="noopener" title="點一下放大"><img src="變數設定視窗.png" alt="「這份測案用到的變數」視窗：列出測案用到的 ${ORDER_QTY} 還沒有變數檔，可以選新的變數檔或加進現有的，填值後按建立" loading="lazy"></a>
+  <figcaption>LLM 產生的測案用到還沒有值的變數（這裡是委託數量 <code>${ORDER_QTY}</code>）時跳出的視窗（點圖片放大，可以縮放）</figcaption>
+</figure>
+<h3>測案執行</h3>
+<p>分成「單份執行」和「批次執行」兩種，在分頁右上角切換。</p>
+
+<h4>單份執行：跑一份測案</h4>
+<ol>
+  <li>手機先停在測案第一步的畫面（例如已經登入、在首頁）。</li>
+  <li>選要跑的測案，測案用到變數的話在「變數檔」選要代入的檔。</li>
+  <li>按「▶ 執行測試」。建議勾「執行前先檢查手機是否停在第一步的畫面」，畫面不對時整份不執行，不會在錯的畫面上亂點。</li>
+</ol>
+<p class="muted">單份執行不會自動登入，登入狀態要自己先準備好。適合剛寫好一份測案、想先試跑的時候。</p>
+
+<h4>批次執行：一次跑多份測案，可以換帳號</h4>
+<p>把多份測案排好依序執行，每份開始前會自動把手機帶回它的起始畫面；每份測案也可以指定要用哪個帳號登入，所以同一份測案可以用不同帳號各跑一次。</p>
+<ol>
+  <li><strong>準備帳號</strong>：在頁首「🧩 變數」為每個帳號建一個變數檔，裡面放 <code>LOGIN_ID</code>、<code>LOGIN_PASSWORD</code> 等登入資料。</li>
+  <li><strong>準備登入測案</strong>：寫一份「從登入頁輸入帳號密碼、登入成功」的測案，帳號密碼用 <code>${LOGIN_ID}</code>、<code>${LOGIN_PASSWORD}</code>，不要寫死。所有帳號共用這一份。</li>
+  <li><strong>建立批次</strong>：「＋ 新增一組地圖」→ 選地圖 →「登入測案」選上一步那份（登入頁另外建成一張地圖的話，旁邊「登入地圖」選它）→ 按測案清單下方的「＋ 新增測案」，從下拉選單選要跑的測案（要加幾份就按幾次，用 ↑↓ 調整順序、✕ 移除）。</li>
+  <li><strong>每份測案選帳號</strong>：測案旁的「登入：」下拉選單選要用的帳號變數檔，不需要登入的維持「登入：不需登入」；委託數量、股票代號這類其他變數用旁邊的「＋ 變數」加。</li>
+  <li>按「▶ 執行批次」。可以「💾 存到專案」，下次從「📁 開啟專案裡的批次」叫回來。</li>
+</ol>
+<p><strong>換帳號的規則</strong></p>
+<ul>
+  <li>連續幾份用同一個帳號時只會登入一次，不會每份都重登。</li>
+  <li>換帳號的方式是<strong>重開 App 再跑登入測案</strong>，前提是這支 App 重開後會回到未登入的狀態；重開後還保持登入的話，換帳號會失敗，請回報。</li>
+  <li>選的變數檔不存在、或選了帳號卻沒指定登入測案，那份測案會標成 SKIP 並寫原因，其他測案照常跑；執行前的確認視窗也會先提醒。</li>
+</ul>
+<div class="callout note">
+  <div class="callout-title">範例：用「有」和「沒有」抵繳擔保品庫存的兩個帳號，分別測申辦流程和無庫存提示</div>
+  <ol>
+    <li>「🧩 變數」建兩個變數檔：「有抵繳擔保品庫存」和「無抵繳擔保品庫存」，各放一組帳號密碼。</li>
+    <li>批次裡加入兩份測案：「快速抵繳擔保品申辦流程測試」的「登入：」選「有抵繳擔保品庫存」、「驗證抵繳擔保品無庫存時顯示提示訊息」選「無抵繳擔保品庫存」，登入測案共用「使用者登入流程」這一份。</li>
+    <li>執行時，第一份前會重開 App、用第一個帳號登入；換到第二份時帳號不同，會再重開 App、用第二個帳號登入。結果裡每份測案都會標出用的帳號。</li>
+  </ol>
+</div>
+<figure class="shot">
+  <a href="批次執行.png" target="_blank" rel="noopener" title="點一下放大"><img src="批次執行.png" alt="建立好的批次：地圖選 main、登入測案選「使用者登入流程」、登入地圖選「登入」；兩份測案分別選「登入：有抵繳擔保品庫存」和「登入：無抵繳擔保品庫存」" loading="lazy"></a>
+  <figcaption>上面範例建立完成的樣子：登入測案和登入地圖設好，兩份測案各自選了不同的帳號（點圖片放大，可以縮放）</figcaption>
+</figure>
+
+<h2 id="share">團隊內交換資料</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>想做的事</th><th>匯出</th><th>對方匯入</th></tr></thead>
+  <tbody>
+    <tr><td>給整個專案</td><td>頁首「⬇ 匯出專案 zip」</td><td>「📂 匯入專案 zip」</td></tr>
+    <tr><td>同步彼此的成果</td><td>頁首「⬇ 匯出專案 zip」</td><td>「📂 匯入專案 zip」→「合併」，衝突的項目逐一選</td></tr>
+    <tr><td>只更新一張地圖</td><td>地圖檢視「⬇️ 匯出目前地圖」</td><td>「📂 匯入地圖」</td></tr>
+    <tr><td>給一份測案</td><td>測案編輯「⬇ 匯出 JSON」</td><td>測案編輯「📂 匯入測案 JSON」</td></tr>
+  </tbody>
+</table></div>
+<p class="muted">zip 裡有畫面內容，只在團隊內部傳，不要 commit 進 repo。被取代的地圖會先備份到 <code>backups/</code>。</p>
+
+<h2 id="update">更新工具</h2>
+<div class="os-label">uv</div>
+<div class="cmd"><pre><code>git pull
+uv sync</code></pre><button class="copy" type="button">複製</button></div>
+<div class="os-label">venv + pip（先啟用 .venv）</div>
+<div class="cmd"><pre><code>git pull
+pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&gt;=12.3.0" "selenium&gt;=4.49.0"</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">pip 的套件清單跟<a href="INSTALL.html#s3">安裝第 3 步</a>的一樣。<code>workspace/</code> 和 <code>config.toml</code> 不會被動到。工具由交付窗口統一維護，需要修改請回報，不要直接改程式。</p>
+
+<h2 id="faq">常見問題</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>症狀</th><th>處理方式</th></tr></thead>
+  <tbody>
+    <tr><td>driver 有裝，卻報 <code>Could not find a driver for automationName ...</code></td><td>開了好幾個 Appium。macOS：<code>lsof -nP -iTCP:4723 -sTCP:LISTEN</code>，Windows：<code>netstat -ano | findstr :4723</code>，只留一個 PID，其他用 <code>kill</code>／<code>taskkill /PID &lt;PID&gt; /F</code> 關掉</td></tr>
+    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時沒帶專案代號（預設 iOS）。<code>Ctrl+C</code> 後用 <code>aitest.py start &lt;專案代號&gt;</code> 重開</td></tr>
+    <tr><td>port 8767 被佔用</td><td>關掉另一個視窗的伺服器，或加 <code>--port 8768</code></td></tr>
+    <tr><td><span class="chip os">Windows</span> <code>Ctrl+C</code> 後下次連不上</td><td>關掉所有 Appium 視窗再重開</td></tr>
+    <tr><td><span class="chip android">Android</span> BlueStacks 看不到裝置</td><td>重開過 BlueStacks，再 <code>adb connect 127.0.0.1:5555</code></td></tr>
+    <tr><td>操作沒反應、卡住</td><td>手機保持解鎖；iOS 確認畫面有 Automation Running</td></tr>
+    <tr><td>LLM 找不到模型</td><td>預覽版模型下架，<code>config.toml</code> 的 <code>[llm] model_pro</code> 換成正式版</td></tr>
+  </tbody>
+</table></div>
+<p class="muted">安裝時的問題見<a href="INSTALL.html#faq">安裝常見問題</a>，其他見 <code>docs/TROUBLESHOOTING.md</code>。</p>
+
+<h2 id="limits">已知限制</h2>
+<ul>
+  <li>爬蟲在原地切換內容、沒有返回鍵的畫面可能回不去，改用手動建樹。</li>
+  <li>重爬同一張地圖會蓋掉手動加的節點，要從 <code>backups/</code> 補回。</li>
+  <li>手動建樹勾「同時捲動收集完整清單」時，元件框會跟截圖對不齊，預設不勾。</li>
+  <li>一次只能有一個程式連手機。</li>
+  <li>Android 爬蟲還沒在實際 App 上跑過，只做過離線驗證。</li>
+</ul>
+
+<h2 id="more">延伸閱讀 <span class="chip warn">待更新</span></h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>文件</th><th>內容</th></tr></thead>
+  <tbody>
+    <tr><td><code>README.md</code></td><td>檔案總覽、每支程式的細節、所有指令選項</td></tr>
+    <tr><td><code>docs/AUTOMATION_ARCHITECTURE_FLOW.md</code></td><td>整體資料流程</td></tr>
+    <tr><td><code>docs/JUDGMENT_LOGIC_REFERENCE.md</code></td><td>畫面解析和元件定位的判斷邏輯</td></tr>
+    <tr><td><code>docs/CRAWLER_TREE_HANDOFF.md</code></td><td>自動爬蟲的完成度和已知問題</td></tr>
+    <tr><td><code>docs/TROUBLESHOOTING.md</code></td><td>疑難排解</td></tr>
+    <tr><td><code>docs/LLM_USAGE_ESTIMATE.md</code></td><td>LLM 用量估算</td></tr>
+  </tbody>
+</table></div>
+
+<footer>docs/guide/USER_GUIDE.html ・ 內容跟實際操作不一樣時，請回報給交付窗口。</footer>
+</main>
+</div>
+
+<script>
+// 每個指令區塊右上角的「複製」：寫入剪貼簿；瀏覽器不允許時改成選取文字，讓使用者自己按 ⌘C
+document.querySelectorAll(".cmd .copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var code = btn.parentElement.querySelector("code");
+    var text = code.textContent;
+    function selectText() {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "已選取，按 ⌘C／Ctrl+C";
+    }
+    function done() {
+      btn.textContent = "已複製";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = "複製"; btn.classList.remove("done"); }, 1500);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, selectText);
+      else selectText();
+    } catch (e) { selectText(); }
+  });
+});
+
+// 點文件裡的截圖放大：蓋一層全螢幕的圖。⌘／Ctrl＋滾輪（觸控板雙指）以游標為中心縮放，放大後拖曳或滾輪移動，
+// 雙擊在 1 倍和 2.5 倍之間切換；點背景、✕ 或按 Esc 關掉。沒有 JS 時連結照樣會在新分頁開原圖
+(function () {
+  var MIN = 1, MAX = 8;
+  var box = document.createElement("div");
+  box.className = "lightbox";
+  box.hidden = true;
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "放大的截圖");
+  box.innerHTML = '<div class="lb-bar">' +
+    '<button type="button" data-z="out" title="縮小（-）">－</button>' +
+    '<button type="button" data-z="reset" class="lb-zoom" title="回到原本大小（0）">100%</button>' +
+    '<button type="button" data-z="in" title="放大（+）">＋</button>' +
+    '<button type="button" data-z="close" title="關閉（Esc）">✕ 關閉</button>' +
+    '<span class="lb-hint">⌘／Ctrl＋滾輪或雙指縮放，放大後拖曳移動</span></div><img alt="">';
+  document.body.appendChild(box);
+  var big = box.querySelector("img"), zoomLabel = box.querySelector(".lb-zoom");
+  var scale = 1, tx = 0, ty = 0;
+
+  function apply() {
+    big.style.transform = "translate(" + tx + "px, " + ty + "px) scale(" + scale + ")";
+    big.classList.toggle("zoomed", scale > 1);
+    zoomLabel.textContent = Math.round(scale * 100) + "%";
+  }
+  // 以畫面上的 (x, y) 為中心縮放到 next 倍：讓游標底下那一點縮放後還在游標底下
+  function zoomTo(next, x, y) {
+    next = Math.min(MAX, Math.max(MIN, next));
+    var r = box.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + (r.height + 32) / 2;  // 上方 padding 多 32px，圖片中心往下偏
+    if (x === undefined) { x = cx; y = cy; }
+    tx = (x - cx) - (x - cx - tx) * next / scale;
+    ty = (y - cy) - (y - cy - ty) * next / scale;
+    scale = next;
+    if (scale === 1) { tx = 0; ty = 0; }
+    apply();
+  }
+  function open(src, alt) {
+    scale = 1; tx = 0; ty = 0;
+    big.src = src;
+    big.alt = alt;
+    apply();
+    box.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+  function close() {
+    box.hidden = true;
+    big.removeAttribute("src");
+    document.body.style.overflow = "";
+  }
+
+  document.querySelectorAll("figure.shot a").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      e.preventDefault();
+      open(a.getAttribute("href"), a.querySelector("img").alt);
+    });
+  });
+  box.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-z]");
+    if (btn) {
+      var z = btn.dataset.z;
+      if (z === "close") close();
+      else if (z === "reset") zoomTo(1);
+      else zoomTo(scale * (z === "in" ? 1.5 : 1 / 1.5));
+      return;
+    }
+    if (e.target === box) close();  // 點圖片以外的背景才關，拖曳圖片不會不小心關掉
+  });
+  big.addEventListener("dblclick", function (e) { zoomTo(scale > 1 ? 1 : 2.5, e.clientX, e.clientY); });
+  // ⌘／Ctrl＋滾輪：縮放（觸控板雙指縮放也是送 ctrlKey 的滾輪事件）；放大後一般滾輪：移動
+  box.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      // 滑鼠滾輪一格的 deltaY 很大（約 100），觸控板雙指是很多個小值：滑鼠每格固定 1.25 倍，觸控板照比例
+      var factor = Math.abs(e.deltaY) >= 40 ? (e.deltaY < 0 ? 1.25 : 1 / 1.25) : Math.exp(-e.deltaY * 0.01);
+      zoomTo(scale * factor, e.clientX, e.clientY);
+    }
+    else if (scale > 1) { tx -= e.deltaX; ty -= e.deltaY; apply(); }
+  }, { passive: false });
+
+  var drag = null;
+  big.addEventListener("pointerdown", function (e) {
+    if (scale === 1) return;
+    e.preventDefault();
+    drag = { x: e.clientX, y: e.clientY, tx: tx, ty: ty };
+    big.classList.add("dragging");
+    big.setPointerCapture(e.pointerId);
+  });
+  big.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    tx = drag.tx + e.clientX - drag.x;
+    ty = drag.ty + e.clientY - drag.y;
+    apply();
+  });
+  function endDrag() { drag = null; big.classList.remove("dragging"); }
+  big.addEventListener("pointerup", endDrag);
+  big.addEventListener("pointercancel", endDrag);
+
+  document.addEventListener("keydown", function (e) {
+    if (box.hidden) return;
+    if (e.key === "Escape") close();
+    else if (e.key === "+" || e.key === "=") zoomTo(scale * 1.5);
+    else if (e.key === "-") zoomTo(scale / 1.5);
+    else if (e.key === "0") zoomTo(1);
+    else return;
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>

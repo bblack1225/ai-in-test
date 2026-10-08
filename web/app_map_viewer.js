@@ -2365,10 +2365,12 @@
           (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
           projectCasePickHtml("project-setup", gi, "📁 從專案選") + setupMapPickHtml(gi, g.setupMapRef) + "</div>" +
           (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, setupMapOf(g), true) + "</div>" : "") +
-          '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
-          projectCasePickHtml("project-case", gi, "📁 從專案加入") + "</div>" +
-          '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
-            '<div style="font-size: calc(11.5px * var(--font-scale));color:var(--ink-soft);">還沒有測案</div>') + "</div>" +
+          '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span></div>' +
+          '<div class="batch-cases">' + g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") +
+          (g.adding ? '<div class="batch-case"><span class="idx">' + (g.cases.length + 1) + "</span>" +
+            projectCasePickHtml("project-case", gi, "選擇要加入的測案…") +
+            '<button class="icon-btn" data-act="cancel-add-case" data-g="' + gi + '" title="取消">✕</button></div>'
+            : '<button class="batch-add-case" data-act="add-case" data-g="' + gi + '">＋ 新增測案</button>') + "</div>" +
           "</div>";
       }).join("");
     }
@@ -2391,12 +2393,18 @@
     var act = btn.dataset.act;
     if (act === "remove-group") batchGroups.splice(gi, 1);
     else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapName; g.mapRef = currentMapName; }
+    else if (act === "add-case") g.adding = true;
+    else if (act === "cancel-add-case") g.adding = false;
     else if (act === "remove-case") g.cases.splice(ci, 1);
     else if (act === "remove-setup") g.setup = null;
     else if (act === "case-var-remove") g.cases[ci].vars.splice(Number(btn.dataset.v), 1);
     else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
     else if (act === "down" && ci < g.cases.length - 1) g.cases.splice(ci + 1, 0, g.cases.splice(ci, 1)[0]);
     renderBatchGroups();
+    if (act === "add-case") {
+      var addPick = batchGroupsEl.querySelector('select[data-act="project-case"][data-g="' + gi + '"]');
+      if (addPick) addPick.focus();
+    }
   });
   batchGroupsEl.addEventListener("change", async function (e) {
     var pick = e.target.closest("select[data-act]");
@@ -2429,7 +2437,7 @@
       }
       try {
         var item = { name: name, ref: name, case: await fetchProjectCase(name) };
-        if (pick.dataset.act === "project-setup") pg.setup = item; else pg.cases.push(item);
+        if (pick.dataset.act === "project-setup") pg.setup = item; else { pg.cases.push(item); pg.adding = false; }
       } catch (err) { alert("讀取專案測案失敗：" + err.message); }
       renderBatchGroups();
     }

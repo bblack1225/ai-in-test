@@ -416,6 +416,8 @@ textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box;
 .batch-case .idx { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); min-width: 18px; }
 .batch-case .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .batch-case .meta { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); margin-right: auto; }
+.batch-add-case { align-self: flex-start; padding: 5px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink-soft); font: inherit; font-size: calc(12px * var(--font-scale)); cursor: pointer; }
+.batch-add-case:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
 .batch-case .warn { color: var(--gold); font-size: calc(11px * var(--font-scale)); }
 .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: calc(11px * var(--font-scale)); cursor: pointer; }
 .icon-btn:hover { border-color: var(--accent); }

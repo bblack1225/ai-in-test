@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-in-Test 安裝步驟</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* 版面：左側固定目錄＋右側單欄內文（約 70 字寬）；窄螢幕時目錄收到最上面。配色沿用工具網頁的深石板＋青綠 */
+:root {
+  --bg: #f5f7f7;
+  --surface: #ffffff;
+  --fg: #1b2426;
+  --muted: #56666a;
+  --line: #d9e1e2;
+  --accent: #127a72;
+  --accent-soft: #e0f1ef;
+  --code-bg: #eef2f2;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --ios: #2f5fb3;
+  --ios-soft: #e3ebf8;
+  --android: #3b7d23;
+  --android-soft: #e4f1dc;
+  --font-body: "Noto Sans TC", "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+    --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+    --warn: #e9b35a; --warn-soft: #332714;
+    --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121a1c; --surface: #1a2427; --fg: #e3eaeb; --muted: #9aabae; --line: #2c3a3d;
+  --accent: #4fc2b6; --accent-soft: #173533; --code-bg: #0f1618;
+  --warn: #e9b35a; --warn-soft: #332714;
+  --ios: #8cb0f0; --ios-soft: #1c2a42; --android: #9ad27f; --android-soft: #1f3019;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.75 var(--font-body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.layout {
+  max-width: 1120px; margin: 0 auto;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px;
+}
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+/* ---- 目錄 ---- */
+nav.toc {
+  position: sticky; top: env(safe-area-inset-top, 0px); align-self: start;
+  padding-block: 40px 24px; font-size: 14px; max-height: 100vh; overflow-y: auto;
+}
+nav.toc .toc-title { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.5; }
+nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
+nav.toc .grp { margin-top: 12px; font-size: 12px; color: var(--muted); padding-left: 10px; letter-spacing: .04em; }
+@media (max-width: 900px) {
+  nav.toc { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-block: 24px 16px; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  nav.toc .grp { grid-column: 1 / -1; }
+}
+
+/* ---- 內文 ---- */
+main { min-width: 0; max-width: 760px; padding-block: 40px 0; }
+header.hero { padding-bottom: 28px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 13px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: 34px; line-height: 1.3; margin: 6px 0 12px; text-wrap: balance; font-weight: 700; }
+.lede { font-size: 17px; color: var(--muted); margin: 0; max-width: 62ch; }
+h2 {
+  font-size: 24px; line-height: 1.35; margin: 56px 0 12px; text-wrap: balance;
+  scroll-margin-top: 16px; display: flex; align-items: baseline; gap: 12px;
+}
+h2 .num { font-family: var(--font-mono); font-size: 15px; color: var(--accent); font-weight: 600; flex: none; }
+h3 { font-size: 18px; margin: 32px 0 8px; scroll-margin-top: 16px; text-wrap: balance; }
+h4 { font-size: 16px; margin: 24px 0 4px; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin-bottom: 4px; }
+li > ul, li > ol { margin-top: 4px; }
+strong { font-weight: 700; }
+.muted { color: var(--muted); }
+
+code { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* 指令區塊：右上角有「複製」 */
+.cmd { position: relative; margin: 8px 0 16px; }
+.cmd pre {
+  margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 84px 12px 14px; overflow-x: auto; font: 14px/1.6 var(--font-mono);
+}
+.cmd pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+.cmd .copy {
+  position: absolute; top: 8px; right: 8px; font: 12px var(--font-body);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer;
+}
+.cmd .copy:hover { border-color: var(--accent); color: var(--accent); }
+.cmd .copy.done { color: var(--accent); border-color: var(--accent); }
+
+/* 提示框 */
+.callout { border-radius: 8px; padding: 12px 16px; margin: 12px 0 18px; font-size: 15px; }
+.callout > :last-child { margin-bottom: 0; }
+.callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+.callout.note { background: var(--accent-soft); }
+.callout.warn { background: var(--warn-soft); }
+.callout.warn .callout-title { color: var(--warn); }
+
+/* 平台標籤 */
+.chip { display: inline-block; font: 600 12px/1 var(--font-mono); padding: 4px 8px; border-radius: 999px; vertical-align: 3px; letter-spacing: .02em; }
+.chip.ios { background: var(--ios-soft); color: var(--ios); }
+.chip.android { background: var(--android-soft); color: var(--android); }
+.chip.both { background: var(--accent-soft); color: var(--accent); }
+.chip.os { background: var(--code-bg); color: var(--muted); border: 1px solid var(--line); }
+.os-label { font: 600 12.5px/1 var(--font-mono); color: var(--muted); margin: 14px 0 -2px; letter-spacing: .02em; }
+.os-label + .cmd { margin-top: 6px; }
+
+/* 表格 */
+.table-wrap { overflow-x: auto; margin: 8px 0 18px; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; background: var(--surface); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; font-size: 13px; color: var(--muted); background: var(--code-bg); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td code { white-space: nowrap; }
+
+/* 交付內容：四樣東西 */
+.kit { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 18px; }
+@media (max-width: 560px) { .kit { grid-template-columns: minmax(0, 1fr); } }
+.kit > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.kit .k-name { font-weight: 700; }
+.kit .k-from { font-size: 13px; color: var(--accent); margin-bottom: 4px; }
+.kit p { margin: 0; font-size: 14.5px; color: var(--muted); }
+
+/* 工具網頁的分頁流程 */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 14px 0 20px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.flow > div { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.flow > div:last-child { border-right: none; }
+.flow .f-tab { font-weight: 700; font-size: 15px; }
+.flow .f-do { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+.flow .f-out { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-top: 6px; }
+@media (max-width: 680px) {
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .flow > div { border-right: none; border-bottom: 1px solid var(--line); }
+  .flow > div:last-child { border-bottom: none; }
+}
+
+/* 檢查清單 */
+ul.checks { list-style: none; padding: 0; }
+ul.checks li { padding-left: 28px; position: relative; }
+ul.checks li::before {
+  content: ""; position: absolute; left: 2px; top: 6px; width: 14px; height: 14px;
+  border: 2px solid var(--accent); border-radius: 3px;
+}
+
+hr { border: none; border-top: 1px solid var(--line); margin: 48px 0 0; }
+footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
+
+/* 可展開的替代做法 */
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 10px 16px; margin: 12px 0 18px; }
+details[open] { padding-bottom: 4px; }
+summary { cursor: pointer; font-weight: 700; }
+details > :not(summary):first-of-type { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" aria-label="目錄">
+  <div class="toc-title">目錄</div>
+  <ol>
+    <li><a href="#before">開始前</a></li>
+    <li><a href="#s1">1. 取得程式</a></li>
+    <li><a href="#s2">2. 安裝共用工具</a></li>
+    <li><a href="#s3">3. 建立 Python 環境</a></li>
+    <li><a href="#s4">4. 建立設定檔</a></li>
+    <li><a href="#s5-android">5A. Android 裝置設定</a></li>
+    <li><a href="#s5-ios">5B. iOS 裝置設定</a></li>
+    <li><a href="#s6">6. 檢查環境</a></li>
+    <li><a href="#faq">安裝常見問題</a></li>
+    <li class="grp">另一份文件</li>
+    <li><a href="USER_GUIDE.html">使用說明 →</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">ai-in-test ・ 安裝</div>
+  <h1>安裝步驟</h1>
+  <p class="lede">照第 1 到第 6 步做完，最後 doctor 檢查沒有失敗項目就完成了。工具怎麼用請看<a href="USER_GUIDE.html">使用說明</a>。</p>
+</header>
+
+<h2 id="before">開始前</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>你的電腦</th><th>能測的平台</th><th>要做的步驟</th></tr></thead>
+  <tbody>
+    <tr><td>macOS</td><td><span class="chip ios">iOS</span> <span class="chip android">Android</span></td><td>1～4、5A 和／或 5B、6</td></tr>
+    <tr><td>Windows</td><td><span class="chip android">Android</span></td><td>1～4、5A、6（iOS 需要 Xcode，只能用 Mac）</td></tr>
+  </tbody>
+</table></div>
+<ul class="checks">
+  <li>測試用手機或模擬器，待測 App 已經裝好</li>
+  <li>從交付窗口拿到 Gemini API key</li>
+</ul>
+<p class="muted">Windows 的指令都在 PowerShell 裡執行。所有指令都在 <code>ai-in-test</code> 資料夾裡執行。</p>
+
+<h2 id="s1"><span class="num">01</span>取得程式</h2>
+<div class="cmd"><pre><code>git clone https://github.com/bblack1225/ai-in-test.git
+cd ai-in-test</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">還沒有 git 的話，先照第 2 步的表格裝。</p>
+
+<h2 id="s2"><span class="num">02</span>安裝共用工具</h2>
+<p>先用確認指令看有沒有裝過。macOS 用 <a href="https://brew.sh" target="_blank" rel="noopener">Homebrew</a>，Windows 用 winget。</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>工具</th><th>確認指令</th><th>macOS 安裝</th><th>Windows 安裝</th></tr></thead>
+  <tbody>
+    <tr><td>git</td><td><code>git --version</code></td><td><code>xcode-select --install</code></td><td><code>winget install --id Git.Git -e</code></td></tr>
+    <tr><td>uv</td><td><code>uv --version</code></td><td><code>brew install uv</code></td><td><code>winget install --id astral-sh.uv -e</code></td></tr>
+    <tr><td>Node.js</td><td><code>node --version</code></td><td><code>brew install node</code></td><td><code>winget install --id OpenJS.NodeJS.LTS -e</code></td></tr>
+    <tr><td>Appium 3</td><td><code>appium --version</code></td><td colspan="2"><code>npm install -g appium</code></td></tr>
+  </tbody>
+</table></div>
+<p class="muted">不能裝 uv 的話可以跳過，第 3 步改用 pip。Windows 裝完要關掉 PowerShell 再重開。</p>
+
+<h2 id="s3"><span class="num">03</span>建立 Python 環境</h2>
+<div class="cmd"><pre><code>uv sync</code></pre><button class="copy" type="button">複製</button></div>
+<p>uv 會自動下載 Python 3.12，套件裝在專案的 <code>.venv/</code>。之後執行程式一律用 <code>uv run python ...</code>，不用啟用虛擬環境。</p>
+
+<details>
+  <summary>不能用 uv：改用 venv + pip</summary>
+  <p>需要電腦上已經有 Python 3.12（最低 3.11，見下方「Python 版本」；macOS 內建的 3.9 不行），先用 <code>python3 --version</code> 或 <code>python --version</code> 確認。</p>
+  <div class="os-label">macOS</div>
+  <div class="cmd"><pre><code>python3 -m venv .venv
+source .venv/bin/activate</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="os-label">Windows（PowerShell）</div>
+  <div class="cmd"><pre><code>python -m venv .venv
+.venv\Scripts\Activate.ps1</code></pre><button class="copy" type="button">複製</button></div>
+  <p>提示字元前面出現 <code>(.venv)</code> 就是啟用了。PowerShell 擋下 <code>Activate.ps1</code> 的話，先執行 <code>Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</code>（只對這個視窗有效）。接著安裝套件（兩個系統一樣）：</p>
+  <div class="cmd"><pre><code>pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&gt;=12.3.0" "selenium&gt;=4.49.0"</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="callout note">
+    <p>用這個方式的話，兩份文件裡的 <code>uv run python</code> 都換成 <code>python</code>。每次開新的終端機都要先啟用 <code>.venv</code>。</p>
+  </div>
+</details>
+
+<details>
+  <summary>Python 版本：建議 3.12，最低 3.11</summary>
+  <p>專案設定的、實際測過的都是 Python 3.12。程式本身最低需要 3.11（讀 <code>config.toml</code> 用的 <code>tomllib</code> 是 3.11 才有），3.10 以下跑不起來。</p>
+  <div class="callout warn">
+    <p><strong>3.11 還沒有實際驗證過</strong>，套件版本也是照 3.12 鎖定的。能用 3.12 就用 3.12；用 3.11 遇到問題的話請改回 3.12。</p>
+  </div>
+  <p>電腦只能用 3.11 的話，要改這些地方：</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>檔案</th><th>要改的地方</th><th>改成</th><th>什麼時候要改</th></tr></thead>
+    <tbody>
+      <tr><td><code>aitest.py</code></td><td><code>check_python()</code> 裡的 <code>if v &gt;= (3, 12):</code>，和同一個函式裡錯誤訊息的「需要 3.12 以上」</td><td><code>(3, 11)</code>、「需要 3.11 以上」</td><td>一定要改，不然 doctor 會判定 Python 版本不合格</td></tr>
+      <tr><td><code>pyproject.toml</code></td><td><code>requires-python = "&gt;=3.12"</code></td><td><code>"&gt;=3.11"</code></td><td>用 uv 時</td></tr>
+      <tr><td><code>.python-version</code></td><td><code>3.12</code></td><td><code>3.11</code></td><td>用 uv 時（<code>uv sync</code> 照這個下載 Python）</td></tr>
+      <tr><td><code>uv.lock</code></td><td>不用手改</td><td>改完上面兩個檔案後執行 <code>uv lock</code> 重新產生</td><td>用 uv 時</td></tr>
+    </tbody>
+  </table></div>
+  <p>用 venv + pip 的話只要改 <code>aitest.py</code>；pip 裝套件時如果有哪個版本不支援 3.11，會直接報錯。改完照第 6 步跑 doctor，再實際跑一份測案確認。</p>
+</details>
+
+<h2 id="s4"><span class="num">04</span>建立設定檔</h2>
+<div class="cmd"><pre><code>cp config.example.toml config.toml</code></pre><button class="copy" type="button">複製</button></div>
+<p>打開 <code>config.toml</code>，在 <code>[llm]</code> 填 API key：</p>
+<div class="cmd"><pre><code>[llm]
+api_key = "交付窗口給你的 key"</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted"><code>config.toml</code> 不會進 git，裡面有 key，不要傳給別人。也可以改用環境變數 <code>GEMINI_API_KEY</code>。<code>[ios]</code>／<code>[android]</code> 在第 5 步填。</p>
+
+<h2 id="s5-android"><span class="num">05A</span>Android 裝置設定 <span class="chip android">Android</span></h2>
+<div class="callout note">
+  <p>這一步的重點是<a href="#s5-android-config">填 config.toml 的 [android]</a>。Android Studio、<code>adb</code>、uiautomator2 driver 都裝好，裝置也已經能用 <code>adb devices</code> 看到的話，可以跳過下面的安裝和準備，直接填 config.toml。</p>
+</div>
+
+<h3>安裝 Android Studio 和 driver</h3>
+<ol>
+  <li>安裝 <a href="https://developer.android.com/studio" target="_blank" rel="noopener">Android Studio</a>，照預設裝好 Android SDK。用模擬器的話在 Device Manager 建一台。</li>
+  <li>設定 <code>ANDROID_HOME</code>、<code>JAVA_HOME</code>，並把 platform-tools 加進 <code>PATH</code>（以下是預設安裝位置）：
+    <div class="os-label">macOS</div>
+    <div class="cmd"><pre><code>echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' &gt;&gt; ~/.zshrc
+echo 'export PATH="$ANDROID_HOME/platform-tools:$PATH"' &gt;&gt; ~/.zshrc
+echo 'export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"' &gt;&gt; ~/.zshrc
+source ~/.zshrc</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="os-label">Windows（PowerShell）</div>
+    <div class="cmd"><pre><code>setx ANDROID_HOME "$env:LOCALAPPDATA\Android\Sdk"
+setx JAVA_HOME "C:\Program Files\Android\Android Studio\jbr"</code></pre><button class="copy" type="button">複製</button></div>
+    Windows 的 <code>PATH</code> 用介面加（<code>setx</code> 會截斷）：搜尋「編輯您帳戶的環境變數」→ <code>Path</code> → 新增 <code>%ANDROID_HOME%\platform-tools</code>。重開終端機後 <code>adb version</code> 有版本就對了。</li>
+  <li>安裝 Android driver：
+    <div class="cmd"><pre><code>appium driver install uiautomator2</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>準備裝置</h3>
+<ul>
+  <li><strong>實機</strong>：開啟開發人員選項和 USB 偵錯，接上後在手機上允許偵錯。</li>
+  <li><strong>模擬器</strong>：自己先裝好待測 APK（拖進視窗或 <code>adb install 檔案.apk</code>）。Apple Silicon Mac 要 arm64 或 universal 的 APK；金融 App 常擋模擬器，被擋就改用實機。</li>
+  <li><strong>BlueStacks</strong>：設定 → 進階 → 打開「Android 偵錯橋（ADB）」，再用畫面上的位址連線。每次重開 BlueStacks 都要再連一次：
+    <div class="cmd"><pre><code>adb connect 127.0.0.1:5555</code></pre><button class="copy" type="button">複製</button></div></li>
+</ul>
+
+<h3 id="s5-android-config">填 config.toml 的 [android]</h3>
+<p><code>udid</code> 填 <code>adb devices</code> 看到的代號，例如 <code>emulator-5554</code>、<code>127.0.0.1:5555</code>（BlueStacks）或實機序號。</p>
+
+<h2 id="s5-ios"><span class="num">05B</span>iOS 裝置設定 <span class="chip ios">iOS</span> <span class="chip os">僅限 macOS</span></h2>
+<div class="callout note">
+  <p>這一步的重點是<a href="#s5-ios-config">填 config.toml 的 [ios]</a>。Xcode、xcuitest driver 都裝好，iPhone 也已經簽署過 WebDriverAgent 的話，可以跳過下面的安裝和準備，直接填 config.toml（UDID、Team ID、WDA bundle id 不知道的話，查法在下面的步驟裡）。</p>
+</div>
+
+<h3>安裝 Xcode 和 driver</h3>
+<ol>
+  <li>從 App Store 安裝 Xcode，打開一次讓它裝完元件，再同意授權：
+    <div class="cmd"><pre><code>sudo xcodebuild -license accept</code></pre><button class="copy" type="button">複製</button></div></li>
+  <li>安裝 iOS driver：
+    <div class="cmd"><pre><code>appium driver install xcuitest</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>準備 iPhone</h3>
+<ol>
+  <li>USB 接上 Mac、解鎖，點「信任這台電腦」。</li>
+  <li>設定 → 隱私權與安全性 → 開啟開發者模式。沒有這個選項的話，先做完下面「簽署 WebDriverAgent」的步驟 3 再回來開。</li>
+  <li>查 UDID（<code>== Devices ==</code> 底下手機那一行括號裡的值）：
+    <div class="cmd"><pre><code>xcrun xctrace list devices</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+
+<h3>簽署 WebDriverAgent</h3>
+<p class="muted">WebDriverAgent（WDA）是 Appium 裝到 iPhone 上操作畫面的程式，手機上會多一支 WebDriverAgentRunner-Runner，不要刪。</p>
+<ol>
+  <li>Xcode → Settings → Accounts → ＋ 登入 Apple ID。</li>
+  <li>打開 WDA 專案：
+    <div class="cmd"><pre><code>open ~/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj</code></pre><button class="copy" type="button">複製</button></div>
+    TARGETS 選 <strong>WebDriverAgentRunner</strong> → Signing &amp; Capabilities：勾 Automatically manage signing、Team 選你的帳號、Bundle Identifier 取一個固定的，例如 <code>com.你的名字.WebDriverAgentRunner</code>。</li>
+  <li>Scheme 選 WebDriverAgentRunner、裝置選你的 iPhone，按 ⌘U。手機出現「不受信任的開發者」就到 設定 → 一般 → VPN 與裝置管理 → 信任，再按一次 ⌘U。出現 <strong>Automation Running</strong> 就成功，按 ⌘. 停止。</li>
+  <li>查 Team ID（<code>organizationalUnitName</code> 那一行）：
+    <div class="cmd"><pre><code>security find-certificate -a -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline</code></pre><button class="copy" type="button">複製</button></div></li>
+</ol>
+<div class="callout warn">
+  <p><strong>免費 Apple ID 簽署 7 天到期</strong>，到期後重做步驟 3 即可，bundle id 不要換。</p>
+</div>
+
+<h3 id="s5-ios-config">填 config.toml 的 [ios]</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>欄位</th><th>填什麼</th></tr></thead>
+  <tbody>
+    <tr><td><code>udid</code></td><td>手機 UDID</td></tr>
+    <tr><td><code>xcode_org_id</code></td><td>Team ID</td></tr>
+    <tr><td><code>wda_bundle_id</code></td><td>WDA 的 Bundle Identifier</td></tr>
+    <tr><td><code>launch_bundle_id</code></td><td>通常留空（直接操作前景的 App）</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="s6"><span class="num">06</span>檢查環境</h2>
+<div class="os-label">macOS 測 iOS</div>
+<div class="cmd"><pre><code>uv run python aitest.py doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
+<div class="os-label">測 Android（Windows 一定要加 --platform android）</div>
+<div class="cmd"><pre><code>uv run python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+
+<details>
+  <summary>第 3 步用 venv + pip 安裝的話</summary>
+  <p>先在 <code>ai-in-test</code> 資料夾啟用 <code>.venv</code>（提示字元前面出現 <code>(.venv)</code> 就是啟用了），再把上面指令的 <code>uv run python</code> 換成 <code>python</code>：</p>
+  <div class="os-label">macOS 測 iOS</div>
+  <div class="cmd"><pre><code>source .venv/bin/activate
+python aitest.py doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="os-label">macOS 測 Android</div>
+  <div class="cmd"><pre><code>source .venv/bin/activate
+python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="os-label">Windows（PowerShell）測 Android</div>
+  <div class="cmd"><pre><code>.venv\Scripts\Activate.ps1
+python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <p class="muted">同一個終端機視窗啟用過一次就好，之後不用再打 <code>activate</code> 那一行；開新的視窗才要重新啟用。</p>
+</details>
+
+<p>每個 ❌ 下面都有修法，修完再跑，直到沒有 ❌。「還沒有專案」在這時出現是正常的，接著看<a href="USER_GUIDE.html#project">使用說明的「準備專案」</a>。</p>
+
+<h2 id="faq">安裝常見問題</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>症狀</th><th>處理方式</th></tr></thead>
+  <tbody>
+    <tr><td><code>TypeError: unsupported operand type(s) for |</code></td><td>用到舊版 Python。改用 <code>uv run python ...</code>，或確認 <code>.venv</code> 已啟用</td></tr>
+    <tr><td>剛裝的 <code>uv</code>、<code>appium</code>、<code>adb</code> 找不到</td><td>關掉終端機再重開</td></tr>
+    <tr><td><span class="chip os">Windows</span> 執行 <code>appium</code> 或 <code>Activate.ps1</code> 出現「已停用指令碼執行」</td><td><code>appium</code> 改打 <code>appium.cmd</code>；啟用 venv 見第 3 步的 <code>Set-ExecutionPolicy</code></td></tr>
+    <tr><td><span class="chip ios">iOS</span> <code>xcodebuild failed with code 65</code></td><td>Xcode 沒登入 Apple ID 或簽署失敗，重做 5B「簽署 WebDriverAgent」步驟 1～3</td></tr>
+    <tr><td><span class="chip ios">iOS</span> <code>0xe8008011</code>、WDA 打不開</td><td>簽署 7 天到期，在 Xcode 重按 ⌘U</td></tr>
+    <tr><td><span class="chip android">Android</span> 找不到 adb、<code>ANDROID_HOME</code>、<code>JAVA_HOME</code></td><td>照 5A 設環境變數，開新的終端機再試</td></tr>
+    <tr><td><span class="chip android">Android</span> 裝置是 unauthorized</td><td>在手機跳出的視窗按允許</td></tr>
+    <tr><td><span class="chip android">Android</span> <code>adb server version ... doesn't match</code></td><td>BlueStacks 附的 adb 跟 SDK 的搶。關掉 BlueStacks，<code>adb kill-server</code> 再重連</td></tr>
+  </tbody>
+</table></div>
+<p class="muted">使用時的問題見<a href="USER_GUIDE.html#faq">使用說明的常見問題</a>和 <code>docs/TROUBLESHOOTING.md</code>。</p>
+
+<footer>docs/guide/INSTALL.html ・ 內容跟實際操作不一樣時，請回報給交付窗口。</footer>
+</main>
+</div>
+
+<script>
+// 每個指令區塊右上角的「複製」：寫入剪貼簿；瀏覽器不允許時改成選取文字，讓使用者自己按 ⌘C
+document.querySelectorAll(".cmd .copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var code = btn.parentElement.querySelector("code");
+    var text = code.textContent;
+    function selectText() {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "已選取，按 ⌘C／Ctrl+C";
+    }
+    function done() {
+      btn.textContent = "已複製";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = "複製"; btn.classList.remove("done"); }, 1500);
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, selectText);
+      else selectText();
+    } catch (e) { selectText(); }
+  });
+});
+</script>
+</body>
+</html>
