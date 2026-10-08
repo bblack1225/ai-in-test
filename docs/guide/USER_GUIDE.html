@@ -329,6 +329,34 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <li>勾選相關畫面，用自然語言描述流程讓 LLM 產生或修改，可以附流程圖或規格書。 <span class="chip warn">待優化</span></li>
   <li>「💾 存到專案」，或「➡ 送去執行」直接試跑。</li>
 </ol>
+
+<h4>prompt 怎麼寫</h4>
+<p>用一般的話描述「在哪個畫面做什麼、最後要看到什麼」就好，畫面要先在上方勾選。幾個範例：</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>prompt 範例</th><th>LLM 會怎麼處理</th></tr></thead>
+  <tbody>
+    <tr><td>幫我在自選股買入一檔股票，委託數量由我決定，並驗證後續是否有出現委託回報的跑馬燈</td><td>委託數量寫成變數（例如 <code>${ORDER_QTY}</code>），執行時從變數檔代入；送出委託後接一個跑馬燈驗證</td></tr>
+    <tr><td>幫我使用帳號密碼做登入</td><td>帳號、密碼寫成 <code>${LOGIN_ID}</code>、<code>${LOGIN_PASSWORD}</code>，不會寫死；這份就可以當批次的登入測案</td></tr>
+    <tr><td>幫我建立快速抵繳擔保品的測案，過程中有幾個畫面會出現 loading，最多等八秒</td><td>在 loading 之後的驗證步驟加上等待時間，時間內反覆檢查，一出現就往下走</td></tr>
+  </tbody>
+</table></div>
+<p>描述裡用到下面這些說法，LLM 會對應成特定的步驟：</p>
+<div class="table-wrap"><table>
+  <thead><tr><th>說法</th><th>產生的步驟</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td>點、點擊、按</td><td>點擊</td><td>點畫面上的按鈕、選項、清單項目</td></tr>
+    <tr><td>輸入、填入</td><td>輸入文字</td><td>點了才跳出輸入列的欄位（例如顯示「0 股」的數量）也直接這樣說，不用另外說「先點開」</td></tr>
+    <tr><td>由我決定、用變數、帳號密碼</td><td>變數 <code>${KEY}</code></td><td>值不寫進測案，執行時從變數檔代入，見下方「測案裡的變數」。想指定名稱可以說「張數用變數 QTY」</td></tr>
+    <tr><td>驗證出現、確認有顯示</td><td>驗證元件可見</td><td>只檢查有沒有出現，不看內容</td></tr>
+    <tr><td>驗證文字包含「…」、顯示「…」</td><td>驗證文字內容</td><td>檢查元件上的文字，例如狀態變成「委託取消」</td></tr>
+    <tr><td>跑馬燈、通知橫幅、委託回報</td><td>跑馬燈驗證</td><td>只出現幾秒就消失的訊息。好幾個跑馬燈要照順序出現時，加「依序」或「先…再…」</td></tr>
+    <tr><td>最多等 X 秒、等待 X 秒、會有 loading</td><td>驗證步驟加上等待時間</td><td>避免 loading 還沒結束就判定失敗。工具沒有單純「停幾秒」的步驟，是在驗證時最多等這麼久、一出現就繼續；LLM 通常會比你說的再多留幾秒緩衝</td></tr>
+  </tbody>
+</table></div>
+<div class="callout note">
+  <div class="callout-title">loading 之後接的是「點擊」怎麼辦</div>
+  <p>等待時間只能加在驗證步驟上。loading 結束後要點某個按鈕的話，可以這樣說：「loading 完先確認『下一步』按鈕出現，最多等八秒，再點它」，讓 LLM 先產生一個會等待的驗證步驟，再點擊。</p>
+</div>
 <div class="callout note">
   <div class="callout-title">測案裡的變數</div>
   <p>帳號密碼、委託數量、股票代號這類每次可能換的值，測案裡寫成 <code>${KEY}</code>，執行時換成選的變數檔裡的值（頁首「🧩 變數」編輯）。可以用在輸入文字、驗證文字、跑馬燈驗證的值。</p>
