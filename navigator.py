@@ -174,6 +174,9 @@ class Navigator:
             return False
         time.sleep(2)  # 啟動畫面、splash 動畫
         wait_after_action(self.platform, self.driver, max_wait=8)
+        dismissed = try_dismiss_dialogs(self.platform, self.driver)
+        if dismissed:
+            log.append(f"App 啟動後跳出彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
         if self.run_setup:
             ok, summary = self.run_setup()
             log.append(f"重開後執行登入測案：{summary}")

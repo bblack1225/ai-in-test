@@ -73,6 +73,7 @@ from run_test_case import (
     run_step_in_case,
     run_tap,
     set_dismiss_dialogs,
+    set_run_vars,
     set_stop_checker,
     should_wait_after,
     try_dismiss_dialogs,
@@ -378,7 +379,15 @@ def agent_generate_xpath(el: dict) -> dict:
 # 純聊天不需要操作裝置，不強制要求 Appium session 存活（見 do_POST 的例外名單）。
 # ---------------------------------------------------------------------------
 
-def _build_llm_testgen_system_prompt(screens_context_json: str) -> str:
+def _var_keys_prompt(var_keys: dict) -> str:
+    """專案變數檔裡有哪些 KEY（只給名稱和檔名，不給值）"""
+    if not var_keys:
+        return "     專案目前還沒有任何變數檔。"
+    lines = [f"       - {k}（{'、'.join(files)}）" for k, files in sorted(var_keys.items())]
+    return "     專案已經有的變數（KEY 和有這個 KEY 的變數檔名稱，值不提供），對應得上的一定要用這些 KEY：\n" + "\n".join(lines)
+
+
+def _build_llm_testgen_system_prompt(screens_context_json: str, var_keys: dict | None = None) -> str:
     # assert_banner 只有支援的平台才告訴 LLM，不然會產生執行端只能 SKIP 的步驟
     banner_step = banner_rule = ""
     action_count = 4
@@ -398,6 +407,7 @@ def _build_llm_testgen_system_prompt(screens_context_json: str) -> str:
      「都有出現」、不管先後；使用者明確要求依序出現（例如「先…再…」「依序」）時，
      在後面那一步加上 "in_order": true，代表它必須比前一個 assert_banner 晚出現"""
 
+    var_keys_text = _var_keys_prompt(var_keys or {})
     return f"""你是 Android/iOS App 自動化測試專家，協助使用者根據「已經掃描好的畫面
 元件資料」設計、產生可以透過 Appium 執行的自動化測試案例。
 
@@ -424,9 +434,14 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    - input_text：輸入文字。target 是使用者要輸入的那個欄位就好，有沒有 native id 都可以；
      畫面上顯示數值、點了才跳出輸入列的元件（例如顯示「0 股」的 TextView）也直接對它用
      input_text，執行時會自動先點開、輸入到跳出來的輸入框再送出，不要另外加 tap 步驟。
-     帳號、密碼、身分證字號這類登入資料**不要寫真的值**，一律用環境變數代號：
+     帳號、密碼、身分證字號這類登入資料**不要寫真的值**，一律用變數代號：
      帳號 "${{LOGIN_ID}}"、密碼 "${{LOGIN_PASSWORD}}"，其他的照 "${{大寫英文名稱}}" 命名，
-     執行時會從環境變數讀入；使用者在對話裡給了真的密碼也不要照抄進 JSON
+     執行時從使用者選的變數檔讀入；使用者在對話裡給了真的密碼也不要照抄進 JSON。
+     股票代號、張數、價格、金額這類「換一組資料就能重跑」的測試資料也用變數代號
+     （例如 "${{STOCK_CODE}}"、"${{QTY}}"），input_text、assert_text_contains、assert_banner
+     的 value 都可以用。有用到變數時，在 JSON 外面的說明文字列出每個變數代表什麼、
+     使用者這次提到的值是多少（密碼類不要列值），方便使用者建立變數檔。
+{var_keys_text}
    - assert_visible：驗證元件可見
    - assert_text_contains：驗證元件「目前顯示的文字內容」有包含指定字串，
      用在「這個畫面的文字內容因為別的畫面的操作而改變」這種跨畫面情境
@@ -509,7 +524,13 @@ def run_llm_chat(payload: dict) -> dict:
     messages = payload.get("messages", [])
     screens_context = payload.get("screens_context", [])
 
-    system_prompt = _build_llm_testgen_system_prompt(json.dumps(screens_context, ensure_ascii=False))
+    var_keys = {}
+    if payload.get("project"):
+        try:
+            var_keys = WORKSPACE.var_keys(payload["project"])
+        except WorkspaceError as e:
+            print(f"[llm_chat] 讀不到專案變數，這次不提供給 LLM：{e}")
+    system_prompt = _build_llm_testgen_system_prompt(json.dumps(screens_context, ensure_ascii=False), var_keys)
 
     try:
         contents = [
@@ -635,6 +656,13 @@ def run_test_script(payload: dict) -> dict:
 
     screens_by_name = {s["screen_name"]: s for s in element_map.get("screens", [])}
     steps = test_case.get("steps", [])
+    var_names = payload.get("vars") or []
+    if var_names and not payload.get("project"):
+        return {"error": "選了變數檔，但沒有開啟專案，讀不到變數檔"}
+    try:
+        var_files = WORKSPACE.read_vars(payload["project"], var_names) if var_names else {}
+    except WorkspaceError as e:
+        return {"error": f"變數檔讀不到：{e}"}
 
     d = get_driver()
     results = []
@@ -642,12 +670,21 @@ def run_test_script(payload: dict) -> dict:
     _progress.update(running=True, current=0, total=len(steps), results=results, precheck=None)
     _test_running.set()
     set_dismiss_dialogs(payload.get("dismiss_dialogs", False))
+    merged = {}
+    for name in var_names:  # 後面選的蓋前面的
+        merged.update(var_files[name])
+    set_run_vars(merged, var_names)
     try:
         with PLATFORM.page_source_context(d):
+            # 開始前先關掉擋在前面的彈窗（例如一進 App 就跳的 Root／USB 偵錯警告）：彈窗是 App 裡的一層
+            # 覆蓋時，底下的元件還找得到，第一步的 tap 會「成功」點在遮罩上，等不到步驟失敗再處理
+            dismissed = try_dismiss_dialogs(PLATFORM, d)
             if payload.get("check_screen", True):
                 precheck = _precheck_screen(d, steps, screens_by_name)
             else:
                 precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
+            if dismissed:
+                precheck["message"] = with_dismiss_note(precheck["message"], dismissed)
             _progress["precheck"] = precheck
             print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
             if precheck["status"] == "fail":
@@ -657,6 +694,7 @@ def run_test_script(payload: dict) -> dict:
                 _run_steps(d, steps, screens_by_name, results)
     finally:
         set_dismiss_dialogs(False)
+        set_run_vars(None)
         _test_running.clear()
         _progress.update(running=False, current=None)
     return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
@@ -721,11 +759,16 @@ def _run_steps(d, steps: list, screens_by_name: dict, results: list):
 
 # ---------------------------------------------------------------------------
 # /run_batch：一次跑多份測案。payload 是好幾組「一張地圖 → 一份或多份測案」：
-#   {"groups": [{"map_name", "map", "setup_case": {"name", "case"} | null,
-#                "cases": [{"name", "case"}, ...]}, ...],
-#    "options": {"auto_navigate", "allow_restart", "dismiss_dialogs"}}
+#   {"groups": [{"map_name", "map", "setup_case": {"name", "case"} | null, "setup_map": {...} | null,
+#                "cases": [{"name", "case", "login"?, "vars"?: [...]}, ...]}, ...],
+#    "options": {"auto_navigate", "allow_restart", "dismiss_dialogs"}, "project"}
 # 每份測案開始前用 navigator 把手機帶到它的起始畫面（見 navigator.py）；
-# setup_case 是「重開 App 後要先跑的登入測案」，畫面要在同一張地圖裡。
+# setup_case 是「重開 App 後要先跑的登入測案」，畫面在 setup_map（登入頁另外爬成一張地圖時），
+# 沒給就跟這組的測案用同一張地圖。
+# login 是登入用的變數檔名稱（專案 vars/）：跟目前登入的不同時，重開 App 再用這個檔的值跑
+# setup_case（${LOGIN_ID} 等代號換成檔裡的值）；沒選的測案照目前狀態直接跑。
+# vars 是這份測案另外要用的變數檔（股票代號、張數…），只拿來換代號、不會觸發重新登入；
+# 同一個 KEY 的優先順序：後面的 vars → 前面的 vars → login → 環境變數。
 # 一份測案失敗或回不到起點不會中斷整批，標成 FAIL／SKIP 後接著跑下一份。
 # ---------------------------------------------------------------------------
 
@@ -748,13 +791,20 @@ def run_batch(payload: dict) -> dict:
     options = payload.get("options") or {}
     auto_navigate = options.get("auto_navigate", True)
 
+    project_id = payload.get("project")
+    var_files = _load_var_files(project_id, [n for g in groups_in for c in g.get("cases") or []
+                                             for n in [_case_login(c), *(c.get("vars") or [])] if n])
+    if var_files is None:
+        return {"error": "有測案選了變數檔，但沒有開啟專案，讀不到變數檔"}
+
     d = get_driver()
     app_id = payload.get("app_id") or PLATFORM.app_id(d)
     groups = [{
         "map_name": g.get("map_name") or "（未命名地圖）",
         "setup_name": (g.get("setup_case") or {}).get("name"),
         "cases": [{"name": c.get("name") or c.get("case", {}).get("test_name") or "（未命名測案）",
-                   "test_name": c.get("case", {}).get("test_name"), "status": "pending",
+                   "test_name": c.get("case", {}).get("test_name"), "login": _case_login(c),
+                   "vars": c.get("vars") or [], "status": "pending",
                    "navigation": [], "precheck": None, "results": [],
                    "total": len(c.get("case", {}).get("steps", [])), "duration": None, "reason": None}
                   for c in g.get("cases") or []],
@@ -764,27 +814,80 @@ def run_batch(payload: dict) -> dict:
     _batch_progress.update(running=True, groups=groups, current=None, app_id=app_id)
     _test_running.set()
     set_dismiss_dialogs(options.get("dismiss_dialogs", False))
+    set_run_vars(None)
+    # 整批共用：換組不會登出，同一個登入檔不用重登；values 是目前登入那個檔的值
+    login = {"name": None, "values": {}, "files": var_files}
     print(f"[批次執行] 開始：{len(groups)} 組地圖、{sum(len(g['cases']) for g in groups)} 份測案，App：{app_id}")
     try:
         with PLATFORM.page_source_context(d):
             for gi, (g_in, g_out) in enumerate(zip(groups_in, groups)):
-                _run_batch_group(d, gi, g_in, g_out, app_id, auto_navigate, options.get("allow_restart", True))
+                _run_batch_group(d, gi, g_in, g_out, app_id, auto_navigate, options.get("allow_restart", True), login)
     finally:
         set_dismiss_dialogs(False)
+        set_run_vars(None)
         _test_running.clear()
         _batch_progress.update(running=False, current=None)
     return {"groups": groups, "stopped": _stop_requested.is_set(), "app_id": app_id}
 
 
-def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate: bool, allow_restart: bool):
+def _case_login(c: dict) -> str | None:
+    return c.get("login") or c.get("account")  # account 是舊版批次設定的欄位名稱
+
+
+def _load_var_files(project_id: str | None, names: list[str]) -> dict | None:
+    """讀批次用到的變數檔 → {檔名: {KEY: 值} | None}，讀不到的是 None（那份測案 SKIP，不中斷整批）。
+    有用到變數檔卻沒開專案回傳 None"""
+    names = list(dict.fromkeys(names))
+    if not names:
+        return {}
+    if not project_id:
+        return None
+    files = {}
+    for name in names:
+        try:
+            files[name] = WORKSPACE.read_vars(project_id, [name])[name]
+        except WorkspaceError as e:
+            print(f"[批次執行] 變數檔「{name}」讀不到：{e}")
+            files[name] = None
+    return files
+
+
+def _apply_case_vars(login: dict, var_names: list[str], extra_login: tuple | None = None) -> None:
+    """依優先順序合併：登入檔 → vars（後面的蓋前面的）；extra_login 是正要切換的 (名稱, 值)"""
+    login_name, login_values = extra_login or (login["name"], login["values"])
+    merged = dict(login_values)
+    for name in var_names:
+        merged.update(login["files"][name])
+    set_run_vars(merged, ([login_name] if login_name else []) + var_names)
+
+
+def _switch_login(navigator: Navigator, name: str, var_names: list[str], has_setup: bool,
+                  login: dict, log: list) -> str | None:
+    """重開 App、用這個登入檔跑登入測案；成功回傳 None，失敗回傳要顯示的原因"""
+    if not has_setup:
+        return f"這組沒有指定登入測案，沒辦法用「{name}」登入"
+    log.append(f"切換登入：{login['name'] or '目前狀態不明'} → {name}")
+    values = login["files"][name]
+    login.update(name=None, values={})  # 登入成功前都算不知道目前是誰
+    _apply_case_vars(login, var_names, (name, values))
+    if not navigator.restart_app(log):
+        return f"用「{name}」登入失敗"
+    login.update(name=name, values=values)
+    return None
+
+
+def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate: bool, allow_restart: bool,
+                     login: dict):
     index = MapIndex(g_in.get("map") or {})
     screens_by_name = index.screens_for_execution()
     setup = g_in.get("setup_case")
+    setup_map = g_in.get("setup_map")
+    setup_screens = MapIndex(setup_map).screens_for_execution() if setup_map else screens_by_name
 
     def run_setup():
         steps = (setup.get("case") or {}).get("steps", [])
         results = []
-        _run_steps(d, steps, screens_by_name, results)
+        _run_steps(d, steps, setup_screens, results)
         failed = [r for r in results if r["outcome"].startswith("FAIL")]
         summary = f"{len(results) - len(failed)}/{len(results)} 步通過"
         if failed:
@@ -792,7 +895,8 @@ def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate:
         return not failed, summary
 
     navigator = Navigator(PLATFORM, d, app_id, run_setup=run_setup if setup else None,
-                          setup_start=_first_screen((setup or {}).get("case", {}).get("steps", [])) if setup else None,
+                          # 登入頁在另一張地圖時，導航用的這張地圖認不出登入頁，不做「停在登入頁先登入」
+                          setup_start=_first_screen((setup or {}).get("case", {}).get("steps", [])) if setup and not setup_map else None,
                           allow_restart=allow_restart)
 
     for ci, (c_in, c_out) in enumerate(zip(g_in.get("cases") or [], g_out["cases"])):
@@ -807,6 +911,21 @@ def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate:
 
         start_screen = _first_screen(steps)
         try:
+            dismissed = try_dismiss_dialogs(PLATFORM, d)  # 同 run_test_script：開始前先關掉擋在前面的彈窗
+            if dismissed:
+                c_out["navigation"].append(f"畫面上有彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
+            login_name, var_names = _case_login(c_in), c_in.get("vars") or []
+            unreadable = [n for n in [login_name, *var_names] if n and login["files"].get(n) is None]
+            if unreadable:
+                c_out.update(status="skip", reason=f"變數檔讀不到（可能已改名或刪除）：{'、'.join(unreadable)}",
+                             duration=round(time.time() - started, 1))
+                continue
+            if login_name and login_name != login["name"]:
+                failed = _switch_login(navigator, login_name, var_names, bool(setup), login, c_out["navigation"])
+                if failed:
+                    c_out.update(status="skip", reason=failed, duration=round(time.time() - started, 1))
+                    continue
+            _apply_case_vars(login, var_names)
             if auto_navigate and start_screen:
                 if not navigator.navigate_to(index, start_screen, c_out["navigation"]):
                     c_out.update(status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」",
@@ -1021,13 +1140,13 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_api(self, method: str):
         """
         workspace 專案的讀寫（建立專案、改專案設定用 workspace.py 的 create／update），
-        路徑對照（<kind> 是 cases 或 batches）：
+        路徑對照（<kind> 是 cases、batches 或 vars）：
           GET    /api/projects                          專案清單
           POST   /api/projects/import[?id=新代號]        匯入 zip（body 是 zip 檔本身）
           POST   /api/projects/merge[?preview=1]        zip 併進本機同代號的專案；body 是 zip，
                                                         要寫入時同名的處理方式放 query resolutions=<JSON>
           GET    /api/projects/<id>                     專案資訊＋地圖／測案／批次清單
-          GET    /api/projects/<id>/export              下載 zip
+          GET    /api/projects/<id>/export              下載 zip（不含 sensitive 的變數檔）
           GET    /api/projects/<id>/maps/<name>         讀地圖 → {map, map_version}
           POST   /api/projects/<id>/maps/<name>         新增地圖 {map?}（沒給就是空白），同名已存在回 409
           PUT    /api/projects/<id>/maps/<name>         存地圖 {map, base_version}，版本不符回 409
@@ -1038,6 +1157,7 @@ class Handler(BaseHTTPRequestHandler):
           GET    /api/projects/<id>/<kind>/<name>       讀一份
           PUT    /api/projects/<id>/<kind>/<name>[?overwrite=1]  存一份（已存在又沒 overwrite 回 409）
           DELETE /api/projects/<id>/<kind>/<name>       刪一份
+          POST   /api/projects/<id>/vars/<name>/rename  變數檔改名 {new_name}（批次裡的引用一起改）
         不碰手機，所以不用排 _device_lock；檔案寫入是先寫暫存檔再改名，不會寫出半份。
         """
         url = urlsplit(self.path)
@@ -1071,6 +1191,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif len(parts) == 4 and parts[3] == "rename" and method == "POST":
+                body = self._read_json_body() or {}
+                WORKSPACE.rename_item(parts[0], parts[1], parts[2], str(body.get("new_name", "")).strip())
+                self._send_json(200, {"items": WORKSPACE.list_items(parts[0], parts[1])})
             elif len(parts) >= 3 and parts[1] == "maps":
                 self._handle_map_api(method, parts[0], parts[2], parts[3:], query)
             elif len(parts) == 3 and method == "GET":

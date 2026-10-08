@@ -229,21 +229,40 @@ def _locate_by_custom_xpath(driver, el: dict):
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+# 這次執行選的變數檔（專案 vars/ 裡的，已經依優先順序合併好），優先於環境變數；
+# sources 是選了哪些檔，找不到變數時寫進錯誤訊息
+_run_vars: dict = {}
+_run_vars_sources: list = []
+
+
+def set_run_vars(values: dict | None, sources: list | None = None) -> None:
+    global _run_vars, _run_vars_sources
+    _run_vars = dict(values or {})
+    _run_vars_sources = list(sources or [])
+
 
 def resolve_env_placeholders(value: str) -> tuple[str, list[str]]:
-    """把 "${LOGIN_PASSWORD}" 這類代號換成環境變數的值，回傳 (換好的值, 沒設定的變數名稱)。
-    帳號密碼不寫進測案 JSON（測案會匯出、分享、commit），執行時才從啟動 viewer_server
-    的那個 shell 的環境變數讀進來"""
+    """把 "${LOGIN_PASSWORD}" 這類代號換成實際的值，回傳 (換好的值, 沒設定的變數名稱)。
+    帳號密碼、股票代號這類值不寫死在測案 JSON（測案會匯出、分享、commit），執行時才讀進來：
+    先找這次選的變數檔（set_run_vars），沒有再找啟動 viewer_server 的那個 shell 的環境變數"""
     missing = []
 
     def replace(match):
         name = match.group(1)
+        if name in _run_vars:
+            return _run_vars[name]
         if name not in os.environ:
             missing.append(name)
             return match.group(0)
         return os.environ[name]
 
     return _ENV_PLACEHOLDER.sub(replace, value or ""), missing
+
+
+def missing_vars_outcome(missing: list[str]) -> str:
+    chosen = "、".join(_run_vars_sources) if _run_vars_sources else "沒有選"
+    return (f"FAIL（找不到變數：{'、'.join(missing)}；這次選的變數檔：{chosen}，也沒有同名的環境變數。"
+            f"請在變數檔補上，或執行時多選一個有這個變數的檔）")
 
 
 def _locate_input_element(platform, driver, el: dict):
@@ -265,8 +284,7 @@ def _locate_input_element(platform, driver, el: dict):
 def run_input_text(platform, driver, el: dict, value: str) -> str:
     resolved, missing = resolve_env_placeholders(value)
     if missing:
-        return (f"FAIL（環境變數沒設定：{'、'.join(missing)}，請在啟動 viewer_server 的視窗先 "
-                f"export {missing[0]}=... 再重新啟動）")
+        return missing_vars_outcome(missing)
 
     element, how = _locate_input_element(platform, driver, el)
     dismissed = []
@@ -568,7 +586,10 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
         return retry_assert(lambda: run_assert_visible(platform, driver, el), step.get("timeout"),
                             on_fail=dismiss if _dismiss_dialogs_enabled else None)
     if action == "assert_text_contains":
-        return retry_assert(lambda: run_assert_text_contains(platform, driver, el, step.get("value", "")),
+        expected, missing = resolve_env_placeholders(step.get("value", ""))
+        if missing:
+            return missing_vars_outcome(missing)
+        return retry_assert(lambda: run_assert_text_contains(platform, driver, el, expected),
                             step.get("timeout"), on_fail=dismiss if _dismiss_dialogs_enabled else None)
     return f"FAIL（未知的 action: {action}）"
 
@@ -576,7 +597,8 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
 def banner_texts(step: dict) -> list[str]:
     value = step.get("value")
     texts = [value] if isinstance(value, str) else list(value or [])
-    return [t for t in texts if t]
+    # 跑馬燈文字也可以用變數（例如 "${STOCK_CODE}"）；沒設定的照原樣留著，結果裡看得出是哪個沒換到
+    return [resolve_env_placeholders(t)[0] for t in texts if t]
 
 
 # 跑馬燈監看的錄影狀態：run_step_in_case 在觸發的那一步之前開錄、記下開始時間，

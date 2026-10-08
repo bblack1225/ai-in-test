@@ -10,7 +10,8 @@
             ├── backups/            ← 爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
             ├── screenshots/        ← 所有地圖共用，地圖裡的 "screenshots/xxx.png" 相對於專案資料夾
             ├── cases/<名稱>.json   ← 測試案例（不綁地圖）
-            └── batches/<名稱>.json ← 批次設定，地圖、測案都用名稱引用
+            ├── batches/<名稱>.json ← 批次設定，地圖、測案都用名稱引用
+            └── vars/<名稱>.json    ← 變數檔 {"sensitive", "values": {KEY: 值}}，測案裡的 ${KEY} 執行時換成值
 
 交付給不同團隊時，各自只拿自己 App 的專案（匯出成 zip，對方匯入），工具本身是同一份。
 
@@ -45,7 +46,12 @@ PROJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 ITEM_NAME_RE = re.compile(r"^\w[\w .()（）-]{0,99}$")
 DEFAULT_MAP = "main"
 PLATFORMS = ("ios", "android")
-KINDS = ("cases", "batches")
+KINDS = ("cases", "batches", "vars")
+# 變數檔（vars/<名稱>.json）：{"sensitive": bool, "values": {"LOGIN_ID": "...", "STOCK_CODE": "2882"}}，
+# 執行時把測案裡的 ${KEY} 換成值。sensitive（帳密這類）的檔案匯出專案 zip 時不帶出去
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# 舊版的登入帳號檔（一個檔裡好幾組帳號），第一次開專案時拆成 vars/<帳號名稱>.json
+LEGACY_ACCOUNTS_FILE = "accounts.json"
 # 匯入 zip 的上限，避免誤選到巨大檔案把硬碟塞滿
 MAX_IMPORT_BYTES = 2 * 1024 ** 3
 
@@ -80,6 +86,24 @@ def _read_json(path: Path):
         return json.load(f)
 
 
+def _check_vars(data) -> None:
+    if not (isinstance(data, dict) and isinstance(data.get("values"), dict)):
+        raise WorkspaceError('變數檔格式不對：要是 {"sensitive": true/false, "values": {"KEY": "值"}}')
+    for key, value in data["values"].items():
+        if not ENV_NAME_RE.match(key):
+            raise WorkspaceError(f"變數「{key}」名稱不合法：只能用英文、數字、底線，不能數字開頭（測案裡寫成 ${{{key}}}）")
+        if not isinstance(value, str):
+            raise WorkspaceError(f"變數「{key}」的值要是文字")
+
+
+def _is_sensitive_vars(path: Path) -> bool:
+    """讀不出來的當成敏感，寧可不匯出"""
+    try:
+        return bool(_read_json(path).get("sensitive", True))
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return True
+
+
 def _version(path: Path) -> str | None:
     return str(path.stat().st_mtime_ns) if path.exists() else None
 
@@ -101,7 +125,25 @@ class Workspace:
         if not (d / "project.json").is_file():
             raise WorkspaceError(f"找不到專案「{project_id}」", 404)
         self._migrate_single_map(d)
+        self._migrate_accounts(d)
         return d
+
+    @staticmethod
+    def _migrate_accounts(d: Path) -> None:
+        """舊版 accounts.json（{帳號名稱: {KEY: 值}}）拆成一組一個變數檔，標成 sensitive；
+        原檔改名成 .accounts.json.migrated 留著（. 開頭，不會被匯出）。同名變數檔已存在就不蓋。"""
+        legacy = d / LEGACY_ACCOUNTS_FILE
+        if not legacy.is_file():
+            return
+        try:
+            accounts = _read_json(legacy)
+        except (json.JSONDecodeError, OSError):
+            return
+        for name, values in accounts.items() if isinstance(accounts, dict) else []:
+            path = d / "vars" / f"{name}.json"
+            if ITEM_NAME_RE.match(name) and isinstance(values, dict) and not path.exists():
+                _write_json_atomic(path, {"sensitive": True, "values": values})
+        os.replace(legacy, d / f".{LEGACY_ACCOUNTS_FILE}.migrated")
 
     @staticmethod
     def _migrate_single_map(d: Path) -> None:
@@ -155,10 +197,11 @@ class Workspace:
         return {"id": project_id, **project}
 
     def summary(self, project_id: str) -> dict:
-        """網頁開專案時一次拿齊：專案資訊、地圖／測案／批次清單（地圖內容另外用 read_map 拿）。"""
+        """網頁開專案時一次拿齊：專案資訊、地圖／測案／批次／變數檔清單（地圖內容另外用 read_map 拿）。"""
         return {"project": self.get_project(project_id), "maps": self.list_maps(project_id),
                 "cases": self.list_items(project_id, "cases"),
-                "batches": self.list_items(project_id, "batches")}
+                "batches": self.list_items(project_id, "batches"),
+                "vars": self.list_items(project_id, "vars")}
 
     # ---- 地圖（一個專案可以有很多張，依功能分開爬）---------------------
 
@@ -355,6 +398,13 @@ class Workspace:
                     entry["steps"] = len(data.get("steps") or [])
                 except (json.JSONDecodeError, OSError, AttributeError):
                     entry["error"] = "檔案不是合法的測案 JSON"
+            elif kind == "vars":
+                try:
+                    data = _read_json(p)
+                    entry["keys"] = list((data.get("values") or {}).keys())
+                    entry["sensitive"] = bool(data.get("sensitive"))
+                except (json.JSONDecodeError, OSError, AttributeError):
+                    entry["error"] = "檔案不是合法的變數檔 JSON"
             items.append(entry)
         return items
 
@@ -369,6 +419,8 @@ class Workspace:
             raise WorkspaceError("這不是測試案例（找不到 steps 陣列）")
         if kind == "batches" and not (isinstance(data, dict) and isinstance(data.get("groups"), list)):
             raise WorkspaceError("這不是批次設定（找不到 groups 陣列）")
+        if kind == "vars":
+            _check_vars(data)
         path = self._item_path(project_id, kind, name)
         if path.exists() and not overwrite:
             raise WorkspaceError(f"「{name}」已經存在", 409)
@@ -380,6 +432,54 @@ class Workspace:
             raise WorkspaceError(f"找不到「{name}」", 404)
         path.unlink()
 
+    def rename_item(self, project_id: str, kind: str, name: str, new_name: str) -> None:
+        """目前只開放變數檔改名：批次設定裡引用到的（login／vars）一起改，不然下次執行會找不到。"""
+        if kind != "vars":
+            raise WorkspaceError("只有變數檔可以改名", 404)
+        src = self._item_path(project_id, kind, name)
+        dst = self._item_path(project_id, kind, new_name)
+        if not src.is_file():
+            raise WorkspaceError(f"找不到「{name}」", 404)
+        if dst.exists():
+            raise WorkspaceError(f"「{new_name}」已經存在", 409)
+        os.replace(src, dst)
+        for batch_path in (src.parent.parent / "batches").glob("*.json"):
+            try:
+                batch = _read_json(batch_path)
+            except (json.JSONDecodeError, OSError):
+                continue
+            changed = False
+            for g in batch.get("groups") or [] if isinstance(batch, dict) else []:
+                for c in g.get("cases") or [] if isinstance(g, dict) else []:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("login") == name or c.get("account") == name:
+                        c.pop("account", None)
+                        c["login"] = new_name
+                        changed = True
+                    if name in (c.get("vars") or []):
+                        c["vars"] = [new_name if v == name else v for v in c["vars"]]
+                        changed = True
+            if changed:
+                _write_json_atomic(batch_path, batch)
+
+    def read_vars(self, project_id: str, names: list[str]) -> dict:
+        """依序讀好幾個變數檔，回傳 {檔名: {KEY: 值}}；找不到的檔案直接報錯，不默默略過"""
+        out = {}
+        for name in names:
+            data = self.read_item(project_id, "vars", name)
+            _check_vars(data)
+            out[name] = data["values"]
+        return out
+
+    def var_keys(self, project_id: str) -> dict:
+        """專案裡所有變數檔的 KEY → 有這個 KEY 的檔名（給 LLM 產生測案時參考，不含值）"""
+        keys: dict[str, list[str]] = {}
+        for item in self.list_items(project_id, "vars"):
+            for k in item.get("keys") or []:
+                keys.setdefault(k, []).append(item["name"])
+        return keys
+
     # ---- 匯出／匯入 zip（交付給其他團隊用）-----------------------------
 
     def export_zip(self, project_id: str) -> bytes:
@@ -387,6 +487,8 @@ class Workspace:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in sorted(d.rglob("*")):
+                if p.parent == d / "vars" and _is_sensitive_vars(p):
+                    continue  # 帳密這類變數檔不跟著專案交給其他團隊
                 if p.is_file() and not p.name.startswith("."):
                     zf.write(p, f"{project_id}/{p.relative_to(d).as_posix()}")
         return buf.getvalue()
@@ -503,6 +605,11 @@ class Workspace:
             for i in items:
                 if i["kind"] == "maps":
                     self._check_map(i["data"])
+                elif i["kind"] == "vars":
+                    try:
+                        _check_vars(i["data"])
+                    except WorkspaceError as e:
+                        raise WorkspaceError(f"zip 裡的 vars/{i['name']}.json 格式不對：{e}")
                 elif not (isinstance(i["data"], dict) and isinstance(i["data"].get("steps" if i["kind"] == "cases" else "groups"), list)):
                     raise WorkspaceError(f"zip 裡的 {i['kind']}/{i['name']}.json 格式不對")
 

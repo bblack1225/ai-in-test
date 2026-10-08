@@ -12,6 +12,7 @@
   // 目前開啟的 workspace 專案（{id, name, platform, bundle_id}），null＝沒用專案；
   // mapVersion 是上次讀到／存檔後的地圖版本，存檔時帶回去讓伺服器擋掉互相覆蓋
   var currentProject = null, mapVersion = null, projectList = [], projectCases = [], projectBatches = [];
+  var projectVars = [];  // 專案變數檔清單：[{name, keys: [...], sensitive}]（值要另外讀單一檔）
   // 專案裡目前開著的地圖（一個專案可以有很多張，依功能分開爬）
   var currentMapName = null, projectMaps = [];
 
@@ -1375,6 +1376,7 @@
   var llmgenPendingAttachments = [];
   var llmgenCaseSyncBadge = document.getElementById("llmgenCaseSyncBadge");
   var llmgenCaseEditor = document.getElementById("llmgenCaseEditor");
+  var llmgenVarsCheckBtn = document.getElementById("llmgenVarsCheckBtn");
   var llmgenEditBtn = document.getElementById("llmgenEditBtn");
   var llmgenEditSaveBtn = document.getElementById("llmgenEditSaveBtn");
   var llmgenEditCancelBtn = document.getElementById("llmgenEditCancelBtn");
@@ -1503,6 +1505,7 @@
     llmgenExportBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenSaveToProjectBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
+    llmgenVarsCheckBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
     renderLlmgenCaseStatus();
   }
   function llmgenHasUnsaved() {
@@ -1784,7 +1787,8 @@
       var serverUrl = API_BASE;
       var res = await fetch(serverUrl + "/llm_chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: llmgenChatHistory, screens_context: buildScreensContext() }),
+        body: JSON.stringify({ messages: llmgenChatHistory, screens_context: buildScreensContext(),
+          project: currentProject ? currentProject.id : null }),
       });
       var data = await res.json();
       thinkingMsg.remove();
@@ -1795,7 +1799,10 @@
         appendChatMessage("model", data.reply);
         llmgenChatHistory.push({ role: "model", text: data.reply });
         var parsed = extractJsonCodeBlock(data.reply);
-        if (parsed && Array.isArray(parsed.steps)) renderLlmgenCase(parsed);
+        if (parsed && Array.isArray(parsed.steps)) {
+          renderLlmgenCase(parsed);
+          openVarsNeed(parsed, true);  // 用到還沒有值的變數才跳出來
+        }
       }
     } catch (err) {
       thinkingMsg.remove();
@@ -1905,6 +1912,8 @@
   var runscriptStopBtn = document.getElementById("runscriptStopBtn");
   var runscriptCheckScreen = document.getElementById("runscriptCheckScreen");
   var runscriptDismissDialogs = document.getElementById("runscriptDismissDialogs");
+  var runscriptVarsPick = document.getElementById("runscriptVarsPick");
+  var runscriptVars = [];  // 單份執行選的變數檔名稱，後面的蓋前面的
   var runscriptBody = document.getElementById("runscriptBody");
   // 地圖一律用「地圖檢視」目前開著的那張（執行當下才抓，地圖換了會跟著變）
   // runscriptCaseRef：選的是專案測案時的名稱；null＝測案編輯送來、不在專案裡（或有修改沒存）的那份
@@ -2011,7 +2020,10 @@
     var elementMap = currentExecutionMap();
     if (!runscriptTestCase) return;
     var stepCount = (runscriptTestCase.steps || []).length;
-    if (!confirm('即將依序執行「' + (runscriptTestCase.test_name || "這份測試案例") + '」共 ' + stepCount + ' 個步驟，會實際操作模擬器/裝置，確定要執行嗎？')) return;
+    var uncovered = currentProject ? uncoveredKeys(runscriptTestCase, runscriptVars) : [];
+    if (!confirm('即將依序執行「' + (runscriptTestCase.test_name || "這份測試案例") + '」共 ' + stepCount + ' 個步驟，會實際操作模擬器/裝置' +
+      (uncovered.length ? "。\n\n⚠️ 選的變數檔裡沒有：" + uncovered.join("、") + "（有設同名環境變數的話可以忽略），用到的步驟會失敗" : "") +
+      "\n\n確定要執行嗎？")) return;
     runscriptRunBtn.disabled = true;
     runscriptRunBtn.textContent = "執行中...";
     runscriptStopBtn.hidden = false;
@@ -2047,7 +2059,8 @@
       }, 1000);
       var res = await fetch(API_BASE + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked }),
+        body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked,
+          project: currentProject ? currentProject.id : null, vars: currentProject ? runscriptVars : [] }),
       });
       runFinished = true;
       var data = await res.json();
@@ -2098,7 +2111,9 @@
   runModeBatchBtn.addEventListener("click", function () { setRunMode("batch"); });
   try { if (localStorage.getItem("runMode") === "batch") setRunMode("batch"); } catch (e) { /* 照預設用單份 */ }
 
-  // batchGroups：[{ mapName, map（全名格式）, mapRef, setup: {name, case, ref?} | null, cases: [{name, case, ref?}] }]
+  // batchGroups：[{ mapName, map（全名格式）, mapRef, setup: {name, case, ref?} | null, cases: [{name, case, ref?, login?, vars?}] }]
+  // login＝登入用的變數檔名稱，沒有就是不需登入（照目前狀態直接跑）；vars＝另外要代入的變數檔名稱陣列
+  // setupMapRef／setupMap：登入測案用的專案地圖（登入頁另外爬成一張時），null＝跟這組用同一張
   // 批次要開專案才能用：地圖、測案都從專案選，存到專案時 mapRef（專案地圖名稱）、
   // ref（專案測案名稱）只存引用，開啟和執行當下才抓最新版，地圖或測案改了不用重新設定批次。
   // 舊的批次設定裡整份內嵌的地圖／測案照樣能開。
@@ -2143,11 +2158,31 @@
       '<span class="name" title="' + escapeHtml(item.ref ? "專案測案：" + item.ref : item.name) + '">' + (item.ref ? "📁 " : "") + escapeHtml(item.case.test_name || item.name) + "</span>" +
       '<span class="meta">' + n + " 步・起點「" + escapeHtml(start || "—") + "」</span>" +
       (missing.length ? '<span class="warn" title="這些畫面不在這組的地圖裡，執行時會找不到元件">⚠️ 地圖缺少：' + escapeHtml(missing.join("、")) + "</span>" : "") +
+      (isSetup ? "" : loginPickHtml(gi, ci, item.login) +
+        varsPickHtml(item.vars, 'data-g="' + gi + '" data-c="' + ci + '"', "case-var")) +
       (isSetup ? "" :
         '<button class="icon-btn" data-act="up" data-g="' + gi + '" data-c="' + ci + '" title="往上移"' + (ci === 0 ? " disabled" : "") + ">↑</button>" +
         '<button class="icon-btn" data-act="down" data-g="' + gi + '" data-c="' + ci + '" title="往下移"' + (ci === batchGroups[gi].cases.length - 1 ? " disabled" : "") + ">↓</button>") +
       '<button class="icon-btn" data-act="' + (isSetup ? "remove-setup" : "remove-case") + '" data-g="' + gi + '" data-c="' + ci + '" title="移除">✕</button>' +
       "</div>";
+  }
+  function loginPickHtml(gi, ci, login) {
+    var names = varFileNames();
+    var opts = '<option value="">登入：不需登入</option>' + names.map(function (n) {
+      return '<option value="' + escapeHtml(n) + '"' + (n === login ? " selected" : "") + ">🔑 登入：" + escapeHtml(n) + "</option>";
+    }).join("");
+    if (login && names.indexOf(login) < 0) opts += '<option value="' + escapeHtml(login) + '" selected>⚠️ 登入：' + escapeHtml(login) + "（變數檔裡沒有）</option>";
+    return '<select class="project-pick" data-act="case-login" data-g="' + gi + '" data-c="' + ci + '" title="執行這份前先用這個變數檔登入（跟目前登入的不同才會重開 App 重新登入）">' + opts + "</select>";
+  }
+  function setupMapOf(g) { return g.setupMapRef ? g.setupMap : g.map; }
+  function setupMapPickHtml(gi, ref) {
+    if (!currentProject) return "";
+    var names = projectMaps.map(function (m) { return m.name; });
+    return '<select class="project-pick" data-act="setup-map" data-g="' + gi + '" title="登入測案的畫面在哪一張地圖（登入頁另外爬成一張時選它）">' +
+      '<option value="">登入地圖：同上面的地圖</option>' +
+      names.map(function (n) { return '<option value="' + escapeHtml(n) + '"' + (n === ref ? " selected" : "") + ">登入地圖：" + escapeHtml(n) + "</option>"; }).join("") +
+      (ref && names.indexOf(ref) < 0 ? '<option value="' + escapeHtml(ref) + '" selected>⚠️ 登入地圖：' + escapeHtml(ref) + "（專案裡沒有）</option>" : "") +
+      "</select>";
   }
   function renderBatchGroups() {
     batchAddGroupBtn.disabled = !currentProject || batchRunning;
@@ -2168,8 +2203,8 @@
           projectMapPickHtml(gi) + "</div>" +
           '<div class="batch-row"><span class="lbl">登入測案</span>' +
           (g.setup ? "" : '<span style="color:var(--ink-soft);">（選填）重開 App 後、或停在登入頁時會先跑它</span>') +
-          projectCasePickHtml("project-setup", gi, "📁 從專案選") + "</div>" +
-          (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, g.map, true) + "</div>" : "") +
+          projectCasePickHtml("project-setup", gi, "📁 從專案選") + setupMapPickHtml(gi, g.setupMapRef) + "</div>" +
+          (g.setup ? '<div class="batch-cases">' + caseRowHtml(gi, 0, g.setup, setupMapOf(g), true) + "</div>" : "") +
           '<div class="batch-row"><span class="lbl">測案</span><span style="color:var(--ink-soft);">依序執行</span>' +
           projectCasePickHtml("project-case", gi, "📁 從專案加入") + "</div>" +
           '<div class="batch-cases">' + (g.cases.length ? g.cases.map(function (c, ci) { return caseRowHtml(gi, ci, c, g.map, false); }).join("") :
@@ -2198,12 +2233,30 @@
     else if (act === "use-current-map") { g.map = currentMapAsFull(); g.mapName = currentMapName; g.mapRef = currentMapName; }
     else if (act === "remove-case") g.cases.splice(ci, 1);
     else if (act === "remove-setup") g.setup = null;
+    else if (act === "case-var-remove") g.cases[ci].vars.splice(Number(btn.dataset.v), 1);
     else if (act === "up" && ci > 0) g.cases.splice(ci - 1, 0, g.cases.splice(ci, 1)[0]);
     else if (act === "down" && ci < g.cases.length - 1) g.cases.splice(ci + 1, 0, g.cases.splice(ci, 1)[0]);
     renderBatchGroups();
   });
   batchGroupsEl.addEventListener("change", async function (e) {
     var pick = e.target.closest("select[data-act]");
+    if (pick && pick.dataset.act === "setup-map") {
+      var sg = batchGroups[Number(pick.dataset.g)], mapName = pick.value;
+      if (!mapName) { sg.setupMapRef = null; sg.setupMap = null; }
+      else {
+        try { sg.setupMap = await fetchProjectMap(mapName); sg.setupMapRef = mapName; }
+        catch (err) { alert("讀取專案地圖失敗：" + err.message); }
+      }
+      renderBatchGroups();
+      return;
+    }
+    if (pick && (pick.dataset.act === "case-login" || pick.dataset.act === "case-var-add")) {
+      var item = batchGroups[Number(pick.dataset.g)].cases[Number(pick.dataset.c)];
+      if (pick.dataset.act === "case-login") { if (pick.value) item.login = pick.value; else delete item.login; }
+      else if (pick.value) item.vars = (item.vars || []).concat([pick.value]);
+      renderBatchGroups();
+      return;
+    }
     if (pick) {
       var name = pick.value, pg = batchGroups[Number(pick.dataset.g)];
       pick.value = "";
@@ -2226,12 +2279,22 @@
   }
   // 專案裡存的批次設定載入成 batchGroups：整份內嵌的（舊版存法）直接用，
   // 引用專案的（map_ref／ref）去專案抓最新版，找不到的列出來提醒
+  // 存檔裡的 login／vars 帶到載入的項目上（account 是舊版的欄位名稱）
+  function withVarRefs(target, saved) {
+    var login = saved.login || saved.account;
+    delete target.account;
+    if (login) target.login = login;
+    if (saved.vars && saved.vars.length) target.vars = saved.vars.slice();
+    return target;
+  }
   async function loadBatchConfig(data) {
     var missing = [];
     async function resolveItem(item) {
       if (!item) return null;
-      if (!item.ref) return item;
-      try { return { name: item.ref, ref: item.ref, case: await fetchProjectCase(item.ref) }; }
+      if (!item.ref) return withVarRefs(item, item);
+      try {
+        return withVarRefs({ name: item.ref, ref: item.ref, case: await fetchProjectCase(item.ref) }, item);
+      }
       catch (err) { missing.push(item.ref); return null; }
     }
     var groups = [];
@@ -2249,8 +2312,14 @@
         var c = await resolveItem(g.cases[j]);
         if (c) cases.push(c);
       }
+      var setupMap = null;
+      if (g.setup_map_ref) {
+        try { setupMap = await fetchProjectMap(g.setup_map_ref); }
+        catch (err) { throw new Error("第 " + (i + 1) + " 組的登入地圖「" + g.setup_map_ref + "」讀不到（可能已改名或刪除）：" + err.message); }
+      }
       groups.push({ mapName: mapRef || g.map_name, map: mapRef ? refMap : g.map,
-        mapRef: mapRef, setup: await resolveItem(g.setup_case), cases: cases });
+        mapRef: mapRef, setup: await resolveItem(g.setup_case), cases: cases,
+        setupMapRef: g.setup_map_ref || null, setupMap: setupMap });
     }
     batchGroups = groups;
     var o = data.options || {};
@@ -2266,6 +2335,7 @@
     for (var i = 0; i < batchGroups.length; i++) {
       var g = batchGroups[i];
       if (g.mapRef) g.map = await fetchProjectMap(g.mapRef);
+      if (g.setupMapRef) g.setupMap = await fetchProjectMap(g.setupMapRef);
       var items = g.cases.concat(g.setup ? [g.setup] : []);
       for (var j = 0; j < items.length; j++) {
         if (items[j].ref) items[j].case = await fetchProjectCase(items[j].ref);
@@ -2299,10 +2369,11 @@
         html += '<details class="batch-result-case" data-key="' + key + '"' + (open ? " open" : "") + ">" +
           '<summary><span class="status-chip ' + c.status + '">' + (BATCH_STATUS_LABEL[c.status] || c.status) + "</span>" +
           '<span class="name">' + escapeHtml(c.test_name || c.name) + "</span>" +
-          '<span class="meta">' + passed + "/" + c.total + " 步通過" + (c.duration != null ? "・" + c.duration + " 秒" : "") + "</span></summary>" +
+          '<span class="meta">' + (c.login ? "🔑 " + escapeHtml(c.login) + "・" : "") +
+          (c.vars && c.vars.length ? "🧩 " + escapeHtml(c.vars.join("、")) + "・" : "") + passed + "/" + c.total + " 步通過" + (c.duration != null ? "・" + c.duration + " 秒" : "") + "</span></summary>" +
           '<div class="batch-result-body">' +
           (c.reason ? '<div class="script-note warn">' + escapeHtml(c.reason) + "</div>" : "") +
-          (c.navigation.length ? '<div><b>回到起始畫面</b><ol class="batch-nav-log">' +
+          (c.navigation.length ? '<div><b>登入／回到起始畫面</b><ol class="batch-nav-log">' +
             c.navigation.map(function (line) { return "<li>" + escapeHtml(line) + "</li>"; }).join("") + "</ol></div>" : "") +
           (c.precheck ? '<div><b>第0步：</b>' + escapeHtml(c.precheck.message) + "</div>" : "") +
           (c.results.length ? "<div><b>步驟</b>" + c.results.map(function (r) {
@@ -2327,8 +2398,18 @@
     var warnings = [];
     batchGroups.forEach(function (g, gi) {
       g.cases.concat(g.setup ? [g.setup] : []).forEach(function (c) {
-        var missing = caseMissingScreens(c.case, g.map);
+        var missing = caseMissingScreens(c.case, c === g.setup ? setupMapOf(g) : g.map);
         if (missing.length) warnings.push("第 " + (gi + 1) + " 組「" + (c.case.test_name || c.name) + "」：地圖缺少 " + missing.join("、"));
+      });
+      g.cases.forEach(function (c) {
+        var label = "第 " + (gi + 1) + " 組「" + (c.case.test_name || c.name) + "」";
+        var files = (c.login ? [c.login] : []).concat(c.vars || []);
+        var gone = files.filter(function (n) { return varFileNames().indexOf(n) < 0; });
+        if (gone.length) { warnings.push(label + "選的變數檔不存在：" + gone.join("、") + "，會被略過"); return; }
+        if (c.login && !g.setup) { warnings.push(label + "選了登入「" + c.login + "」，但這組沒有指定登入測案，會被略過"); return; }
+        var uncovered = uncoveredKeys(c.case, files);
+        if (c.login && g.setup) uncoveredKeys(g.setup.case, files).forEach(function (k) { if (uncovered.indexOf(k) < 0) uncovered.push(k); });
+        if (uncovered.length) warnings.push(label + "選的變數檔裡沒有：" + uncovered.join("、") + "（有設同名環境變數的話可以忽略）");
       });
     });
     var msg = "即將依序執行 " + batchGroups.length + " 組、共 " + total + " 份測案，會實際操作模擬器/裝置" +
@@ -2364,8 +2445,9 @@
       var res = await fetch(base + "/run_batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
         // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 test_config／前景 App
-        body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null, groups: batchGroups.map(function (g) {
-          return { map_name: g.mapName, map: g.map, setup_case: g.setup, cases: g.cases };
+        body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null,
+          project: currentProject ? currentProject.id : null, groups: batchGroups.map(function (g) {
+          return { map_name: g.mapName, map: g.map, setup_case: g.setup, setup_map: g.setupMapRef ? g.setupMap : null, cases: g.cases };
         }) }),
       });
       finished = true;
@@ -2521,6 +2603,8 @@
     projectMaps = d ? d.maps : [];
     projectCases = d ? d.cases : [];
     projectBatches = d ? d.batches : [];
+    projectVars = d ? d.vars || [] : [];
+    runscriptVars = [];
     currentMapName = null; mapVersion = null;
     mapDirty = false; mapConflict = false;
     batchGroups = [];  // 批次設定引用的是上一個專案的地圖／測案，換專案就清掉
@@ -2798,6 +2882,10 @@
     renderRunscriptCasePicker();
     llmgenSaveToProjectBtn.hidden = !on;
     batchSaveToProjectBtn.hidden = !on;
+    document.getElementById("varsManageBtn").hidden = !on;
+    llmgenVarsCheckBtn.hidden = !on;
+    llmgenVarsCheckBtn.disabled = !on || !llmgenLatestCase;
+    renderRunscriptVars();
     batchProjectSelect.hidden = !on;
     batchProjectSelect.innerHTML = '<option value="">' + (projectBatches.length ? "📁 開啟專案裡的批次…" : "📁 專案還沒有存批次") + "</option>" +
       projectBatches.map(function (b) { return '<option value="' + escapeHtml(b.name) + '">' + escapeHtml(b.name) + "</option>"; }).join("");
@@ -2974,6 +3062,326 @@
     }
   });
 
+  // ---- 變數檔（vars/）：測案裡的 ${KEY} 執行時換成選的變數檔的值 ----
+  var VAR_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+  var SECRET_KEY_RE = /PASS|PWD|PIN|SECRET|TOKEN/i;
+  function varFileNames() { return projectVars.map(function (v) { return v.name; }); }
+  // 測案用到的變數 KEY（step.value 是字串或跑馬燈的字串陣列）
+  function caseVarKeys(testCase) {
+    var keys = [];
+    ((testCase && testCase.steps) || []).forEach(function (st) {
+      [].concat(st.value || []).forEach(function (text) {
+        String(text).replace(VAR_RE, function (m, k) { if (keys.indexOf(k) < 0) keys.push(k); return m; });
+      });
+    });
+    return keys;
+  }
+  // 測案用到、但這些變數檔裡都沒有的 KEY
+  function uncoveredKeys(testCase, fileNames) {
+    var have = {};
+    projectVars.forEach(function (v) { if (fileNames.indexOf(v.name) >= 0) (v.keys || []).forEach(function (k) { have[k] = true; }); });
+    return caseVarKeys(testCase).filter(function (k) { return !have[k]; });
+  }
+  // 變數檔的 chip ＋「＋ 變數」選單；attrs 是放進按鈕／選單的 data-*，act 是事件名稱前綴
+  function varsPickHtml(selected, attrs, act) {
+    var names = varFileNames();
+    selected = selected || [];
+    return '<span class="vars-pick">' + selected.map(function (n, i) {
+      var gone = names.indexOf(n) < 0;
+      return '<span class="vars-chip' + (gone ? " missing" : "") + '" title="' + (gone ? "變數檔裡沒有這個（可能已改名或刪除）" : "變數檔") + '">🧩 ' + escapeHtml(n) +
+        '<button type="button" data-act="' + act + '-remove" data-v="' + i + '" ' + attrs + ' title="移除">✕</button></span>';
+    }).join("") +
+      '<select class="project-pick" data-act="' + act + '-add" ' + attrs + ' title="另外要代入的變數檔（股票代號、張數…），同名的以後面的為準">' +
+      '<option value="">＋ 變數</option>' + names.filter(function (n) { return selected.indexOf(n) < 0; }).map(function (n) {
+        return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + "</option>";
+      }).join("") + "</select></span>";
+  }
+  function setProjectVars(items) {
+    projectVars = items || [];
+    renderBatchGroups();
+    renderRunscriptVars();
+  }
+
+  // 單份執行的變數檔
+  function renderRunscriptVars() {
+    document.getElementById("runscriptVarsRow").hidden = !currentProject;
+    runscriptVarsPick.innerHTML = currentProject ? varsPickHtml(runscriptVars, "", "run-var") : "";
+  }
+  runscriptVarsPick.addEventListener("click", function (e) {
+    var btn = e.target.closest('button[data-act="run-var-remove"]');
+    if (!btn) return;
+    runscriptVars.splice(Number(btn.dataset.v), 1);
+    renderRunscriptVars();
+  });
+  runscriptVarsPick.addEventListener("change", function (e) {
+    var pick = e.target.closest('select[data-act="run-var-add"]');
+    if (!pick || !pick.value) return;
+    runscriptVars.push(pick.value);
+    renderRunscriptVars();
+  });
+
+  // 變數管理視窗：左邊檔案清單，右邊編輯目前這個檔的 KEY / 值
+  var varsModal = document.getElementById("varsModal");
+  var varsFileList = document.getElementById("varsFileList");
+  var varsEditor = document.getElementById("varsEditor");
+  var varsMsg = document.getElementById("varsMsg");
+  // varsDraft：{ name, sensitive, rows: [{k, v, show}] }，dirty＝有改還沒存
+  var varsDraft = null, varsDirty = false;
+  function varsApi(name, sub) { return projectApi("/vars/" + encodeURIComponent(name) + (sub || "")); }
+  function setVarsMsg(text, isError) {
+    varsMsg.textContent = text || "";
+    varsMsg.className = "map-manager-msg" + (isError ? " error" : "");
+  }
+  function renderVarsFiles() {
+    varsFileList.innerHTML = projectVars.length ? projectVars.map(function (v) {
+      var cur = varsDraft && varsDraft.name === v.name;
+      return '<button type="button" data-name="' + escapeHtml(v.name) + '"' + (cur ? ' class="current"' : "") + ">" +
+        (v.sensitive ? "🔒 " : "") + escapeHtml(v.name) + '<span class="keys">' + escapeHtml((v.keys || []).join(", ") || "（沒有變數）") + "</span></button>";
+    }).join("") : '<div class="map-manager-hint">還沒有變數檔，在下面輸入名稱新增</div>';
+  }
+  function renderVarsEditor() {
+    if (!varsDraft) { varsEditor.innerHTML = '<div class="map-manager-hint">選左邊的變數檔來編輯</div>'; return; }
+    varsEditor.innerHTML =
+      '<div class="vars-editor-head"><h4>' + escapeHtml(varsDraft.name) + (varsDirty ? "（有修改還沒存）" : "") + "</h4>" +
+      '<button class="btn" data-act="rename">改名</button><button class="btn" data-act="copy">複製</button>' +
+      '<button class="btn danger" data-act="delete">刪除</button></div>' +
+      '<label class="field-row" style="gap:4px;"><input type="checkbox" data-act="sensitive"' + (varsDraft.sensitive ? " checked" : "") +
+      "> 敏感（帳密這類，匯出專案 zip 時不帶出去）</label>" +
+      '<table class="map-table"><thead><tr><th style="width:40%">KEY（測案裡寫 ${KEY}）</th><th>值</th><th></th></tr></thead><tbody>' +
+      varsDraft.rows.map(function (r, i) {
+        var secret = SECRET_KEY_RE.test(r.k) && !r.show;
+        return '<tr><td><input class="vars-input" data-row="' + i + '" data-field="k" value="' + escapeHtml(r.k) + '" placeholder="例如 STOCK_CODE" autocomplete="off"></td>' +
+          '<td><div class="vars-value-cell"><input class="vars-input" data-row="' + i + '" data-field="v" type="' + (secret ? "password" : "text") + '" value="' + escapeHtml(r.v) + '" autocomplete="off">' +
+          (SECRET_KEY_RE.test(r.k) ? '<button class="icon-btn" data-act="show" data-row="' + i + '" title="顯示／隱藏">👁</button>' : "") + "</div></td>" +
+          '<td class="actions"><button class="icon-btn" data-act="remove-row" data-row="' + i + '" title="刪除這一列">✕</button></td></tr>';
+      }).join("") + "</tbody></table>" +
+      '<div class="merge-actions"><button class="btn" data-act="add-row">＋ 新增一列</button><button class="btn primary" data-act="save">💾 儲存</button></div>';
+  }
+  function draftToData() {
+    var values = {}, problems = [];
+    varsDraft.rows.forEach(function (r) {
+      var k = r.k.trim();
+      if (!k && !r.v) return;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) problems.push("「" + (k || "（空白）") + "」不是合法的 KEY：只能用英文、數字、底線，不能數字開頭");
+      else if (Object.prototype.hasOwnProperty.call(values, k)) problems.push("KEY「" + k + "」重複了");
+      values[k] = r.v;
+    });
+    if (problems.length) throw new Error(problems.join("\n"));
+    return { sensitive: varsDraft.sensitive, values: values };
+  }
+  async function loadVarsDraft(name) {
+    var data = (await apiJson("GET", varsApi(name))).data || {};
+    var values = data.values || {};
+    varsDraft = { name: name, sensitive: !!data.sensitive, rows: Object.keys(values).map(function (k) { return { k: k, v: values[k], show: false }; }) };
+    if (!varsDraft.rows.length) varsDraft.rows.push({ k: "", v: "", show: false });
+    varsDirty = false;
+  }
+  function confirmDiscardVars() {
+    return !varsDirty || confirm("「" + varsDraft.name + "」有修改還沒存，要放棄這些修改嗎？");
+  }
+  async function openVarsManager(selectName) {
+    if (!currentProject) return;
+    document.getElementById("varsTitle").textContent = "變數：" + currentProject.name;
+    setVarsMsg("");
+    varsDraft = null; varsDirty = false;
+    try {
+      setProjectVars((await apiJson("GET", projectApi())).vars || []);
+      var name = selectName || (projectVars[0] && projectVars[0].name);
+      if (name) await loadVarsDraft(name);
+    } catch (err) { setVarsMsg("讀取變數檔失敗：" + err.message, true); }
+    renderVarsFiles();
+    renderVarsEditor();
+    varsModal.hidden = false;
+  }
+  function closeVarsManager() {
+    if (!confirmDiscardVars()) return;
+    varsModal.hidden = true;
+    varsDraft = null; varsDirty = false;
+  }
+  document.getElementById("varsManageBtn").addEventListener("click", function () { openVarsManager(); });
+  document.getElementById("varsCloseBtn").addEventListener("click", closeVarsManager);
+  varsModal.addEventListener("click", function (e) { if (e.target === varsModal) closeVarsManager(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !varsModal.hidden) closeVarsManager(); });
+  varsFileList.addEventListener("click", async function (e) {
+    var btn = e.target.closest("button[data-name]");
+    if (!btn || (varsDraft && btn.dataset.name === varsDraft.name) || !confirmDiscardVars()) return;
+    setVarsMsg("");
+    try { await loadVarsDraft(btn.dataset.name); } catch (err) { setVarsMsg("讀取失敗：" + err.message, true); }
+    renderVarsFiles();
+    renderVarsEditor();
+  });
+  document.getElementById("varsNewForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var input = document.getElementById("varsNewName"), name = input.value.trim();
+    if (!name || !confirmDiscardVars()) return;
+    try {
+      setProjectVars((await apiJson("PUT", varsApi(name), { sensitive: false, values: {} })).items);
+      input.value = "";
+      await loadVarsDraft(name);
+      setVarsMsg("已新增「" + name + "」，填好變數按儲存");
+    } catch (err) { setVarsMsg(err.status === 409 ? "已經有「" + name + "」了" : "新增失敗：" + err.message, true); }
+    renderVarsFiles();
+    renderVarsEditor();
+  });
+  varsEditor.addEventListener("input", function (e) {
+    var input = e.target.closest("input[data-row]");
+    if (!input) return;
+    varsDraft.rows[Number(input.dataset.row)][input.dataset.field] = input.value;
+    if (!varsDirty) {
+      varsDirty = true;
+      varsEditor.querySelector("h4").textContent = varsDraft.name + "（有修改還沒存）";
+    }
+  });
+  varsEditor.addEventListener("change", function (e) {
+    if (e.target.dataset.act === "sensitive") { varsDraft.sensitive = e.target.checked; varsDirty = true; renderVarsEditor(); }
+    // KEY 改完，名稱變成像密碼（或反過來）才重畫，值換成遮起來的欄位；重畫後焦點放回使用者移過去的欄位
+    else if (e.target.dataset.field === "k") {
+      var row = Number(e.target.dataset.row), r = varsDraft.rows[row];
+      var valueInput = varsEditor.querySelector('input[data-row="' + row + '"][data-field="v"]');
+      if (valueInput.type === (SECRET_KEY_RE.test(r.k) && !r.show ? "password" : "text") &&
+          !!varsEditor.querySelector('button[data-act="show"][data-row="' + row + '"]') === SECRET_KEY_RE.test(r.k)) return;
+      var active = document.activeElement, focusRow = active && active.dataset ? active.dataset.row : null, focusField = active && active.dataset ? active.dataset.field : null;
+      renderVarsEditor();
+      if (focusRow != null && focusField) {
+        var again = varsEditor.querySelector('input[data-row="' + focusRow + '"][data-field="' + focusField + '"]');
+        if (again) again.focus();
+      }
+    }
+  });
+  varsEditor.addEventListener("click", async function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    var act = btn.dataset.act, row = Number(btn.dataset.row);
+    if (act === "add-row") { varsDraft.rows.push({ k: "", v: "", show: false }); renderVarsEditor(); varsEditor.querySelector('tr:last-child input[data-field="k"]').focus(); return; }
+    if (act === "remove-row") { varsDraft.rows.splice(row, 1); varsDirty = true; renderVarsEditor(); return; }
+    if (act === "show") { varsDraft.rows[row].show = !varsDraft.rows[row].show; renderVarsEditor(); return; }
+    var name = varsDraft.name;
+    try {
+      if (act === "save") {
+        setProjectVars((await apiJson("PUT", varsApi(name) + "?overwrite=1", draftToData())).items);
+        varsDirty = false;
+        setVarsMsg("「" + name + "」已儲存");
+      } else if (act === "rename" || act === "copy") {
+        if (act === "copy" && varsDirty && !confirm("複製的是目前畫面上的內容（含還沒存的修改），確定嗎？")) return;
+        var newName = (prompt(act === "rename" ? "新名稱（存好的批次裡用到的會一起改）：" : "複本名稱：", name + (act === "copy" ? "_copy" : "")) || "").trim();
+        if (!newName || newName === name) return;
+        if (act === "rename") {
+          if (!confirmDiscardVars()) return;
+          setProjectVars((await apiJson("POST", varsApi(name, "/rename"), { new_name: newName })).items);
+          // 畫面上還沒存的批次設定、單份執行選的也跟著改名
+          batchGroups.forEach(function (g) { g.cases.forEach(function (c) {
+            if (c.login === name) c.login = newName;
+            if (c.vars) c.vars = c.vars.map(function (v) { return v === name ? newName : v; });
+          }); });
+          runscriptVars = runscriptVars.map(function (v) { return v === name ? newName : v; });
+          setProjectVars(projectVars);
+        } else {
+          setProjectVars((await apiJson("PUT", varsApi(newName), draftToData())).items);
+        }
+        await loadVarsDraft(newName);
+        setVarsMsg(act === "rename" ? "已改名為「" + newName + "」" : "已複製成「" + newName + "」");
+      } else if (act === "delete") {
+        if (!confirm("確定刪除變數檔「" + name + "」？無法復原")) return;
+        setProjectVars((await apiJson("DELETE", varsApi(name))).items);
+        varsDraft = null; varsDirty = false;
+        if (projectVars.length) await loadVarsDraft(projectVars[0].name);
+        setVarsMsg("已刪除「" + name + "」");
+      }
+    } catch (err) { setVarsMsg((err.status === 409 ? "名稱已經有人用了：" : "失敗：") + err.message, true); }
+    renderVarsFiles();
+    renderVarsEditor();
+  });
+
+  // 測案用到的變數：列出哪些已經有變數檔、哪些還沒有，沒有的可以直接建立（新檔或加進現有的檔）
+  var varsNeedModal = document.getElementById("varsNeedModal");
+  var varsNeedBody = document.getElementById("varsNeedBody");
+  var varsNeedCase = null;
+  function missingVarKeys(testCase) { return uncoveredKeys(testCase, varFileNames()); }
+  // auto＝LLM 剛產生的：全部都有變數檔就不打擾
+  function openVarsNeed(testCase, auto) {
+    if (!currentProject || !testCase) return;
+    var keys = caseVarKeys(testCase);
+    if (auto && !missingVarKeys(testCase).length) return;
+    varsNeedCase = testCase;
+    renderVarsNeed(keys.length ? "" : "這份測案沒有用到變數（${KEY}）。");
+    varsNeedModal.hidden = false;
+  }
+  function renderVarsNeed(note) {
+    var keys = caseVarKeys(varsNeedCase), missing = missingVarKeys(varsNeedCase);
+    var filesOf = function (k) { return projectVars.filter(function (v) { return (v.keys || []).indexOf(k) >= 0; }).map(function (v) { return v.name; }); };
+    var html = note ? '<div class="map-manager-hint">' + escapeHtml(note) + "</div>" : "";
+    if (keys.length) {
+      html += '<table class="map-table"><thead><tr><th>變數</th><th>在哪些變數檔</th></tr></thead><tbody>' + keys.map(function (k) {
+        var files = filesOf(k);
+        return '<tr><td class="vars-need-key">${' + escapeHtml(k) + "}</td><td>" + (files.length ? "✓ " + escapeHtml(files.join("、")) : '<span class="warn">還沒有</span>') + "</td></tr>";
+      }).join("") + "</tbody></table>";
+    }
+    if (missing.length) {
+      var secret = missing.some(function (k) { return SECRET_KEY_RE.test(k) || /LOGIN|ACCOUNT|ID$/i.test(k); });
+      var defaultName = (varsNeedCase.test_name || "新變數檔").replace(/[\/\\:*?"<>|]/g, "_").slice(0, 60);
+      html += '<div class="merge-subtitle">把還沒有的變數建立起來（值可以先空著，之後在「🧩 變數」補）</div>' +
+        '<div class="field-row" style="gap:6px;flex-wrap:wrap;">' +
+        '<label><input type="radio" name="varsNeedMode" value="new" checked> 新的變數檔</label>' +
+        '<input type="text" id="varsNeedNewName" class="vars-input" style="width:auto;flex:1 1 180px;" value="' + escapeHtml(defaultName) + '">' +
+        (projectVars.length ? '<label><input type="radio" name="varsNeedMode" value="existing"> 加進現有的</label>' +
+          '<select id="varsNeedExisting" class="project-pick">' + projectVars.map(function (v) { return '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + "</option>"; }).join("") + "</select>" : "") +
+        "</div>" +
+        '<label class="field-row" style="gap:4px;"><input type="checkbox" id="varsNeedSensitive"' + (secret ? " checked" : "") + "> 敏感（新檔才會套用；帳密這類，匯出專案 zip 時不帶出去）</label>" +
+        '<table class="map-table"><thead><tr><th></th><th>KEY</th><th>值</th></tr></thead><tbody>' + missing.map(function (k) {
+          return '<tr><td><input type="checkbox" data-need-key="' + escapeHtml(k) + '" checked title="放進這個檔"></td><td class="vars-need-key">' + escapeHtml(k) + "</td>" +
+            '<td><input class="vars-input" data-need-value="' + escapeHtml(k) + '" type="' + (SECRET_KEY_RE.test(k) ? "password" : "text") + '" autocomplete="off"></td></tr>';
+        }).join("") + "</tbody></table>" +
+        '<div class="map-manager-msg" id="varsNeedMsg" role="status"></div>' +
+        '<div class="merge-actions"><button class="btn" data-act="later">稍後再說</button><button class="btn primary" data-act="create">建立</button></div>';
+    } else if (keys.length) {
+      html += '<div class="map-manager-hint">✓ 用到的變數都已經有變數檔了，執行時記得選對檔（批次：登入／＋ 變數；單份：變數檔）。</div>' +
+        '<div class="merge-actions"><button class="btn primary" data-act="later">好</button></div>';
+    } else {
+      html += '<div class="merge-actions"><button class="btn primary" data-act="later">好</button></div>';
+    }
+    varsNeedBody.innerHTML = html;
+  }
+  function closeVarsNeed() { varsNeedModal.hidden = true; varsNeedCase = null; }
+  document.getElementById("varsNeedCloseBtn").addEventListener("click", closeVarsNeed);
+  varsNeedModal.addEventListener("click", function (e) { if (e.target === varsNeedModal) closeVarsNeed(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !varsNeedModal.hidden) closeVarsNeed(); });
+  llmgenVarsCheckBtn.addEventListener("click", function () { openVarsNeed(llmgenLatestCase, false); });
+  varsNeedBody.addEventListener("click", async function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    if (btn.dataset.act === "later") { closeVarsNeed(); return; }
+    var msg = document.getElementById("varsNeedMsg");
+    var picked = {};
+    varsNeedBody.querySelectorAll("input[data-need-key]").forEach(function (cb) {
+      if (cb.checked) picked[cb.dataset.needKey] = varsNeedBody.querySelector('input[data-need-value="' + cb.dataset.needKey + '"]').value;
+    });
+    if (!Object.keys(picked).length) { msg.textContent = "至少勾一個變數"; msg.className = "map-manager-msg error"; return; }
+    var modeEl = varsNeedBody.querySelector('input[name="varsNeedMode"]:checked');
+    var toExisting = modeEl && modeEl.value === "existing";
+    var name = toExisting ? document.getElementById("varsNeedExisting").value : document.getElementById("varsNeedNewName").value.trim();
+    if (!name) { msg.textContent = "請輸入變數檔名稱"; msg.className = "map-manager-msg error"; return; }
+    btn.disabled = true;
+    try {
+      var res;
+      if (toExisting) {
+        var data = (await apiJson("GET", varsApi(name))).data || {};
+        data.values = Object.assign({}, data.values || {}, picked);
+        res = await apiJson("PUT", varsApi(name) + "?overwrite=1", data);
+      } else {
+        res = await apiJson("PUT", varsApi(name), { sensitive: document.getElementById("varsNeedSensitive").checked, values: picked });
+      }
+      setProjectVars(res.items);
+      var left = missingVarKeys(varsNeedCase);
+      renderVarsNeed((toExisting ? "已加進「" : "已建立「") + name + "」。" + (left.length ? "還有沒建立的變數，可以再建一個檔（例如帳密跟測試資料分開）。" : ""));
+      setProjectStatus("變數檔「" + name + "」已存進專案");
+    } catch (err) {
+      msg = document.getElementById("varsNeedMsg");
+      msg.textContent = (err.status === 409 ? "已經有「" + name + "」了，換個名稱或選「加進現有的」" : "建立失敗：" + err.message);
+      msg.className = "map-manager-msg error";
+      btn.disabled = false;
+    }
+  });
+
   function batchItemToSaved(item) {
     if (!item) return null;
     return item.ref ? { ref: item.ref } : { name: item.name, case: item.case };
@@ -2986,7 +3394,13 @@
       groups: batchGroups.map(function (g) {
         var out = g.mapRef ? { map_ref: g.mapRef } : { map_name: g.mapName, map: g.map };
         out.setup_case = batchItemToSaved(g.setup);
-        out.cases = g.cases.map(batchItemToSaved);
+        if (g.setupMapRef) out.setup_map_ref = g.setupMapRef;
+        out.cases = g.cases.map(function (c) {
+          var saved = batchItemToSaved(c);
+          if (c.login) saved.login = c.login;
+          if (c.vars && c.vars.length) saved.vars = c.vars.slice();
+          return saved;
+        });
         return out;
       }) };
     try {
