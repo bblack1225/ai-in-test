@@ -63,7 +63,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
-from capture_screen_map import scan_screen
+from capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
 from navigator import MapIndex, Navigator
 from platforms import PLATFORMS, get_platform
 from run_test_case import (
@@ -985,6 +985,53 @@ def do_scan_screen(payload: dict) -> dict:
     return {"screen_data": screen_data}
 
 
+# ---------------------------------------------------------------------------
+# /describe_screen：幫地圖裡已經掃描過的畫面補 LLM 用途描述（掃描時沒勾、或爬蟲
+# 爬出來的都沒有）。不碰手機：用地圖存的元件資料＋存檔的截圖，跟掃描時用的是同一組
+# describe_* 函式；只回傳 {unique_id: 描述}，元件 id、自訂 XPath 都不動。
+# 已知限制：掃描時有「捲動收集」的話，捲到下面才抓到的元件也只能對照最頂部那張截圖。
+# ---------------------------------------------------------------------------
+
+def describe_saved_screen(payload: dict) -> dict:
+    screen_name = payload.get("screen_name") or ""
+    elements = payload.get("elements") or []
+    if not elements:
+        return {"descriptions": {}}
+    platform = get_platform(payload["platform"]) if payload.get("platform") in PLATFORMS else PLATFORM
+
+    screenshot_png, available = b"", False
+    rel = payload.get("screenshot")
+    if rel:
+        base = (WORKSPACE.project_dir(payload["project"]) if payload.get("project") else Path(".")).resolve()
+        path = (base / rel).resolve()
+        if path.is_relative_to(base) and path.is_file():
+            screenshot_png = path.read_bytes()
+            available = not payload.get("screenshot_blocked")
+    print(f"[補描述] {screen_name}：{len(elements)} 個元件，{'有' if available else '沒有'}截圖")
+
+    native = [e for e in elements if e.get("id_source") == "native" and e.get("native_id")]
+    generated = [e for e in elements if e not in native]
+    native_desc = describe_native_elements(platform, screen_name, [
+        {"native_id": e["native_id"], "class": e.get("class"), "label": e.get("label"), "value": e.get("value")}
+        for e in native])
+    temp_ids = [f"e{i}" for i in range(len(generated))]
+    generated_desc = describe_generated_elements(platform, screen_name, screenshot_png, available, [
+        {"class": e.get("class"), "label": e.get("label"), "bounds": e.get("bounds"),
+         "position_bucket": (e.get("fingerprint") or {}).get("position_bucket"),
+         "nearby_text": (e.get("fingerprint") or {}).get("nearby_text")}
+        for e in generated], temp_ids)
+
+    descriptions = {}
+    for e in native:
+        d = native_desc.get(f"{e.get('class')}::{e['native_id']}")
+        if d:
+            descriptions[e["unique_id"]] = d
+    for tid, e in zip(temp_ids, generated):
+        if generated_desc.get(tid):
+            descriptions[e["unique_id"]] = generated_desc[tid]
+    return {"descriptions": descriptions}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1076,11 +1123,11 @@ class Handler(BaseHTTPRequestHandler):
     KNOWN_PATHS = (
         "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
         "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
-        "/run_batch",
+        "/run_batch", "/check_screen", "/describe_screen",
     )
     # 純 LLM 的代理不操作裝置，不需要Appium session存活，讓使用者就算手機
     # 還沒接好也能先設計測試案例
-    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script")
+    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script", "/describe_screen")
 
     def do_POST(self):
         if not self._request_allowed():
@@ -1267,6 +1314,13 @@ class Handler(BaseHTTPRequestHandler):
             return stop_test_script()
         if path == "/scan_screen":
             return do_scan_screen(payload)
+        if path == "/describe_screen":
+            return describe_saved_screen(payload)
+        if path == "/check_screen":
+            # 手機目前是不是停在某個畫面（同第0步檢查），給地圖「在上面加一層」確認點對入口用
+            status, message = check_current_screen(PLATFORM, get_driver(), payload.get("screen_name") or "",
+                                                   payload.get("elements") or [])
+            return {"status": status, "message": message}
         if path == "/llm_scenarios":
             return llm_generate_scenarios(payload)
 

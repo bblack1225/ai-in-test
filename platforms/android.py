@@ -744,37 +744,100 @@ def _submit_input(driver) -> None:
         driver.press_keycode(66)  # KEYCODE_ENTER
 
 
+# 模擬按鍵的間隔：完全不等的話，輸入框有在打字時做處理（轉大寫、格式化、遮罩）的 App
+# 會漏掉中間的字（實際遇過 A123456789 打成 A12789）；比對不符重打時再放慢
+_KEY_INTERVAL = 0.15
+_SLOW_KEY_INTERVAL = 0.25
+_MASK_CHARS = set("*•●·")
+
+
+def _type_by_keycodes(driver, target, value: str, interval: float) -> None:
+    target.click()
+    time.sleep(0.3)  # 等輸入框取得焦點、鍵盤出現
+    for c in value:
+        raise_if_stopped()
+        code = _KEYCODES[c]
+        keycode, meta = code if isinstance(code, tuple) else (code, 0)
+        driver.press_keycode(keycode, metastate=meta or None)
+        time.sleep(interval)
+
+
+def _typed_mismatch(target, value: str) -> str | None:
+    """讀回輸入框內容跟要輸入的比對：不一樣回傳實際內容，一樣或沒辦法比對（密碼欄、
+    顯示時有遮罩）回傳 None"""
+    time.sleep(0.3)  # App 處理輸入（格式化、轉大寫）要一點時間
+    try:
+        if target.get_attribute("password") == "true":
+            return None
+        actual = target.get_attribute("text") or ""
+    except Exception as e:
+        print(f"    [輸入] 讀不回輸入框內容，不比對: {e}")
+        return None
+    if actual == value or _MASK_CHARS & set(actual):
+        return None
+    return actual
+
+
+def _clear_text(driver, target) -> None:
+    try:
+        target.clear()
+        return
+    except InvalidElementStateException:
+        pass
+    # 連清除都被擋：游標移到最後再一直按刪除
+    target.click()
+    length = len(target.get_attribute("text") or "") + 5
+    driver.press_keycode(123)  # KEYCODE_MOVE_END
+    for _ in range(length):
+        driver.press_keycode(67)  # KEYCODE_DEL
+
+
 def input_text(driver, element, value: str, submit: bool = False) -> str:
     """
     輸入文字。帳號密碼欄位常常擋掉 UiAutomator2 預設的「直接設定文字」（ACTION_SET_TEXT，
     錯誤是 InvalidElementStateException: Cannot set the element to ...），但還是接受
     一個鍵一個鍵的按鍵事件，所以被擋時改成先點一下取得焦點、再逐字模擬按鍵。
     App 自己畫的安全鍵盤（數字／亂序鍵盤）連按鍵事件都不收的話，這裡也打不進去，會回報 FAIL。
+    打完讀回內容比對（密碼欄、有遮罩的沒辦法比，略過），不符就清掉放慢重打一次，還是不符才 FAIL。
     submit=True 時打完按鍵盤的「完成」送出（點開後才跳出的輸入列要送出才會寫回畫面）。
     """
     target = _find_edit_text(element)
+    unsupported = sorted({c for c in value if c not in _KEYCODES})
+    by_keys = False
     try:
         target.send_keys(value)
-        if submit:
-            _submit_input(driver)
-        return "PASS"
+        outcome = "PASS"
     except InvalidElementStateException:
-        pass
+        by_keys = True
+        if unsupported:
+            return f"FAIL（輸入框不接受直接設定文字，改用模擬按鍵也打不出這些字元：{''.join(unsupported)}）"
+        _type_by_keycodes(driver, target, value, _KEY_INTERVAL)
+        outcome = "PASS（輸入框不接受直接設定文字，改用模擬按鍵逐字輸入）"
 
-    unsupported = sorted({c for c in value if c not in _KEYCODES})
-    if unsupported:
-        return f"FAIL（輸入框不接受直接設定文字，改用模擬按鍵也打不出這些字元：{''.join(unsupported)}）"
-    target.click()
-    time.sleep(0.3)  # 等輸入框取得焦點、鍵盤出現
-    for c in value:
-        code = _KEYCODES[c]
-        keycode, meta = code if isinstance(code, tuple) else (code, 0)
-        driver.press_keycode(keycode, metastate=meta or None)
+    actual = _typed_mismatch(target, value)
+    if actual is not None:
+        if unsupported:
+            return f"FAIL（輸入後欄位內容是「{actual}」跟要輸入的不一樣，有特殊字元沒辦法改用按鍵重打）"
+        print(f"    [輸入] 輸入後內容跟預期不一樣（長度 {len(actual)} / {len(value)}），清掉放慢重打一次")
+        _clear_text(driver, target)
+        _type_by_keycodes(driver, target, value, _SLOW_KEY_INTERVAL)
+        by_keys = True
+        actual = _typed_mismatch(target, value)
+        if actual is not None:
+            return f"FAIL（放慢重打後欄位內容還是「{actual}」，跟要輸入的不一樣，可能是 App 會改寫輸入或欄位有長度限制）"
+        outcome = "PASS（第一次輸入後內容不對，已清掉放慢逐字重打）"
+
     if submit:
         _submit_input(driver)
-    elif driver.is_keyboard_shown():
-        driver.hide_keyboard()
-    return "PASS（輸入框不接受直接設定文字，改用模擬按鍵逐字輸入）"
+    elif by_keys:
+        # 收鍵盤只是收尾（避免擋到下一個欄位），有些 App 的鍵盤收不起來（WebDriverException：
+        # The software keyboard cannot be hidden），字已經打好了，不能因為這個讓整步 FAIL
+        try:
+            if driver.is_keyboard_shown():
+                driver.hide_keyboard()
+        except Exception as e:
+            print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
+    return outcome
 
 
 class AndroidPlatform:

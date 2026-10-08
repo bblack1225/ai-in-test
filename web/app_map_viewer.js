@@ -755,6 +755,8 @@
     html += "</div>";
 
     html += '<div class="btn-row"><button class="btn" id="addNodeBtn" title="開啟視窗：在這個畫面選一個元件點擊，把點出來的畫面建成子節點（手動建樹）">🌱 從這裡點出新畫面…</button>' +
+      (s.parent ? "" : '<button class="btn" id="addParentRootBtn" title="這個根節點上面還有一頁（例如 App 一打開的首頁）時，掃描那一頁當新的根節點，把現在這整棵樹接到它底下">⬆ 在上面加一層</button>') +
+      '<button class="btn" id="describeScreenBtn" title="用存好的截圖和元件資料幫還沒有描述的元件產生用途描述，不需要接手機；元件 id、自訂 XPath 都不會變">🤖 補 LLM 描述</button>' +
       '<button class="btn danger" id="deleteNodeBtn">🗑 刪除節點（含所有子節點）</button></div>';
     html += '<div><span class="section-label">如何抵達這個畫面</span>';
     html += inEdges.length
@@ -787,6 +789,172 @@
     if (shotFrame) shotFrame.addEventListener("click", function () { openModal(s); });
     document.getElementById("addNodeBtn").addEventListener("click", function () { openModal(s, { addNode: true }); });
     document.getElementById("deleteNodeBtn").addEventListener("click", function () { deleteNode(s.uid); });
+    document.getElementById("describeScreenBtn").addEventListener("click", function () { describeScreen(s, this); });
+    var addParentBtn = document.getElementById("addParentRootBtn");
+    if (addParentBtn) addParentBtn.addEventListener("click", function () { renderAddParentRoot(s); });
+  }
+
+  // ---- 補 LLM 描述：只送還沒有描述的元件（都有了才問要不要全部重新產生）----
+  async function describeScreen(s, btn) {
+    var targets = s.els.filter(function (el) { return !el.d; });
+    if (!targets.length) {
+      if (!confirm("「" + s.name + "」的 " + s.els.length + " 個元件都已經有描述了，要全部重新產生嗎？（會覆蓋現有描述，花費 API 額度）")) return;
+      targets = s.els.slice();
+    } else if (!confirm("幫「" + s.name + "」" + targets.length + " 個還沒有描述的元件產生 LLM 用途描述？（會花費 API 額度）")) return;
+    btn.disabled = true;
+    btn.textContent = "產生描述中…";
+    try {
+      var full = shortScreenToFull(s);
+      var ids = {};
+      targets.forEach(function (el) { ids[el.u] = true; });
+      var res = await fetch(API_BASE + "/describe_screen", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ screen_name: s.name, platform: mapPlatform(), project: currentProject ? currentProject.id : null,
+          screenshot: s.screenshot, screenshot_blocked: full.screenshot_blocked,
+          elements: full.elements.filter(function (e) { return ids[e.unique_id]; }) })
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+      var filled = 0;
+      s.els.forEach(function (el) {
+        if (data.descriptions[el.u]) { el.d = data.descriptions[el.u]; filled++; }
+      });
+      if (filled) markMapDirty();
+      selectScreen(s.uid);
+      alert("已補上 " + filled + " / " + targets.length + " 個元件的描述" + (filled < targets.length ? "（沒補到的是 LLM 沒回傳，可以再按一次）" : ""));
+    } catch (err) {
+      alert(failText("產生描述失敗", err, "（viewer_server.py 有啟動嗎？）"));
+      btn.disabled = false;
+      btn.textContent = "🤖 補 LLM 描述";
+    }
+  }
+
+  // ---- 在根節點上面加一層：掃描更上一層的畫面當新根，選它上面「點了進到原本根節點」的元件接起來 ----
+  function renderAddParentRoot(oldRoot) {
+    var suggested = "home_screen";
+    for (var i = 2; screens.some(function (sc) { return sc.name === suggested; }); i++) suggested = "home_screen_" + i;
+    detailBody.innerHTML =
+      '<div class="screen-id"><div class="name">在「' + escapeHtml(oldRoot.name) + '」上面加一層</div></div>' +
+      '<div class="empty-hint" style="margin-top:10px;">1. 把手機導到「' + escapeHtml(oldRoot.name) + '」的上一層那頁（例如 App 一打開的首頁），輸入名稱後掃描。<br>' +
+      "2. 接著在新畫面上選「點了會進到「" + escapeHtml(oldRoot.name) + "」」的元件，會真的點一次，確認手機到了原本的根節點才接起來。<br>" +
+      "原本的節點、測案都不受影響，只是整棵樹往下一層。</div>" +
+      '<div class="field-row" style="margin-top:10px;flex-direction:column;align-items:stretch;">' +
+      '<label style="font-size: calc(12px * var(--font-scale));color:var(--ink-soft);margin-bottom:4px;">新根節點名稱</label>' +
+      '<input type="text" id="parentRootName" value="' + escapeHtml(suggested) + '" style="width:100%;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-size: calc(12.5px * var(--font-scale));">' +
+      "</div>" +
+      '<div class="field-row"><label><input type="checkbox" id="parentRootDescribe"> 同時產生LLM用途描述（會花費API額度，可以先不勾、之後再補）</label></div>' +
+      '<div class="btn-row" style="margin-top:8px;"><button class="btn primary" id="parentRootScanBtn">🔍 掃描目前畫面</button><button class="btn" id="parentRootCancelBtn">取消</button></div>' +
+      '<div class="tap-result pending" id="parentRootResult">還沒掃描</div>';
+    document.getElementById("parentRootCancelBtn").addEventListener("click", function () { selectScreen(oldRoot.uid); });
+    document.getElementById("parentRootScanBtn").addEventListener("click", async function () {
+      var btn = this, resultEl = document.getElementById("parentRootResult");
+      var name = (document.getElementById("parentRootName").value || "").trim();
+      if (!name) { resultEl.textContent = "請先輸入名稱"; resultEl.className = "tap-result fail"; return; }
+      if (screens.some(function (sc) { return sc.name === name; })) { resultEl.textContent = "這個名稱已經有節點在用了，換一個名稱"; resultEl.className = "tap-result fail"; return; }
+      btn.disabled = true;
+      resultEl.className = "tap-result pending";
+      resultEl.textContent = "掃描中，勾了 LLM 描述的話要等久一點…";
+      try {
+        await assertPlatformMatches(API_BASE, mapPlatform());
+        var res = await fetch(API_BASE + "/scan_screen", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ screen_name: name, describe: document.getElementById("parentRootDescribe").checked, scroll: false,
+            project: currentProject ? currentProject.id : null })
+        });
+        var data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+        // 先不放進地圖：選好入口、確認點得到原本的根節點才接上，取消的話地圖完全不變
+        var newRoot = {
+          uid: "manual_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name,
+          parent: null, entry: null, depth: 0, path: [], nav_title: null, selected_tab: null,
+          screenshot: null, w: null, h: null, els: [], _blank: true
+        };
+        applyScanResultToBlankScreen(newRoot, data.screen_data);
+        resultEl.textContent = "掃描好了，在跳出的視窗選入口元件（關掉視窗就是取消，地圖不會變）";
+        resultEl.className = "tap-result pass";
+        btn.disabled = false;
+        openModal(newRoot, { linkRoot: oldRoot });
+      } catch (err) {
+        resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？）");
+        resultEl.className = "tap-result fail";
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function renderModalPickedLinkRoot(el, host) {
+    var oldRoot = modalLinkRoot;
+    host.innerHTML =
+      '<div class="picked-panel">' +
+      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml(shortClass(el.c)) + "</span></div>" +
+      '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(el.n || "—") + "</span></div>" +
+      '<div class="pk-row"><b>描述</b><span>' + escapeHtml(el.d || "—") + "</span></div>" +
+      '<div class="btn-row" style="margin-top:8px;"><button class="btn primary" id="linkRootSubmitBtn">⬇ 執行點擊並接上「' + escapeHtml(oldRoot.name) + "」</button></div>" +
+      '<div class="tap-result pending" id="linkRootResult">還沒送出</div>' +
+      "</div>";
+    document.getElementById("linkRootSubmitBtn").addEventListener("click", function () { submitLinkRoot(el); });
+  }
+
+  async function submitLinkRoot(el) {
+    var btn = document.getElementById("linkRootSubmitBtn");
+    var resultEl = document.getElementById("linkRootResult");
+    var newRoot = modalScreen, oldRoot = modalLinkRoot;
+    btn.disabled = true;
+    resultEl.className = "tap-result pending";
+    resultEl.textContent = "執行點擊中…";
+    try {
+      await assertPlatformMatches(API_BASE, mapPlatform());
+      var res = await fetch(API_BASE + "/tap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      if (String(data.result).indexOf("PASS") !== 0) {
+        resultEl.textContent = "點擊失敗，還沒接上：" + data.result;
+        resultEl.className = "tap-result fail";
+        btn.disabled = false;
+        return;
+      }
+      resultEl.textContent = "已點擊，確認手機是不是到了「" + oldRoot.name + "」…";
+      await new Promise(function (r) { setTimeout(r, 1500); });  // 等換頁動畫
+      var check = await (await fetch(API_BASE + "/check_screen", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ screen_name: oldRoot.name, elements: shortScreenToFull(oldRoot).elements })
+      })).json();
+      if (check.error) throw new Error(check.error);
+      if (check.status === "fail") {
+        resultEl.innerHTML = escapeHtml("手機看起來沒有到「" + oldRoot.name + "」：" + check.message +
+          "。請把手機回到「" + newRoot.name + "」那頁再選一次；確定是對的（例如畫面有彈窗擋住）也可以直接接上。") +
+          '<div class="btn-row" style="margin-top:6px;"><button class="btn" id="linkRootForceBtn">仍然接上</button></div>';
+        resultEl.className = "tap-result fail";
+        document.getElementById("linkRootForceBtn").addEventListener("click", function () { linkNewRoot(newRoot, oldRoot, el); });
+        btn.disabled = false;
+        return;
+      }
+      linkNewRoot(newRoot, oldRoot, el);
+    } catch (err) {
+      resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
+      resultEl.className = "tap-result fail";
+      btn.disabled = false;
+    }
+  }
+
+  // 新根放最前面，原本的根接到它底下；原本整棵樹 depth +1、path 前面補「新根 → 原本的根」這一步
+  function linkNewRoot(newRoot, oldRoot, el) {
+    var step = { screen_uid: newRoot.uid, element_uid: el.u };
+    collectDescendantUids(oldRoot.uid).forEach(function (uid) {
+      var sc = byUid[uid];
+      sc.depth = (sc.depth || 0) + 1;
+      sc.path = [step].concat(sc.path || []);
+    });
+    oldRoot.parent = newRoot.uid;
+    oldRoot.entry = el.u;
+    screens.unshift(newRoot);
+    edges.push({ from: newRoot.uid, via: el.u, to: oldRoot.uid, kind: "tree" });
+    app.root_name = newRoot.name;
+    if (typeof app.max_depth === "number") app.max_depth += 1;
+    rebuildAll();
+    markMapDirty();
+    closeModal();
+    selectScreen(newRoot.uid);
   }
 
   // ---------------------------------------------------------------
@@ -796,13 +964,17 @@
   var modalScreen = null;
   var modalPickedUid = null;
   var modalAddNode = false;
+  var modalLinkRoot = null;  // 「在上面加一層」：要接到新根底下的原本根節點
 
   function openModal(s, opts) {
     opts = opts || {};
     modalScreen = s;
     modalPickedUid = null;
     modalAddNode = !!opts.addNode;
-    document.getElementById("modalTitle").textContent = modalAddNode
+    modalLinkRoot = opts.linkRoot || null;
+    document.getElementById("modalTitle").textContent = modalLinkRoot
+      ? (s.name + " — 選一個點了會進到「" + modalLinkRoot.name + "」的元件，送出後會真的點擊裝置")
+      : modalAddNode
       ? (s.name + " — 選一個元件當新節點的入口，送出後會真的點擊裝置")
       : (s.name + " — 點圖上的框或右邊清單來選元件");
     var img = document.getElementById("modalImg");
@@ -815,7 +987,7 @@
     document.getElementById("modalPickedHost").innerHTML = "";
     modal.hidden = false;
   }
-  function closeModal() { modal.hidden = true; modalScreen = null; modalAddNode = false; }
+  function closeModal() { modal.hidden = true; modalScreen = null; modalAddNode = false; modalLinkRoot = null; }
   document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
   modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.hidden) closeModal(); });
@@ -1074,6 +1246,7 @@
 
   function renderModalPicked(el) {
     var host = document.getElementById("modalPickedHost");
+    if (modalLinkRoot) { renderModalPickedLinkRoot(el, host); return; }
     if (modalAddNode) { renderModalPickedAddNode(el, host); return; }
     var locator = computeLocatorShort(el);
     var locatorTypeLabel = locator.custom ? "XPath(自訂)" : { id: "id", xpath: "XPath", coordinate: "座標" }[locator.type];
