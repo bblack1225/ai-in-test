@@ -8,7 +8,6 @@
   var selectedUid = null, nodeGroups = {};
   // 目前地圖是從哪個檔案載入的，給「測試情境產生」「測案編輯」「測案執行」
   // 顯示資料來源用；頁面內嵌的資料沒有檔名
-  var currentMapFileName = null;
   // 目前開啟的 workspace 專案（{id, name, platform, bundle_id}），null＝沒用專案；
   // mapVersion 是上次讀到／存檔後的地圖版本，存檔時帶回去讓伺服器擋掉互相覆蓋
   var currentProject = null, mapVersion = null, projectList = [], projectCases = [], projectBatches = [];
@@ -31,11 +30,6 @@
       btn.addEventListener("click", onReset);
       el.appendChild(btn);
     }
-  }
-  function currentMapSourceName() {
-    var count = "（" + screens.length + " 個畫面）";
-    if (currentMapFileName) return currentMapFileName + " " + count;
-    return screens.length ? "頁面內嵌的地圖 " + count : "（地圖檢視還沒載入地圖）";
   }
   // ---------------------------------------------------------------
   // 平台（iOS／Android）：地圖自己記錄是哪個平台掃出來的（app.platform），
@@ -401,11 +395,10 @@
   }
 
   // 換上一份新地圖（檔案載入、開專案都走這裡），各分頁跟著刷新
-  function applyMapData(data, sourceName) {
+  function applyMapData(data) {
     var normalized = normalizeImportedMap(data);
     screens = normalized.screens; edges = normalized.edges; skipped = normalized.skipped; app = normalized.app;
     DATA.screens = screens; DATA.edges = edges; DATA.skipped = skipped; DATA.app = app;
-    currentMapFileName = sourceName;
     selectedUid = null;
     detailCounter.textContent = "";
     rebuildAll();
@@ -470,7 +463,7 @@
         createProjectMap(name, data).catch(function (err) { alert("匯入地圖失敗：" + err.message); });
         return;
       }
-      applyMapData(data, file.name);
+      applyMapData(data);
     };
     reader.readAsText(file);
   }
@@ -1413,10 +1406,8 @@
     }
   });
 
-  var scenarioSourceLine = document.getElementById("scenarioSourceLine");
   function initScenarioFromCurrentMap() {
     scenarioData = { screens: shortScreensToLlmgenFormat(screens) };
-    setSourceLine(scenarioSourceLine, "畫面資料", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     buildScenarioScreenChecklist();
   }
   function buildScenarioScreenChecklist() {
@@ -1593,10 +1584,8 @@
       };
     });
   }
-  var llmgenSourceLine = document.getElementById("llmgenSourceLine");
   function initLlmgenFromCurrentMap() {
     llmgenData = { screens: shortScreensToLlmgenFormat(screens) };
-    setSourceLine(llmgenSourceLine, "畫面資料", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     buildLlmgenScreenChecklist();
   }
   function buildLlmgenScreenChecklist() {
@@ -2091,9 +2080,7 @@
   // 地圖一律用「地圖檢視」目前開著的那張（執行當下才抓，地圖換了會跟著變）
   // runscriptCaseRef：選的是專案測案時的名稱；null＝測案編輯送來、不在專案裡（或有修改沒存）的那份
   var runscriptTestCase = null, runscriptCaseRef = null, runscriptEditorLabel = "";
-  var runscriptMapSourceLine = document.getElementById("runscriptMapSourceLine");
   function renderRunscriptSources() {
-    setSourceLine(runscriptMapSourceLine, "地圖", "目前地圖（在「地圖檢視」切換）", currentMapSourceName());
     renderRunscriptCasePicker();
   }
   function renderRunscriptCasePicker() {
@@ -2785,7 +2772,7 @@
     try { localStorage.setItem("lastProject", id || ""); } catch (e) { /* 存不了就下次手動選 */ }
     projectSelect.value = id || "";
     if (!d) {
-      applyMapData({ app: {}, screens: [], edges: [], skipped: [] }, null);
+      applyMapData({ app: {}, screens: [], edges: [], skipped: [] });
       updateProjectUi();
       setProjectStatus("沒有使用專案：地圖、測案改了要自己匯出存檔");
       return;
@@ -2806,7 +2793,6 @@
 
   // ---- 專案裡的多張地圖 ----
   function mapApi(name) { return projectApi("/maps/" + encodeURIComponent(name)); }
-  function mapSourceLabel() { return "專案：" + currentProject.name + "／地圖「" + currentMapName + "」"; }
   // 批次用：目前開著的地圖拿記憶體裡的（可能還沒存檔），其他張去伺服器讀
   async function fetchProjectMap(name) {
     if (!currentProject) throw new Error("沒有開啟專案");
@@ -2835,7 +2821,7 @@
     var map = d.map;
     map.app = map.app || {};
     if (!map.app.platform) map.app.platform = currentProject.platform;
-    applyMapData(map, mapSourceLabel());
+    applyMapData(map);
     updateProjectUi();
     setProjectStatus("已開啟地圖「" + name + "」（" + screens.length + " 個畫面）・專案共 " + projectMaps.length + " 張地圖、" + projectCases.length + " 份測案");
     return true;
@@ -2951,7 +2937,6 @@
         batchGroups.forEach(function (g) { if (g.mapRef === name) { g.mapRef = newName; g.mapName = newName; } });
         if (name === currentMapName) {
           currentMapName = newName;
-          currentMapFileName = mapSourceLabel();
           try { localStorage.setItem("lastMap:" + currentProject.id, newName); } catch (e) { /* 無所謂 */ }
         }
         mapRowEdit = null;

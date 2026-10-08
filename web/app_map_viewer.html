@@ -91,7 +91,6 @@
     <section class="panel">
       <div class="panel-head"><h2>測試情境產生：從畫面資料推論可能的測試情境</h2></div>
       <div class="detail-body" style="max-height:none;">
-        <div class="source-line" id="scenarioSourceLine"></div>
         <div class="field-row">
           <button class="btn" id="scenarioSelectAllBtn">全選畫面</button>
           <button class="btn" id="scenarioSelectNoneBtn">全部取消</button>
@@ -131,7 +130,6 @@
         </div>
         <div>
           <span class="section-label">② 用 LLM 產生／修改</span>
-          <div class="source-line" id="llmgenSourceLine"></div>
         </div>
         <div class="field-row">
           <button class="btn" id="llmgenSelectAllBtn">全選畫面</button>
@@ -201,7 +199,6 @@
           <span id="runscriptVarsPick" class="vars-pick"></span>
           <span style="color:var(--ink-soft);">測案裡的 ${KEY} 換成這些檔的值，同名的以後面選的為準</span>
         </div>
-        <div class="source-line" id="runscriptMapSourceLine"></div>
         <div class="btn-row">
           <button class="btn primary" id="runscriptRunBtn" disabled>▶ 執行測試</button>
           <button class="btn danger" id="runscriptStopBtn" hidden>⏹ 停止</button>
