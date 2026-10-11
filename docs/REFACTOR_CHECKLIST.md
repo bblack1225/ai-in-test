@@ -20,7 +20,7 @@
 - [x] `capture_screen_map.py` 藏在 `main()` 裡的 `platforms` import 移回檔頭
 - [x] 驗證：每個模組可單獨 import；實機掃描（捲動收集）、跑測案、停止
 
-### 步驟 2：小修與工具鏈
+### 步驟 2：小修與工具鏈 `refactor/quick-fixes`
 - [ ] 報告 #1：`crawl_app_tree.py` 的 `finally` 裡的 `break` 移到 `try/finally` 後面
 - [ ] 報告 #3：`generate_content_with_retry` 遇到 429 也重試（優先用回應帶的等待秒數），其他 4xx 直接拋出
 - [ ] 報告 #14：`pyproject.toml` 加 `[dependency-groups] dev`（ruff、pytest）、`[tool.ruff]`（line-length 120、select E/F/W/B/I）
@@ -30,7 +30,7 @@
 - [ ] 報告 #12：`run_test_case.py` 三處提到已刪掉的 `generate_test_case.py`；LLM 用量文件註明「模型與單價以設定檔為準」；`TROUBLESHOOTING.md` 加「症狀 → 條目」索引
 - [ ] `compare_versions.py` 說明裡提到已退役的 `viewer.html`
 
-### 步驟 3：純函式測試（報告 #2）
+### 步驟 3：純函式測試（報告 #2） `refactor/add-tests`
 - [ ] 補一份 Android 的 page_source 樣本（目前 `docs/reference_data/` 三份都是 iOS）
 - [ ] 確認樣本 XML 沒有真實帳號、金額，有的話換成假資料
 - [ ] `tests/test_parse_candidates.py`：iOS／Android 解析
@@ -41,7 +41,7 @@
 - [ ] `tests/test_resolve_env.py`：`${LOGIN_ID}` 替換、缺少變數的回報
 - [ ] `uv run pytest` 全過
 
-### 步驟 4：平台層收斂
+### 步驟 4：平台層收斂 `refactor/platform-unify`
 - [ ] 報告 #5：三套「等畫面穩定」合併成一個 `wait_until_stable`，掃描版改用真實時間計時
 - [ ] 報告 #6：`crawl_app_tree.py` 的 `IOSCrawlRules`／`AndroidCrawlRules` 併入 `IOSPlatform`／`AndroidPlatform`，爬蟲改用 `get_platform()`
 - [ ] `crawl_app_tree.py` 不再使用平台的私有函式（`_text_xpath`、`_predicate_literal`）
@@ -52,7 +52,7 @@
 - [ ] `scan_core.py` 跟著收進平台層或 core
 - [ ] 驗證：pytest 全過＋實機跑完整測案、爬蟲
 
-### 步驟 5：RunContext 與 LLM 用量（報告 #4、CHANGELOG「token 使用量」後端部分）
+### 步驟 5：RunContext 與 LLM 用量（報告 #4、CHANGELOG「token 使用量」後端部分） `refactor/run-context`
 - [ ] `RunContext`：vars、var_sources、dismiss_dialogs、stop_checker、progress、usage
 - [ ] `run_test_case`、`navigator`、`platforms/` 改成用參數傳 `ctx`，刪掉全域變數和 `set_xxx()`（不留過渡期）
 - [ ] `common.py` 的全域 `_stop_checker` 刪掉
@@ -62,7 +62,7 @@
 - [ ] `_progress`／`_batch_progress` 改成每次執行一份，讀寫加鎖
 - [ ] 驗證：同時跑掃描與 LLM 對話，兩邊用量各自正確
 
-### 步驟 6：套件化（CHANGELOG「python code 專案結構調整」）
+### 步驟 6：套件化（CHANGELOG「python code 專案結構調整」） `refactor/src-package`
 - [ ] 改成 `src/aitest/`：`core/`、`platforms/`、`llm/`、`cli/`、`config.py`、`common.py`
 - [ ] `pyproject.toml` 加 `[project.scripts]`，指令變成 `uv run aitest ...`
 - [ ] 修正用 `__file__` 找路徑的地方：`config.toml`、`web/`、`logs/`、`aitest.py` 啟動 viewer
@@ -71,7 +71,7 @@
 - [ ] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`
 - [ ] 驗證：pytest 全過＋`uv run aitest start` 實機跑一輪
 
-### 步驟 7：拆 viewer_server（報告 #8）
+### 步驟 7：拆 viewer_server（報告 #8） `refactor/split-server`
 - [ ] `llm/prompts.py`：三個 `build_*_prompt` 和常數字串（CHANGELOG「提示詞優化」有獨立的地方可改）
 - [ ] `core/runner.py`：`run_test_script`、`run_batch`、進度
 - [ ] `api/`：一個領域一個檔，路由改成查表，取代 `KNOWN_PATHS`、`PATHS_NOT_REQUIRING_DRIVER` 和 if/elif
@@ -79,7 +79,7 @@
 - [ ] 報告 #11：AI 定位送 LLM 前先剪掉 page_source 裡用不到的節點和屬性
 - [ ] 要不要從 `http.server` 換成 FastAPI 等框架 **（待確認）**
 
-### 步驟 8：前端串接準備
+### 步驟 8：前端串接準備 `refactor/api-for-frontend`
 - [ ] `docs/API.md`：每支 API 的路徑、方法、參數、回傳格式、是否需要手機、錯誤格式
 - [ ] 錯誤回傳格式統一（例如 `{"error": "...", "hint": "..."}` 加上正確的 HTTP 狀態碼）
 - [ ] 開發時的跨站設定：目前只允許同 port 的 Origin，前端開發伺服器（例如 Vite 的 5173）會被擋。加設定可以允許指定的開發用 Origin
@@ -87,7 +87,7 @@
 - [ ] 長時間操作（掃描、爬蟲、測案、批次）的進度 API 格式統一，包含 LLM 用量
 - [ ] 驗證：現在的 `web/` 前端照常可用
 
-### 步驟 9：收尾
+### 步驟 9：收尾 `refactor/wrap-up`
 - [ ] 逐項比對報告 16 項，填寫下面的「與報告的差距」
 - [ ] CHANGELOG.md 加更新紀錄、勾掉完成的待做事項
 
@@ -99,15 +99,15 @@
 
 | 待做事項 | 這次做的後端部分 | 狀態 |
 |---|---|---|
-| 測案編輯與刪除：產出就直接儲存，之後可再編輯、刪除 | 測案的讀寫刪 API 已經有（`/api/projects/<專案>/cases/<名稱>` 的 GET／PUT／DELETE），寫進 API 文件；「LLM 產生後自動儲存」是否需要新 API **（待確認）** | [ ] |
-| 可以在網頁上新增專案 | 新增 `POST /api/projects`（建立）、修改專案設定的 API。之前決定只用 `workspace.py` CLI 建專案，這項等於改掉那個決定 **（待確認）** | [ ] |
+| 測案編輯與刪除：產出就直接儲存，之後可再編輯、刪除 | 不用新 API。現有的 `/api/projects/<專案>/cases/<名稱>`：GET 讀取、PUT 新增（`?overwrite=1` 覆蓋＝編輯）、DELETE 刪除，另有 `POST …/rename` 改名。寫進 API 文件 | [ ] |
+| 可以在網頁上新增專案 | 新增 `POST /api/projects`（建立）、修改專案設定的 API（2026-10-11 決定：網頁也可以建專案，CLI 保留） | [ ] |
 | 新增地圖的方式更直覺 | 地圖的新增、複製、改名、匯入、匯出、刪除 API 已經有，主要是前端操作。寫進 API 文件 | [ ] |
 | token 使用量顯示在網頁上 | 步驟 5 的用量累計＋步驟 8 的進度 API 回傳用量；顯示由前端做 | [ ] |
-| 自動產生的元件 ID（`gen::…`）容易定位不到 | 評估任務，不是結構調整。要不要排進這次 **（待確認）** | [ ] |
+| 自動產生的元件 ID（`gen::…`）容易定位不到 | 這次不做，之後另外處理 | [-] 之後再做 |
 | python code 專案結構調整 | 步驟 6 | [ ] |
-| 地圖節點新增更方便，不一定都要手動建 | 需要的後端能力不明確（例如掃描後自動加節點？）**（待確認）** | [ ] |
+| 地圖節點新增更方便，不一定都要手動建 | 這次不做，之後另外處理 | [-] 之後再做 |
 | 測案編輯與測案執行的操作體驗優化 | 前端 | [-] 交給前端 |
-| 提示詞優化 | 步驟 7 把提示詞抽到 `llm/prompts.py`＋報告 #11 剪枝；提示詞內容本身的調整 **（待確認）** | [ ] |
+| 提示詞優化 | 步驟 7 把提示詞抽到 `llm/prompts.py`＋報告 #11 剪枝；提示詞內容本身不動，之後另外調整 | [ ] |
 | 前端頁面重構（改用前端框架） | 前端 | [-] 交給前端 |
 
 ---
