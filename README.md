@@ -37,7 +37,8 @@ uv run python aitest.py start foo-ios
 - `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
 - `config.toml` — 本機設定（手機 UDID、簽署 Team ID、WDA bundle id、Gemini 模型），**換電腦/手機改這裡**；
   不進 git，範本是 `config.example.toml`。App 的 bundle id 不在這裡，在專案設定（見 3.3）
-- `test_config.py` — 讀 `config.toml`，組出 Appium 連線設定、提供 Gemini 呼叫，其他程式都從這裡取用
+- `config.py` — 讀 `config.toml`，組出 Appium 連線設定、提供 Gemini 呼叫，其他程式都從這裡取用
+- `common.py`、`scan_core.py` — 掃描、跑測案、`platforms/` 共用的小工具（停止旗標、XPath 字串、掃描的合併邏輯），不 import 專案內其他模組
 - `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
 - `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
 - `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
@@ -136,7 +137,7 @@ uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')
 確認（不會印出 key 本身）：
 
 ```
-uv run python -c "import test_config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
+uv run python -c "import config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
 ```
 
 沒設 key 的話只有 LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，看地圖、點擊、爬蟲照常能跑。
@@ -226,7 +227,7 @@ cp config.example.toml config.toml
 確認設定有被讀到：
 
 ```
-uv run python -c "import test_config as t; print(t.ios_capabilities())"
+uv run python -c "import config as t; print(t.ios_capabilities())"
 ```
 
 缺欄位的話會直接說缺哪個、要填在哪裡。WDA 建置失敗（`xcodebuild failed with code 65`）想看
@@ -248,7 +249,7 @@ appium --address 127.0.0.1
 uv run python - <<'EOF'
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
-from test_config import APPIUM_SERVER_URL, ios_capabilities
+from config import APPIUM_SERVER_URL, ios_capabilities
 
 d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(ios_capabilities()))
 try:
@@ -464,7 +465,9 @@ workspace/projects/foo-demo-ios/
 | 檔案 | 用途 |
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
-| `test_config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503錯誤自動重試）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
+| `config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503、每分鐘上限的 429 自動等待重試；整天額度用完直接報錯）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
+| `common.py` | `StopRequested`／`set_stop_checker()`／`raise_if_stopped()`（網頁按「停止」時讓長迴圈中斷）、`xpath_literal()`。不 import 專案內其他模組，`platforms/` 可以放心用 |
+| `scan_core.py` | 掃描的共用邏輯：九宮格分區、候選元件的身分 key、讀一輪畫面並合併（`read_and_merge_round()`，垂直捲動和 `platforms/` 的橫向容器收集共用）。同樣不 import 專案內其他模組 |
 | `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次／變數檔的讀寫（變數檔改名時，批次裡引用到的一起改），以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面；匯出時不帶勾了「敏感」的變數檔）；`viewer_server.py` 的 `/api/projects/...`、`crawl_app_tree.py --project` 都透過它。CLI：`list`／`create`／`update`／`import-legacy` |
 | `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**。`app_map_viewer.html` 原本有一個從這支移植的「改版比對」展示分頁，目前暫時移除（見第八節） |
 
@@ -519,6 +522,15 @@ workspace/projects/foo-demo-ios/
 | `reference_data/` | 3份真實掃描存下來的原始 Accessibility Tree XML（登入畫面×2、保單總覽畫面），給驗證/延伸解析邏輯時當真實樣本用，不是隨便編的範例 |
 
 ---
+
+### 4.7 開發工具
+
+`uv sync` 會一起裝好 ruff（程式碼檢查）和 pytest（測試），設定在 `pyproject.toml`：
+
+```bash
+uv run ruff check .
+uv run pytest
+```
 
 ## 五、建議閱讀順序
 

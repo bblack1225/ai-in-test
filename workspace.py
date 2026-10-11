@@ -333,8 +333,8 @@ class Workspace:
             raise WorkspaceError("檔案太大（超過 2GB）")
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
-        except zipfile.BadZipFile:
-            raise WorkspaceError("這不是 zip 檔")
+        except zipfile.BadZipFile as e:
+            raise WorkspaceError("這不是 zip 檔") from e
         with zf:
             names = [n for n in zf.namelist() if not n.endswith("/")]
             maps = [n for n in names if n.startswith("maps/") and n.endswith(".json") and n.count("/") == 1]
@@ -342,8 +342,8 @@ class Workspace:
                 raise WorkspaceError("zip 內容不對：要是「匯出目前地圖」產生的檔案（裡面有一個 maps/<名稱>.json）")
             try:
                 map_data = json.loads(zf.read(maps[0]))
-            except json.JSONDecodeError:
-                raise WorkspaceError(f"zip 裡的 {maps[0]} 不是合法 JSON")
+            except json.JSONDecodeError as e:
+                raise WorkspaceError(f"zip 裡的 {maps[0]} 不是合法 JSON") from e
             self._check_map(map_data)
             path = self.map_path(project_id, name)
             backup = None
@@ -500,8 +500,8 @@ class Workspace:
             raise WorkspaceError("檔案太大（超過 2GB）")
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
-        except zipfile.BadZipFile:
-            raise WorkspaceError("這不是 zip 檔")
+        except zipfile.BadZipFile as e:
+            raise WorkspaceError("這不是 zip 檔") from e
         names = [n for n in zf.namelist() if not n.endswith("/")]
         tops = {n.split("/", 1)[0] for n in names}
         if len(tops) != 1 or any("/" not in n for n in names) or not any(n.endswith("/project.json") and n.count("/") == 1 for n in names):
@@ -577,8 +577,8 @@ class Workspace:
                     content = zf.read(n)
                     try:
                         item = json.loads(content)
-                    except json.JSONDecodeError:
-                        raise WorkspaceError(f"zip 裡的 {rel} 不是合法 JSON")
+                    except json.JSONDecodeError as e:
+                        raise WorkspaceError(f"zip 裡的 {rel} 不是合法 JSON") from e
                     local = d / folder / fname
                     if not local.exists():
                         status = "new"
@@ -609,7 +609,7 @@ class Workspace:
                     try:
                         _check_vars(i["data"])
                     except WorkspaceError as e:
-                        raise WorkspaceError(f"zip 裡的 vars/{i['name']}.json 格式不對：{e}")
+                        raise WorkspaceError(f"zip 裡的 vars/{i['name']}.json 格式不對：{e}") from e
                 elif not (isinstance(i["data"], dict) and isinstance(i["data"].get("steps" if i["kind"] == "cases" else "groups"), list)):
                     raise WorkspaceError(f"zip 裡的 {i['kind']}/{i['name']}.json 格式不對")
 

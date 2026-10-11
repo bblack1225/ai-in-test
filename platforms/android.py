@@ -33,7 +33,7 @@ from selenium.common.exceptions import InvalidElementStateException, NoSuchEleme
 
 from common import raise_if_stopped, xpath_literal
 from scan_core import position_bucket, read_and_merge_round
-from test_config import android_capabilities
+from config import android_capabilities
 
 
 # ---------------------------------------------------------------------------

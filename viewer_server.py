@@ -80,7 +80,7 @@ from run_test_case import (
     wait_after_action,
     with_dismiss_note,
 )
-from test_config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
+from config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
 from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
 
 HOST = "127.0.0.1"
@@ -1181,8 +1181,8 @@ class Handler(BaseHTTPRequestHandler):
     def _read_json_body(self):
         try:
             return json.loads(self._read_body() or b"null")
-        except json.JSONDecodeError:
-            raise WorkspaceError("請求內容不是合法JSON")
+        except json.JSONDecodeError as e:
+            raise WorkspaceError("請求內容不是合法JSON") from e
 
     def _handle_api(self, method: str):
         """
@@ -1224,8 +1224,8 @@ class Handler(BaseHTTPRequestHandler):
                 if (query.get("preview") or ["0"])[0] != "1":
                     try:
                         resolutions = json.loads((query.get("resolutions") or ["{}"])[0])
-                    except json.JSONDecodeError:
-                        raise WorkspaceError("resolutions 不是合法JSON")
+                    except json.JSONDecodeError as e:
+                        raise WorkspaceError("resolutions 不是合法JSON") from e
                 self._send_json(200, WORKSPACE.merge_zip(self._read_body(), resolutions))
             elif method == "GET" and len(parts) == 1:
                 self._send_json(200, WORKSPACE.summary(parts[0]))

@@ -8,3 +8,21 @@ dependencies = [
     "pillow>=12.3.0",
     "selenium>=4.49.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["workspace", "demo"]
+
+[tool.ruff.lint]
+# E/W 風格、F 未定義／未使用、B 常見 bug 樣式（例如 B012 finally 裡的 break）、I import 排序
+select = ["E", "F", "W", "B", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -2,7 +2,7 @@
 POC: App 測試案例執行器（第三步），iOS / Android 共用
 
 功能：
-  讀取 generate_test_case.py 產生的測試步驟清單，實際連線手機、透過 Appium 執行，
+  讀取 test_cases/{screen_name}.json 的測試步驟清單，實際連線手機、透過 Appium 執行，
   並印出每個步驟的執行結果。這一步完全不用 LLM，純粹是把結構化的步驟資料
   轉換成 Appium 操作指令（機械式工作，交給固定的程式邏輯處理）。
 
@@ -52,8 +52,11 @@ from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidElementStateException, InvalidSessionIdException, NoSuchElementException
 
 # set_stop_checker、xpath_literal 這裡沒用到，留著是因為 viewer_server、crawl_app_tree 從這支 import
-from common import StopRequested, raise_if_stopped, set_stop_checker, xpath_literal
-from test_config import APPIUM_SERVER_URL
+from common import StopRequested, raise_if_stopped
+from common import set_stop_checker as set_stop_checker
+from common import xpath_literal as xpath_literal
+from config import APPIUM_SERVER_URL
+from platforms import PLATFORMS, get_platform
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")
@@ -63,7 +66,7 @@ TEST_RESULTS_DIR = Path("test_results")
 def load_test_case(screen_name: str) -> dict:
     path = TEST_CASES_DIR / f"{screen_name}.json"
     if not path.exists():
-        raise SystemExit(f"找不到 {path}，請先用 generate_test_case.py 產生這個畫面的測試案例")
+        raise SystemExit(f"找不到 {path}，請先在網頁的「測案編輯」分頁產生測案，或手動建立這個檔案")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -758,10 +761,7 @@ def save_result_screenshot(driver, screen_name: str):
 
 
 def main():
-    # platforms 裡的模組會 import 這支的共用函式，放在這裡 import 避免循環
-    from platforms import PLATFORMS, get_platform
-
-    parser = argparse.ArgumentParser(description="執行 generate_test_case.py 產生的測試案例")
+    parser = argparse.ArgumentParser(description="執行 test_cases/{screen_name}.json 的測試案例")
     parser.add_argument("--screen_name", required=True)
     parser.add_argument("--platform", choices=sorted(PLATFORMS), default="ios", help="裝置平台（預設 ios）")
     parser.add_argument("--dismiss_dialogs", action="store_true",

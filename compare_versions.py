@@ -3,7 +3,7 @@
 哪些「疑似同一個需要人工確認」、哪些是「全新元件」、哪些舊元件已經消失。
 
 對應 PROJECT_BRIEF 決策3的相似度計分規則。網頁上原本有從這支移植的 JavaScript 展示版
-（viewer.html、app_map_viewer.html 的「改版比對」分頁），目前都已暫時移除（README 第八節），
+（app_map_viewer.html 的「改版比對」分頁），目前暫時移除（README 第八節），
 正式流程一律以這支 Python 版為準。
 
 使用方式：

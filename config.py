@@ -128,13 +128,39 @@ def get_llm_client():
     return _llm_client
 
 
+def _error_details(error) -> list:
+    body = error.details if isinstance(error.details, dict) else {}
+    return [d for d in (body.get("error") or {}).get("details") or [] if isinstance(d, dict)]
+
+
+def _is_daily_quota(error) -> bool:
+    """429 是不是「整天的額度用完」（QuotaFailure 的 quotaId 帶 PerDay）：這種等幾分鐘也不會恢復，不用重試"""
+    return any("PerDay" in str(v.get("quotaId", ""))
+               for d in _error_details(error) for v in d.get("violations") or [] if isinstance(v, dict))
+
+
+def _retry_after_seconds(error) -> float | None:
+    """429 回應的 details 裡如果有 RetryInfo（例如 "retryDelay": "33s"），回傳 Google 建議等待的秒數"""
+    for item in _error_details(error):
+        delay = item.get("retryDelay")
+        if isinstance(delay, str) and delay.endswith("s"):
+            try:
+                return float(delay[:-1])
+            except ValueError:
+                return None
+    return None
+
+
 def generate_content_with_retry(max_retries=4, base_delay_sec=5, **kwargs):
     """
-    包一層重試邏輯：Gemini API 偶爾會回傳 503（伺服器端暫時性過載，
-    不是我們呼叫頻率的問題），用指數退避重試幾次，減少手動重跑的次數。
-    429（配額用盡）不屬於 ServerError，不會被這裡攔截重試，會直接拋出。
+    包一層重試邏輯，減少手動重跑的次數：
+      - 5xx（ServerError）：Gemini 伺服器端暫時性過載，等幾秒重試
+      - 429 每分鐘請求數超過上限：連續掃描很多畫面時常見，等一下就能繼續。
+        優先用回應裡 Google 建議的等待秒數，沒有的話等得比 5xx 久一點
+      - 429 整天的額度用完：重試也不會恢復，直接拋出（見 TROUBLESHOOTING #17）
+      - 其他 4xx（格式錯、金鑰無效）重試也不會變好，直接拋出
     """
-    from google.genai.errors import ServerError
+    from google.genai.errors import ClientError, ServerError
 
     client = get_llm_client()
     for attempt in range(1, max_retries + 1):
@@ -144,6 +170,11 @@ def generate_content_with_retry(max_retries=4, base_delay_sec=5, **kwargs):
             if attempt == max_retries:
                 raise
             wait_sec = base_delay_sec * attempt
-            print(f"  [警告] Gemini API 暫時性錯誤（第{attempt}次，{e.code if hasattr(e, 'code') else ''}），"
-                  f"{wait_sec}秒後重試...")
-            time.sleep(wait_sec)
+            reason = f"暫時性錯誤 {e.code}"
+        except ClientError as e:
+            if e.code != 429 or _is_daily_quota(e) or attempt == max_retries:
+                raise
+            wait_sec = _retry_after_seconds(e) or base_delay_sec * attempt * 2
+            reason = "請求太頻繁（429）"
+        print(f"  [警告] Gemini API {reason}（第{attempt}次），{wait_sec:g}秒後重試...")
+        time.sleep(wait_sec)

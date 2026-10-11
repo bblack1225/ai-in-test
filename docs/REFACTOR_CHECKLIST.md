@@ -21,14 +21,20 @@
 - [x] 驗證：每個模組可單獨 import；實機掃描（捲動收集）、跑測案、停止
 
 ### 步驟 2：小修與工具鏈 `refactor/quick-fixes`
-- [ ] 報告 #1：`crawl_app_tree.py` 的 `finally` 裡的 `break` 移到 `try/finally` 後面
-- [ ] 報告 #3：`generate_content_with_retry` 遇到 429 也重試（優先用回應帶的等待秒數），其他 4xx 直接拋出
-- [ ] 報告 #14：`pyproject.toml` 加 `[dependency-groups] dev`（ruff、pytest）、`[tool.ruff]`（line-length 120、select E/F/W/B/I）
-- [ ] 報告 #14：修掉 ruff 抓到的 B904（`raise ... from`）、B012
-- [ ] 報告 #16：`.vscode/` 移出 git、加進 `.gitignore`
-- [ ] `test_config.py` 改名 `config.py`（避免被 pytest 當成測試檔）
-- [ ] 報告 #12：`run_test_case.py` 三處提到已刪掉的 `generate_test_case.py`；LLM 用量文件註明「模型與單價以設定檔為準」；`TROUBLESHOOTING.md` 加「症狀 → 條目」索引
-- [ ] `compare_versions.py` 說明裡提到已退役的 `viewer.html`
+- [x] 報告 #1：`crawl_app_tree.py` 的 `finally` 裡的 `break` 移到 `try/finally` 後面
+- [x] 報告 #3：`generate_content_with_retry` 遇到 429 也重試（優先用回應帶的等待秒數），其他 4xx 直接拋出
+  - 跟報告不同：整天額度用完的 429（quotaId 帶 `PerDay`）不重試、直接拋出，只有每分鐘上限的 429 才重試
+- [x] 報告 #14：`pyproject.toml` 加 `[dependency-groups] dev`（ruff、pytest）、`[tool.ruff]`（line-length 120、select E/F/W/B/I）、`[tool.pytest.ini_options]`
+- [x] 報告 #14：修掉 ruff 抓到的 B904（`raise ... from`，9 處）、B012（隨 #1 解掉）
+- [ ] 其餘 ruff 項目（48 筆：行太長 24、F541 6、import 排序 6、E741 5、B905 5、其他 2），都是風格問題，之後再處理
+- [x] 報告 #16：`.vscode/` 移出 git、加進 `.gitignore`
+- [x] `test_config.py` 改名 `config.py`（避免被 pytest 當成測試檔），程式與文件的引用全部更新
+- [x] 報告 #12：`run_test_case.py` 三處提到已刪掉的 `generate_test_case.py`；LLM 用量文件註明「模型與單價以設定檔為準」；`TROUBLESHOOTING.md` 加「依症狀找」索引，#9、#17 更新
+- [x] `compare_versions.py` 說明裡提到已退役的 `viewer.html`
+- [x] 步驟 1 漏掉的：`run_test_case.py` 的 `main()` 裡藏的 `platforms` import 移回檔頭
+- [x] README 補上 `common.py`、`scan_core.py`、開發工具（ruff、pytest）
+- [x] 驗證（不用手機）：所有模組可 import、ruff 的 B012／B904／F401 通過、429／503 重試用假的 client 模擬、`aitest.py doctor` 與各 CLI 的 `--help` 正常
+- [ ] 驗證（實機）：`uv run python aitest.py start` 掃描一個畫面、跑一個測案、爬蟲跑一小段
 
 ### 步驟 3：純函式測試（報告 #2） `refactor/add-tests`
 - [ ] 補一份 Android 的 page_source 樣本（目前 `docs/reference_data/` 三份都是 iOS）
@@ -116,9 +122,9 @@
 
 | # | 項目 | 處理步驟 | 狀態 |
 |---|---|---|---|
-| 1 | 爬蟲在應該中止時繼續跑（`finally` 裡的 `break`） | 步驟 2 | [ ] |
+| 1 | 爬蟲在應該中止時繼續跑（`finally` 裡的 `break`） | 步驟 2 | [x] |
 | 2 | 沒有自動化測試 | 步驟 3 | [ ] |
-| 3 | Gemini 429 不重試 | 步驟 2 | [ ] |
+| 3 | Gemini 429 不重試 | 步驟 2 | [x] |
 | 4 | 執行期設定放在全域變數 | 步驟 1（部分）、步驟 5 | [ ] |
 | 5 | 等畫面穩定有三種寫法 | 步驟 4 | [ ] |
 | 6 | 爬蟲自己又做了一套平台切換 | 步驟 4 | [ ] |
@@ -127,11 +133,11 @@
 | 9 | 前端 3,600 行擠在一個檔案 | 交給前端；後端提供步驟 8 的 API 文件 | [-] 交給前端 |
 | 10 | `except Exception` 讓斷線看起來像找不到元件 | 步驟 4 | [ ] |
 | 11 | AI 定位每次重試都重送整個畫面結構 | 步驟 7 | [ ] |
-| 12 | 文件提到已刪掉的檔案和舊模型名 | 步驟 2 | [ ] |
+| 12 | 文件提到已刪掉的檔案和舊模型名 | 步驟 2 | [x] |
 | 13 | 全部用 print | 步驟 6 | [ ] |
-| 14 | 沒有程式碼檢查工具設定 | 步驟 2 | [ ] |
+| 14 | 沒有程式碼檢查工具設定 | 步驟 2（風格類的 48 筆還沒修） | [x] |
 | 15 | LLM 對話每輪重送全部內容 | 報告也建議先不動，等用量顯示後確認成本再決定 | [-] 暫不做 |
-| 16 | 個人編輯器設定進了 git | 步驟 2 | [ ] |
+| 16 | 個人編輯器設定進了 git | 步驟 2 | [x] |
 
 ---
 

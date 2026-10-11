@@ -25,7 +25,7 @@ from appium import webdriver
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from test_config import APPIUM_SERVER_URL, ios_capabilities
+from config import APPIUM_SERVER_URL, ios_capabilities
 
 OUTPUT_DIR = Path("transient_captures")
 

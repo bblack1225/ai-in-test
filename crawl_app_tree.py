@@ -66,7 +66,7 @@ from workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _wri
 from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
 from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 from run_test_case import xpath_literal
-from test_config import APPIUM_SERVER_URL
+from config import APPIUM_SERVER_URL
 
 OUTPUT_PATH = Path("app_map_tree.json")
 
@@ -1173,13 +1173,17 @@ def crawl_screen(driver, suggested_name: str, parent_uid: str | None, entry_el: 
 
         child_path = path + [{"screen_uid": uid, "element_uid": el["unique_id"]}]
         child_suggested = f"auto_{name}_{i + 1}"
+        # break 不能寫在 finally 裡：finally 裡的 break 會吃掉正在往上傳的例外，
+        # 子畫面丟出的 CrawlAborted（例如偵測到登出）會被吞掉、爬蟲繼續點下去
         try:
             crawl_screen(driver, child_suggested, uid, el, child_path, depth + 1, cfg, state)
         finally:
-            if not recover_to(driver, uid, path=path, state=state):
+            recovered = recover_to(driver, uid, path=path, state=state)
+            if not recovered:
                 print(f"    [警告] 無法確認回到「{name}」，放棄這個畫面剩餘候選")
                 save_map(state, cfg["meta"])
-                break
+        if not recovered:
+            break
         save_map(state, cfg["meta"])
 
     return uid
@@ -1254,7 +1258,7 @@ def main():
             project = ws.get_project(args.project)
             OUTPUT_PATH = ws.map_path(args.project, args.map)
         except WorkspaceError as e:
-            raise SystemExit(f"錯誤：{e}（專案要先用 workspace.py create 建立）")
+            raise SystemExit(f"錯誤：{e}（專案要先用 workspace.py create 建立）") from None
         if args.platform and args.platform != project["platform"]:
             raise SystemExit(f"錯誤：專案「{args.project}」是 {project['platform']}，跟 --platform {args.platform} 不一致")
         args.platform = project["platform"]

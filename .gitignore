@@ -12,6 +12,9 @@ __pycache__/
 # macOS
 .DS_Store
 
+# 個人編輯器設定
+.vscode/
+
 # 執行時自動產生的圖片（可重新產生，體積大）
 crops/
 test_results/

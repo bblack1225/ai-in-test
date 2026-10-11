@@ -93,7 +93,7 @@ def main():
             ws.get_project(args.project)  # 確認專案存在（舊專案的 map.json 也會在這裡搬成 maps/main.json）
             base = ws.project_dir(args.project)
         except WorkspaceError as e:
-            raise SystemExit(f"錯誤：{e}")
+            raise SystemExit(f"錯誤：{e}") from None
     files = reference_files(base, args.refs)
     refs = collect_references(files)
     print(f"檢查了 {len(files)} 個檔案裡的圖片引用")

@@ -29,7 +29,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-import test_config
+import config
 from viewer_server import DEFAULT_PORT
 from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
 
@@ -109,7 +109,7 @@ def tail(path: Path, lines: int = 15) -> str:
 
 def appium_endpoint() -> tuple[str, str, int]:
     """config.toml 的 Appium 位址拆成（狀態網址, host, port）。"""
-    url = test_config.APPIUM_SERVER_URL.rstrip("/")
+    url = config.APPIUM_SERVER_URL.rstrip("/")
     parts = urlsplit(url)
     return url + "/status", parts.hostname or "127.0.0.1", parts.port or 4723
 
@@ -202,12 +202,12 @@ def cmd_start(args) -> None:
         print("[aitest] 不啟動 Appium（--no-appium）：可以看地圖、編輯測案，操作手機的功能會失敗")
     elif http_ok(status_url):
         pids = listening_pids(port)
-        print(f"[aitest] Appium 已經在跑（{test_config.APPIUM_SERVER_URL}），直接使用")
+        print(f"[aitest] Appium 已經在跑（{config.APPIUM_SERVER_URL}），直接使用")
         if len(pids) > 1:
             print(f"[aitest] [警告] port {port} 上有 {len(pids)} 個程式在聽（PID {', '.join(pids)}），"
                   f"可能同時開了好幾個 Appium，Python 會連到錯的那個（README 2.8）。只留一個，多的用 {kill_hint()} 關掉")
     elif host not in LOCAL_HOSTS:
-        sys.exit(f"錯誤：config.toml 的 Appium 位址 {test_config.APPIUM_SERVER_URL} 不是本機，"
+        sys.exit(f"錯誤：config.toml 的 Appium 位址 {config.APPIUM_SERVER_URL} 不是本機，"
                  "連不上也不能幫你啟動，請先確認那台的 Appium 有開")
     else:
         appium_proc, appium_log = start_appium(host, port)
@@ -215,7 +215,7 @@ def cmd_start(args) -> None:
         if not wait_until(lambda: http_ok(status_url), 60, appium_proc):
             stop(appium_proc, "Appium")
             sys.exit(f"錯誤：Appium 沒有成功啟動，log 最後幾行：\n{tail(appium_log)}")
-        print(f"[aitest] Appium 已啟動：{test_config.APPIUM_SERVER_URL}")
+        print(f"[aitest] Appium 已啟動：{config.APPIUM_SERVER_URL}")
 
     # ---- viewer_server ----
     cmd = [sys.executable, str(ROOT / "viewer_server.py"), "--platform", platform,
@@ -305,22 +305,22 @@ def check_python(r: Report) -> None:
 
 def check_config(r: Report, platforms: list[str]) -> None:
     r.section("設定（config.toml）")
-    if not test_config.CONFIG_PATH.is_file():
-        r.fail(f"找不到 {test_config.CONFIG_PATH.name}", "cp config.example.toml config.toml，再填裝置資訊（README 2.6）")
+    if not config.CONFIG_PATH.is_file():
+        r.fail(f"找不到 {config.CONFIG_PATH.name}", "cp config.example.toml config.toml，再填裝置資訊（README 2.6）")
     else:
-        r.ok(f"讀到 {test_config.CONFIG_PATH}")
+        r.ok(f"讀到 {config.CONFIG_PATH}")
     for p in platforms:
         try:
-            caps = test_config.ios_capabilities() if p == "ios" else test_config.android_capabilities()
+            caps = config.ios_capabilities() if p == "ios" else config.android_capabilities()
             r.ok(f"{p} 連線設定完整（udid {caps['udid']}）")
-        except test_config.ConfigError as e:
+        except config.ConfigError as e:
             r.fail(f"{p} 連線設定：{e}")
-    if test_config._api_key():
-        r.ok(f"Gemini API key 已設定（模型 {test_config.LLM_MODEL}／{test_config.LLM_MODEL_PRO}）")
+    if config._api_key():
+        r.ok(f"Gemini API key 已設定（模型 {config.LLM_MODEL}／{config.LLM_MODEL_PRO}）")
     else:
         r.warn("沒有 Gemini API key：LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，其他照常",
                "config.toml 的 [llm] api_key，或環境變數 GEMINI_API_KEY（README 2.3）")
-    models = (test_config.LLM_MODEL, test_config.LLM_MODEL_PRO)
+    models = (config.LLM_MODEL, config.LLM_MODEL_PRO)
     if any(m.endswith("-latest") for m in models):
         r.warn("Gemini 模型是會自動換版本的別名（*-latest）", "在 config.toml 的 [llm] 改成固定版本號（範本見 config.example.toml）")
     for m in models:
@@ -356,7 +356,7 @@ def check_appium(r: Report, platforms: list[str]) -> None:
     status_url, host, port = appium_endpoint()
     pids = listening_pids(port)
     if http_ok(status_url):
-        r.ok(f"Appium 正在執行（{test_config.APPIUM_SERVER_URL}）")
+        r.ok(f"Appium 正在執行（{config.APPIUM_SERVER_URL}）")
         if len(pids) > 1:
             r.fail(f"port {port} 上有 {len(pids)} 個程式在聽（PID {', '.join(pids)}），可能同時開了好幾個 Appium",
                    f"只留一個，多的用 {kill_hint()} 關掉（README 2.8）")
@@ -377,7 +377,7 @@ def check_ios(r: Report) -> None:
         r.ok("有 Apple Development 簽署憑證")
     else:
         r.fail("沒有 Apple Development 簽署憑證", "Xcode → Settings → Accounts 登入 Apple ID（README 2.5）")
-    udid = str((test_config.CONFIG.get("ios") or {}).get("udid") or "")
+    udid = str((config.CONFIG.get("ios") or {}).get("udid") or "")
     res = run(["xcrun", "devicectl", "list", "devices"], timeout=30)
     if not res or res.returncode != 0:
         r.warn("查不到裝置清單（xcrun devicectl 失敗）", "確認 Xcode 版本，或手動用 Xcode 的 Devices 視窗看")
@@ -400,7 +400,7 @@ def check_android(r: Report) -> None:
     if not adb:
         r.fail("找不到 adb", "安裝 Android SDK platform-tools，並把它加進 PATH（README 2.9）")
         return
-    udid = str((test_config.CONFIG.get("android") or {}).get("udid") or "")
+    udid = str((config.CONFIG.get("android") or {}).get("udid") or "")
     res = run([adb, "devices"])
     devices = {}
     for line in (res.stdout.splitlines()[1:] if res else []):

@@ -2612,7 +2612,7 @@
       }, 1000);
       var res = await fetch(base + "/run_batch", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 test_config／前景 App
+        // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 config.toml／前景 App
         body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null,
           project: currentProject ? currentProject.id : null, groups: batchGroups.map(function (g) {
           return { map_name: g.mapName, map: g.map, setup_case: g.setup, setup_map: g.setupMapRef ? g.setupMap : null, cases: g.cases };

@@ -49,7 +49,7 @@ from PIL import Image
 
 from platforms import PLATFORMS, get_platform
 from scan_core import candidate_signature, read_and_merge_round
-from test_config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
+from config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
 
 # ---------------------------------------------------------------------------
 # 1. 輸出路徑設定

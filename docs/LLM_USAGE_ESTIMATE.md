@@ -1,5 +1,8 @@
 # LLM 使用量估算
 
+> **模型與單價以 `config.py`（`LLM_MODEL`／`LLM_MODEL_PRO`，可在 `config.toml` 的 `[llm]` 覆寫）為準**，
+> 本文的模型名稱與金額是 2026-09 的估算，只用來抓量級。
+
 > 盤點目前這套系統裡，LLM（Gemini，`LLM_MODEL = "gemini-flash-latest"`）
 > 在哪些時機被呼叫、大概花多少 token／多少錢。金額用 Gemini 2.5 Flash
 > 公開定價換算（輸入 US$0.30／百萬token、輸出 US$2.50／百萬token），
@@ -17,7 +20,7 @@
 | 2 | `describe_generated_elements()`（`capture_screen_map.py`） | 掃描一個畫面、`describe=True`、且畫面上有無ID元件時 | 該畫面**所有無ID元件**的 class/label/bounds/position_bucket/nearby_text ＋ 該畫面截圖（除非螢幕保護擋掉，改純文字），一次批次呼叫 |
 | 3 | `/agent_xpath`（`viewer_server.py`，「AI定位」按鈕觸發） | 人工在 viewer 上對某個定位失敗的元件按下「AI定位」 | **完整的畫面 page_source（原始XML樹）**＋目標元件線索，最多重試 3 次，**每次重試都重送一次完整 page_source** |
 | 4 | `/llm_chat`（`viewer_server.py`，「LLM測案產生」對話框） | 使用者在測案產生對話框裡每送一則訊息 | 完整 system prompt（含使用者選定畫面的精簡元件資料）＋**到目前為止的完整對話歷史**，無狀態設計，每輪都整包重送 |
-| 5 | `generate_test_case.py` | 命令列單獨執行（較早期的 POC，目前主線是用 3 的對話式產生取代） | 單一畫面的精簡元件清單 |
+| 5 | `generate_test_case.py`（已移除） | 命令列單獨執行（較早期的 POC，已被 3 的對話式產生取代） | 單一畫面的精簡元件清單 |
 
 **關鍵：1、2 是「掃描階段」的成本，按畫面數計；3、4 是「人工互動階段」的成本，按操作次數／對話輪數計，且都有「整包重送」的設計，用越多次/對話越長，單次成本不會降反而可能持平或略增。**
 

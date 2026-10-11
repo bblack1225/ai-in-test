@@ -22,7 +22,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 
 from common import raise_if_stopped
 from scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
-from test_config import CONFIG, ios_capabilities
+from config import CONFIG, ios_capabilities
 
 
 # ---------------------------------------------------------------------------

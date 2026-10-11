@@ -1,5 +1,8 @@
 # 掃描階段 LLM 使用量（實測）
 
+> **模型與單價以 `config.py`（`LLM_MODEL`／`LLM_MODEL_PRO`，可在 `config.toml` 的 `[llm]` 覆寫）為準**，
+> 本文的模型名稱與金額是 2026-09 實測當時的數字。
+
 > 針對「自選庫存」畫面（`TWCTMainVC`，123個元件：12個有原生ID、111個沒有）
 > 實際重新跑一次 `--describe`，記錄下真正送進去的 prompt、收到的回應、
 > 用量與費用。這份只涵蓋**掃描階段**（`capture_screen_map.py` 的
@@ -14,7 +17,7 @@
 ## 模型
 
 ```
-LLM_MODEL = "gemini-flash-latest"   # test_config.py
+LLM_MODEL = "gemini-flash-latest"   # config.py
 ```
 呼叫方式：`google.genai` SDK，`generate_content_with_retry(model=LLM_MODEL, ...)`。
 `-latest` 是別名，Google 後端實際解析到哪個版本可能隨時間變動，回應物件沒有
