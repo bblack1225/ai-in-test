@@ -50,7 +50,7 @@
 - [x] `tests/test_llm_retry.py`：503／429 重試（步驟 2 的改動）
 - [x] `uv run pytest` 全過（72 個，約 0.5 秒）；故意改壞解析邏輯 4 處，測試都會失敗
 - [ ] 沒測到：爬蟲 `finally` 的修正（`crawl_screen` 要接手機，等步驟 4 平台層整理後再補）
-- [ ] 發現的既有行為（未修改，待決定）：Android 的 `nearby_text` 會把 `displayed="false"` 隱藏節點的文字也算進去（`platforms/android.py` 的 `parse_candidates_raw`）
+- [x] 發現的既有行為：Android 的 `nearby_text` 會把 `displayed="false"` 隱藏節點的文字也算進去 → 排進步驟 4 修
 
 ### 步驟 4：平台層收斂 `refactor/platform-unify`
 - [ ] 報告 #5：三套「等畫面穩定」合併成一個 `wait_until_stable`，掃描版改用真實時間計時
@@ -61,6 +61,7 @@
 - [ ] 報告 #10：定位備援只攔定位失敗的例外，`InvalidSessionIdException` 往上傳（先改 `platforms/`）
 - [ ] 報告 #10：爬蟲、server 裡剩下的 `except Exception` 逐步收斂
 - [ ] `scan_core.py` 跟著收進平台層或 core
+- [ ] Android `parse_candidates_raw` 的 `nearby_text` 排除 `displayed="false"` 的隱藏節點（步驟 3 發現），補測試；iOS 是否有同樣問題一起確認
 - [ ] 驗證：pytest 全過＋實機跑完整測案、爬蟲
 
 ### 步驟 5：RunContext 與 LLM 用量（報告 #4、CHANGELOG「token 使用量」後端部分） `refactor/run-context`
