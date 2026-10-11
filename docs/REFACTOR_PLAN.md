@@ -43,38 +43,37 @@ aitest / viewer_server / run_test_case / capture_screen_map / crawl_app_tree / n
 
 驗證：每個模組都能單獨 import（不論順序）；實機跑一次掃描、一個測案、按一次停止。
 
-### 第 2 步：改成 `src/aitest/` 套件 ＋ console scripts
+### 之後的步驟
 
+前端由其他人改寫，這邊的終點是「後端整理好、API 文件齊全、前端好串接」。
+每一步要做的細項和完成狀態都在 [REFACTOR_CHECKLIST.md](REFACTOR_CHECKLIST.md)。
+
+| 步驟 | 內容 |
+|---|---|
+| 2 | 小修與工具鏈：`finally` 裡的 `break`、429 重試、ruff／pytest、`.vscode`、`test_config.py` 改名 `config.py`、過時文件 |
+| 3 | 純函式測試：用 `docs/reference_data/` 的 page_source XML 當測試資料，不用接手機 |
+| 4 | 平台層收斂：合併三套等畫面穩定、爬蟲的平台規則併入 `platforms/`、共用定位流程、只攔定位失敗的例外 |
+| 5 | `RunContext`：取代全域變數，每次執行一份，直接改成最終樣子不留過渡期；LLM 用量跟著每次操作累計，不會互相覆蓋 |
+| 6 | 改成 `src/aitest/` 套件＋console scripts；`print` 改 `logging` |
+| 7 | 拆 `viewer_server.py`：提示詞、執行、API 路由表分開 |
+| 8 | 前端串接準備：API 文件、統一錯誤格式、開發用跨站設定、進度與用量 API |
+| 9 | 收尾：對照報告寫下差距、更新 CHANGELOG |
+
+`RunContext` 的樣子：
+
+```python
+@dataclass
+class RunContext:
+    vars: dict = field(default_factory=dict)
+    var_sources: list = field(default_factory=list)
+    dismiss_dialogs: bool = False
+    stop_checker: Callable[[], bool] | None = None
+    progress: dict = field(default_factory=dict)
+    usage: LLMUsage = field(default_factory=LLMUsage)   # 報告沒有，這次加：呼叫次數、prompt/output/total tokens 累計
+
+    def raise_if_stopped(self): ...
 ```
-src/aitest/
-  core/        workspace、地圖、navigator、測案執行、掃描（不碰 HTTP）
-  platforms/   android.py、ios.py（名稱沿用）
-  llm/         Gemini 呼叫、prompt
-  cli/         aitest start/doctor、workspace、crawl…
-  config.py    （原 test_config.py）
-  common.py
-web/           現在的 html/js，Vue 完成前繼續用
-tools/         compare_versions、cleanup_images、capture_transient
-```
-
-- `pyproject.toml` 加 `[project.scripts]`，指令變成 `uv run aitest start`
-- 修正用 `__file__` 找路徑的地方：`config.toml`、`web/`、`logs/`、`aitest.py` 啟動 viewer 的方式
-- README、`docs/guide/*.html`、`docs/CRAWLER_TREE_HANDOFF.md` 的指令一起更新
-
-### 第 3 步：拆 `viewer_server.py` 成 `api/`
-
-- 一個領域一個檔（projects、maps、scan、run、batch、llm…），HTTP 層只做參數解析和回傳
-- 整理一份 API 清單（路徑、參數、回傳格式），給 Vue 對接用
-- 要不要從 `http.server` 換成 FastAPI 等框架：到這一步再決定
-
-### 第 4 步：`frontend/` 用 Vue 改寫
-
-- 一個分頁一個分頁換，舊 `web/` 全部換完才刪
-- 開始前先決定：交付時 commit build 好的 `dist/`，還是要求對方裝 Node
 
 ## 暫不處理（記下來）
 
-- `crawl_app_tree.py` 直接用平台的私有函式 `_text_xpath`、`_predicate_literal`
 - 根目錄的舊資料（`element_map*.json`、`app_map_tree.json`、`screenshots/`、`crops/`）確認搬進 workspace 後可刪
-- `docs/reference_data/` 的 XML 含 App 畫面內容，確認要不要留在 git
-- `compare_versions.py` 說明還提到已退役的 `viewer.html`
