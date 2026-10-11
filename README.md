@@ -525,7 +525,8 @@ workspace/projects/foo-demo-ios/
 
 ### 4.7 開發工具
 
-`uv sync` 會一起裝好 ruff（程式碼檢查）和 pytest（測試），設定在 `pyproject.toml`：
+`uv sync` 會一起裝好 ruff（程式碼檢查）和 pytest（測試），設定在 `pyproject.toml`。
+測試放在 `tests/`，用存好的 page_source XML（`docs/reference_data/`、`tests/fixtures/`）當測試資料，不用接手機：
 
 ```bash
 uv run ruff check .

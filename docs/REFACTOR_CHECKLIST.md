@@ -37,15 +37,20 @@
 - [ ] 驗證（實機）：`uv run python aitest.py start` 掃描一個畫面、跑一個測案、爬蟲跑一小段
 
 ### 步驟 3：純函式測試（報告 #2） `refactor/add-tests`
-- [ ] 補一份 Android 的 page_source 樣本（目前 `docs/reference_data/` 三份都是 iOS）
-- [ ] 確認樣本 XML 沒有真實帳號、金額，有的話換成假資料
-- [ ] `tests/test_parse_candidates.py`：iOS／Android 解析
-- [ ] `tests/test_match_screen.py`：`match_screen_in_source`
-- [ ] `tests/test_skeleton.py`：`skeleton_signature`／`android_skeleton_signature`
-- [ ] `tests/test_compare_screens.py`：改版比對
-- [ ] `tests/test_workspace.py`：`import_zip`／`merge_zip`、sensitive 變數檔不匯出
-- [ ] `tests/test_resolve_env.py`：`${LOGIN_ID}` 替換、缺少變數的回報
-- [ ] `uv run pytest` 全過
+- [x] 補一份 Android 的 page_source 樣本：`tests/fixtures/android_watchlist.xml`，照真實結構手寫的假資料
+  （本機 `test_results/banner_debug_*.xml` 是真實 App 畫面，含真實姓名與編號，不能進 git）
+- [x] 確認樣本 XML 沒有真實帳號、金額：`docs/reference_data/` 三份 iOS 樣本已經是去識別化的假資料（你好證券、王大明、`tw.foo.STP`），直接當測試資料
+- [x] `tests/test_parse_candidates.py`：iOS／Android 解析、native id 判斷、label 優先順序、重複 id 降級
+- [x] `tests/test_scan_core.py`：九宮格、身分 key、`read_and_merge_round`（步驟 1 搬出來的函式）
+- [x] `tests/test_match_screen.py`：`match_screen_in_source`
+- [x] `tests/test_skeleton.py`：`skeleton_signature`／`android_skeleton_signature`
+- [x] `tests/test_compare_screens.py`：改版比對
+- [x] `tests/test_workspace.py`：建專案、測案讀寫刪、`import_zip`／`merge_zip`、sensitive 變數檔不匯出、不安全路徑
+- [x] `tests/test_resolve_env.py`：`${LOGIN_ID}` 替換、缺少變數的回報
+- [x] `tests/test_llm_retry.py`：503／429 重試（步驟 2 的改動）
+- [x] `uv run pytest` 全過（72 個，約 0.5 秒）；故意改壞解析邏輯 4 處，測試都會失敗
+- [ ] 沒測到：爬蟲 `finally` 的修正（`crawl_screen` 要接手機，等步驟 4 平台層整理後再補）
+- [ ] 發現的既有行為（未修改，待決定）：Android 的 `nearby_text` 會把 `displayed="false"` 隱藏節點的文字也算進去（`platforms/android.py` 的 `parse_candidates_raw`）
 
 ### 步驟 4：平台層收斂 `refactor/platform-unify`
 - [ ] 報告 #5：三套「等畫面穩定」合併成一個 `wait_until_stable`，掃描版改用真實時間計時
@@ -105,7 +110,7 @@
 
 | 待做事項 | 這次做的後端部分 | 狀態 |
 |---|---|---|
-| 測案編輯與刪除：產出就直接儲存，之後可再編輯、刪除 | 不用新 API。現有的 `/api/projects/<專案>/cases/<名稱>`：GET 讀取、PUT 新增（`?overwrite=1` 覆蓋＝編輯）、DELETE 刪除，另有 `POST …/rename` 改名。寫進 API 文件 | [ ] |
+| 測案編輯與刪除：產出就直接儲存，之後可再編輯、刪除 | 不用新 API。現有的 `/api/projects/<專案>/cases/<名稱>`：GET 讀取、PUT 新增（`?overwrite=1` 覆蓋＝編輯）、DELETE 刪除。寫進 API 文件。注意：`POST …/rename` 目前只開放變數檔，測案不能改名 | [ ] |
 | 可以在網頁上新增專案 | 新增 `POST /api/projects`（建立）、修改專案設定的 API（2026-10-11 決定：網頁也可以建專案，CLI 保留） | [ ] |
 | 新增地圖的方式更直覺 | 地圖的新增、複製、改名、匯入、匯出、刪除 API 已經有，主要是前端操作。寫進 API 文件 | [ ] |
 | token 使用量顯示在網頁上 | 步驟 5 的用量累計＋步驟 8 的進度 API 回傳用量；顯示由前端做 | [ ] |
@@ -123,7 +128,7 @@
 | # | 項目 | 處理步驟 | 狀態 |
 |---|---|---|---|
 | 1 | 爬蟲在應該中止時繼續跑（`finally` 裡的 `break`） | 步驟 2 | [x] |
-| 2 | 沒有自動化測試 | 步驟 3 | [ ] |
+| 2 | 沒有自動化測試 | 步驟 3 | [x] |
 | 3 | Gemini 429 不重試 | 步驟 2 | [x] |
 | 4 | 執行期設定放在全域變數 | 步驟 1（部分）、步驟 5 | [ ] |
 | 5 | 等畫面穩定有三種寫法 | 步驟 4 | [ ] |

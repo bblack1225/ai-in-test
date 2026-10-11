@@ -26,3 +26,5 @@ select = ["E", "F", "W", "B", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 程式還沒改成套件（REFACTOR_PLAN 步驟 6），測試從專案根目錄 import
+pythonpath = ["."]
