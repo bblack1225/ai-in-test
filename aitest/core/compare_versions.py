@@ -7,7 +7,7 @@
 正式流程一律以這支 Python 版為準。
 
 使用方式：
-  python compare_versions.py --old_json element_map_舊版.json --new_json element_map.json \
+  uv run aitest-compare --old_json element_map_舊版.json --new_json element_map.json \
       --screen_name foolife_health_screen [--test_case test_cases/foolife_health_screen.json]
 """
 

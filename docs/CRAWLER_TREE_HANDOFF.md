@@ -131,9 +131,9 @@ source ~/.zshrc && nohup appium --log /tmp/appium_ios_scan.log --log-timestamp -
 ### 執行方式
 ```bash
 # 先手動把 App 導到「穩定登入後的第一個畫面」
-python3 crawl_app_tree.py --root_name <名字> --dry_run                    # 只列會點什麼
-python3 crawl_app_tree.py --root_name <名字> --max_depth 2 --max_screens 20            # 子樹爬
-python3 crawl_app_tree.py --root_name <名字> --include_nav --max_depth 2 --max_screens 20  # 整支 App 爬
+uv run aitest-crawl --root_name <名字> --dry_run                    # 只列會點什麼
+uv run aitest-crawl --root_name <名字> --max_depth 2 --max_screens 20            # 子樹爬
+uv run aitest-crawl --root_name <名字> --include_nav --max_depth 2 --max_screens 20  # 整支 App 爬
 ```
 
 ---

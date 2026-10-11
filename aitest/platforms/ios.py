@@ -20,10 +20,9 @@ from contextlib import contextmanager
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from common import raise_if_stopped
-from scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
-from config import CONFIG, ios_capabilities
-
+from aitest.common import raise_if_stopped
+from aitest.config import CONFIG, ios_capabilities
+from aitest.core.scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -679,7 +678,7 @@ class IOSPlatform:
     # --- 批次執行的導航（navigator.py）---
     def go_back(self, driver) -> None:
         """iOS 沒有系統返回鍵，沿用爬蟲猜返回鈕的做法（導覽列返回鍵 → 左上角按鈕 → 左緣右滑）"""
-        from crawl_app_tree import go_back
+        from aitest.core.crawl_app_tree import go_back
         go_back(driver)
 
     def app_id(self, driver) -> str | None:
@@ -695,7 +694,7 @@ class IOSPlatform:
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
         永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
-        from crawl_app_tree import dismiss_modal
+        from aitest.core.crawl_app_tree import dismiss_modal
         # 系統權限視窗不處理（使用者決定）：有些權限框的按鈕是「不允許／好」，
         # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
         try:

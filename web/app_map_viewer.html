@@ -6,7 +6,7 @@
 
 <div class="wrap">
   <div class="file-protocol-warning" id="fileProtocolWarning" hidden>
-    ⚠️ 這個頁面要透過 viewer_server.py 開啟：先執行 <span class="mono">uv run python viewer_server.py --platform ios</span>，
+    ⚠️ 這個頁面要透過 viewer_server.py 開啟：先執行 <span class="mono">uv run aitest-server --platform ios</span>，
     再用瀏覽器打開 <span class="mono">http://127.0.0.1:8767/</span>。直接雙擊 HTML 檔開啟的話，截圖顯示不出來、也連不到手機和 LLM。
   </div>
   <header class="top">
@@ -247,7 +247,7 @@
         <button class="btn primary" type="submit">＋ 新增空白地圖</button>
       </form>
       <div class="map-manager-msg" id="mapManagerMsg" role="status"></div>
-      <div class="map-manager-hint">依功能分開爬時，爬蟲寫進指定的地圖：<span class="mono">crawl_app_tree.py --project <span id="mapManagerProjectId"></span> --map 名稱</span></div>
+      <div class="map-manager-hint">依功能分開爬時，爬蟲寫進指定的地圖：<span class="mono">aitest-crawl --project <span id="mapManagerProjectId"></span> --map 名稱</span></div>
     </div>
   </div>
 </div>

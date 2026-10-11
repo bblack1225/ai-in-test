@@ -3,7 +3,7 @@
 import pytest
 from google.genai.errors import ClientError, ServerError
 
-import config
+from aitest import config
 
 
 class _FakeModels:

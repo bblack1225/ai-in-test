@@ -9,6 +9,23 @@ dependencies = [
     "selenium>=4.49.0",
 ]
 
+# 指令：uv sync 之後用 uv run <指令> 執行（例如 uv run aitest start）
+[project.scripts]
+aitest = "aitest.cli:main"                              # start／doctor
+aitest-server = "aitest.viewer_server:main"             # 只啟動網頁伺服器（aitest start 會自動啟動）
+aitest-workspace = "aitest.core.workspace:_main"        # 建立／修改專案
+aitest-crawl = "aitest.core.crawl_app_tree:main"        # 自動爬蟲
+aitest-scan = "aitest.core.capture_screen_map:main"     # 掃描目前畫面
+aitest-run = "aitest.core.run_test_case:main"           # 命令列執行單一畫面的測案
+aitest-compare = "aitest.core.compare_versions:main"    # 改版前後元件比對
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aitest"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
@@ -26,5 +43,3 @@ select = ["E", "F", "W", "B", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# 程式還沒改成套件（REFACTOR_PLAN 步驟 6），測試從專案根目錄 import
-pythonpath = ["."]

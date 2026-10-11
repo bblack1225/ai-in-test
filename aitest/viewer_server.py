@@ -34,7 +34,7 @@ API：
 
 使用方式：
   1. 先確認手機已連接、目標畫面已經手動導航好（iOS 另需 WebDriverAgent 簽署有效）
-  2. 執行：uv run python viewer_server.py --platform ios（或 --platform android）
+  2. 執行：uv run aitest-server --platform ios（或 --platform android）
   3. 瀏覽器打開 http://127.0.0.1:8767/ （網頁由這支伺服器提供，跟 API 同源；
      直接雙擊 HTML 檔用 file:// 開啟的話，網頁連不到這支伺服器）
 
@@ -63,10 +63,10 @@ from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
 
-from capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
-from navigator import MapIndex, Navigator
-from platforms import PLATFORMS, get_platform
-from run_test_case import (
+from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
+from aitest.core.capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
+from aitest.core.navigator import MapIndex, Navigator
+from aitest.core.run_test_case import (
     StopRequested,
     check_current_screen,
     run_assert_visible,
@@ -80,8 +80,8 @@ from run_test_case import (
     wait_after_action,
     with_dismiss_note,
 )
-from config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, generate_content_with_retry
-from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.platforms import PLATFORMS, get_platform
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8767
@@ -89,7 +89,7 @@ PORT = DEFAULT_PORT  # main() 依 --port 設定，檢查 Host／Origin 標頭用
 
 # 網頁由這支伺服器直接提供（http://127.0.0.1:8767/），跟 API 同源，不需要 CORS。
 # 網頁（HTML／CSS／JS）放在 web/；截圖等資料沿用其他腳本的慣例，相對於啟動時的工作目錄。
-WEB_DIR = Path(__file__).resolve().parent / "web"
+WEB_DIR = PROJECT_ROOT / "web"
 WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer.html"}
 # web/ 裡可以直接給網頁讀的檔案類型（只看 web/ 第一層，不會讀到子資料夾或外面）
 WEB_ASSET_SUFFIXES = (".css", ".js")

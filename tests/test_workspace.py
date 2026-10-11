@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from workspace import Workspace, WorkspaceError
+from aitest.core.workspace import Workspace, WorkspaceError
 
 CASE = {"test_name": "登入", "steps": [{"action": "tap", "screen_name": "登入頁"}]}
 

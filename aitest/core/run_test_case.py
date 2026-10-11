@@ -25,8 +25,8 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
      先點它、再對取得焦點的輸入框打字，打完送出（見 platforms/*.py 的 focus_input）
 
 使用方式：
-  python run_test_case.py --screen_name 我的頁面               （預設 iOS）
-  python run_test_case.py --platform android --screen_name my_screen
+  uv run aitest-run --screen_name 我的頁面               （預設 iOS）
+  uv run aitest-run --platform android --screen_name my_screen
 
 安全提醒：
   這一步會「真的」操作手機、點擊真實 App 畫面。執行前務必先打開
@@ -42,9 +42,9 @@ import argparse
 import json
 import os
 import re
-from contextlib import contextmanager
 import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
 
 from appium import webdriver
@@ -52,11 +52,11 @@ from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidElementStateException, InvalidSessionIdException, NoSuchElementException
 
 # set_stop_checker、xpath_literal 這裡沒用到，留著是因為 viewer_server、crawl_app_tree 從這支 import
-from common import StopRequested, raise_if_stopped
-from common import set_stop_checker as set_stop_checker
-from common import xpath_literal as xpath_literal
-from config import APPIUM_SERVER_URL
-from platforms import PLATFORMS, get_platform
+from aitest.common import StopRequested, raise_if_stopped
+from aitest.common import set_stop_checker as set_stop_checker
+from aitest.common import xpath_literal as xpath_literal
+from aitest.config import APPIUM_SERVER_URL
+from aitest.platforms import PLATFORMS, get_platform
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")

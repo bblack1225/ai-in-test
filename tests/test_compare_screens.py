@@ -1,6 +1,6 @@
 """compare_versions.compare_screens：改版前後哪些元件是同一個"""
 
-from compare_versions import compare_screens, compute_similarity, verdict_of
+from aitest.core.compare_versions import compare_screens, compute_similarity, verdict_of
 
 
 def _native(uid, cls="Button"):

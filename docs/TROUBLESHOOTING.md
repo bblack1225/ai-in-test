@@ -3,6 +3,8 @@
 記錄第一次建置環境、跑通 `capture_screen_map.py` 過程中遇到的問題、解法，
 以及**換成其他 App 測試時，這個問題還會不會再發生**。
 
+> 2026-10 程式搬進 `aitest/` 套件，指令改成 `uv run aitest start`、`uv run aitest-crawl`… 這種寫法（對照表見 README 開頭）。下面的舊紀錄保留當時的檔名與指令（例如 `python crawl_app_tree.py`）。
+
 ## 依症狀找
 
 | 症狀 | 看這幾條 |

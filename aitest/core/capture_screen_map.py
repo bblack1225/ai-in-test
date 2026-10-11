@@ -20,8 +20,8 @@ POC: App 元件地圖產生器（第一步），iOS / Android 共用
 
 使用方式：
   1. 手動操作手機導航到你要掃描的畫面
-  2. 執行： python capture_screen_map.py --screen_name login_screen            （預設 iOS）
-           python capture_screen_map.py --platform android --screen_name login_screen
+  2. 執行： uv run aitest-scan --screen_name login_screen            （預設 iOS）
+           uv run aitest-scan --platform android --screen_name login_screen
   3. 結果會寫入 / 更新 element_map.json（同一個檔案，畫面資料會累加），
      或用 --output 寫到別的檔案（方便先備份現況再產生新版本來跑改版比對）
   4. 加上 --save_crops 時，無 id 元件的裁切截圖會存到 crops/ 資料夾，方便人工核對
@@ -47,9 +47,9 @@ from appium import webdriver
 from google.genai import types
 from PIL import Image
 
-from platforms import PLATFORMS, get_platform
-from scan_core import candidate_signature, read_and_merge_round
-from config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
+from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
+from aitest.core.scan_core import candidate_signature, read_and_merge_round
+from aitest.platforms import PLATFORMS, get_platform
 
 # ---------------------------------------------------------------------------
 # 1. 輸出路徑設定

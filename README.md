@@ -9,10 +9,10 @@
 **環境裝好之後，每次使用只要一個指令**（詳見 3.1）：
 
 ```
-uv run python aitest.py start foo-ios
+uv run aitest start foo-ios
 ```
 
-環境有沒有裝好、哪裡沒裝好，用 `uv run python aitest.py doctor` 檢查。
+環境有沒有裝好、哪裡沒裝好，用 `uv run aitest doctor` 檢查。
 
 ### 環境需要準備什麼
 
@@ -28,20 +28,40 @@ uv run python aitest.py start foo-ios
 
 ### 每個檔案／資料夾做什麼（一覽表，細節見「四、檔案總覽」）
 
-**iOS / Android 共用（用 `--platform` 切換）**
-- `aitest.py` — **一鍵啟動**（`start`：Appium＋viewer_server＋打開瀏覽器）與**環境檢查**（`doctor`）
-- `crawl_app_tree.py` — 自動爬蟲，遞迴探索整支App，產出樹狀地圖
-- `capture_screen_map.py` — 掃描目前畫面，產生元件清單＋LLM描述，`--platform ios|android`
-- `run_test_case.py` — 執行測試案例（tap/input/assert），`--platform ios|android`
-- `platforms/` — iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
-- `viewer_server.py` — 本機橋接伺服器，讓瀏覽器工具能操作手機（`--platform ios|android`）
+**程式（`aitest/` 套件，iOS / Android 共用，用 `--platform` 切換）**
+
+指令定義在 `pyproject.toml` 的 `[project.scripts]`，`uv sync` 之後用 `uv run <指令>` 執行：
+
+| 指令 | 程式 | 做什麼 |
+|---|---|---|
+| `aitest start`／`aitest doctor` | `aitest/cli.py` | **一鍵啟動**（Appium＋viewer_server＋打開瀏覽器）與**環境檢查** |
+| `aitest-workspace` | `aitest/core/workspace.py` | 建立／修改專案（`list`／`create`／`update`／`import-legacy`） |
+| `aitest-crawl` | `aitest/core/crawl_app_tree.py` | 自動爬蟲，遞迴探索整支App，產出樹狀地圖 |
+| `aitest-scan` | `aitest/core/capture_screen_map.py` | 掃描目前畫面，產生元件清單＋LLM描述 |
+| `aitest-run` | `aitest/core/run_test_case.py` | 命令列執行單一畫面的測試案例（tap/input/assert） |
+| `aitest-server` | `aitest/viewer_server.py` | 只啟動本機橋接伺服器（`aitest start` 會自動啟動它） |
+| `aitest-compare` | `aitest/core/compare_versions.py` | 改版前後元件差異比對（正式版本，邏輯以此為準） |
+
+```
+aitest/
+  cli.py              指令 aitest（start／doctor）
+  config.py           讀 config.toml，組出 Appium 連線設定、提供 Gemini 呼叫
+  common.py           共用小工具（停止旗標、XPath 字串），不 import 專案內其他模組
+  viewer_server.py    本機橋接伺服器：提供網頁、API，讓瀏覽器工具能操作手機
+  platforms/          iOS／Android 的平台差異（定位、點擊、畫面解析），其他程式只透過這裡取用
+  core/               核心邏輯（不碰 HTTP）
+    scan_core.py        掃描的合併邏輯（platforms/ 也會用）
+    capture_screen_map.py、crawl_app_tree.py、run_test_case.py
+    navigator.py        批次執行用的畫面導航：把手機帶到測案的起始畫面
+    workspace.py        專案資料夾：地圖／截圖／測案／批次放一起，可匯出成 zip 交給其他團隊
+    compare_versions.py
+tools/                偶爾用的工具：cleanup_images.py（清沒用的截圖）、capture_transient.py（抓短暫出現的元素）
+tests/                測試（uv run pytest），不用接手機
+web/                  網頁（HTML／CSS／JS），由 viewer_server 提供
+```
+
 - `config.toml` — 本機設定（手機 UDID、簽署 Team ID、WDA bundle id、Gemini 模型），**換電腦/手機改這裡**；
-  不進 git，範本是 `config.example.toml`。App 的 bundle id 不在這裡，在專案設定（見 3.3）
-- `config.py` — 讀 `config.toml`，組出 Appium 連線設定、提供 Gemini 呼叫，其他程式都從這裡取用
-- `common.py`、`scan_core.py` — 掃描、跑測案、`platforms/` 共用的小工具（停止旗標、XPath 字串、掃描的合併邏輯），不 import 專案內其他模組
-- `compare_versions.py` — 改版前後元件差異比對（正式版本，邏輯以此為準）
-- `navigator.py` — 批次執行用的畫面導航：辨識目前在哪一頁、按返回／照地圖往下點、必要時重開 App，把手機帶到測案的起始畫面
-- `workspace.py` — 專案資料夾：每支 App 每個平台一個專案，地圖／截圖／測案／批次放一起，網頁和爬蟲讀寫同一份；可匯出成 zip 交給其他團隊
+  放在 repo 根目錄，不進 git，範本是 `config.example.toml`。App 的 bundle id 不在這裡，在專案設定（見 3.3）
 
 **瀏覽器工具（由 `viewer_server.py` 提供，打開 http://127.0.0.1:8767/）**
 - `web/app_map_viewer.html`（＋同資料夾的 `.css`、`.js`）— **目前主力工具**：地圖檢視、手動建樹、
@@ -52,7 +72,7 @@ uv run python aitest.py start foo-ios
 - 以下是沒開專案時的舊方式（跟程式同層，程式用相對路徑讀寫，不要搬動）
 - `app_map_tree.json` — 爬蟲產出的樹狀地圖（沒加 `--project` 時）
 - `element_map.json` — 單畫面掃描累積資料（`capture_screen_map.py` 產出，`run_test_case.py` 指令模式讀這個）
-- `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `cleanup_images.py`）
+- `screenshots/`／`crops/` — 畫面截圖／無ID元件裁切圖（裁切圖預設不產生，清理見 `tools/cleanup_images.py`）
 - `test_cases/`／`test_results/` — `run_test_case.py` 指令模式讀的測試案例／執行結果截圖（都不進 git，測案建議放專案的 `cases/`）
 
 **其他**
@@ -137,7 +157,7 @@ uv run python -c "import appium, selenium, PIL, google.genai; print('套件 OK')
 確認（不會印出 key 本身）：
 
 ```
-uv run python -c "import config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
+uv run python -c "from aitest import config as t; t.get_llm_client(); print('設定 OK，模型：', t.LLM_MODEL)"
 ```
 
 沒設 key 的話只有 LLM 相關功能（描述、AI 定位、測案／情境產生）不能用，看地圖、點擊、爬蟲照常能跑。
@@ -218,7 +238,7 @@ cp config.example.toml config.toml
 | `wda_bundle_id` | 2.5 在 Xcode 設定的 WDA Bundle Identifier |
 | `launch_bundle_id` | 選填。留空＝連線時不打開任何 App，直接操作手機上目前在前景的 App（換測不同 App 時在手機上切過去就好）；填了就是每次連線都先打開這支 App |
 
-待測 App 的 bundle id 不填在這裡，填在專案設定（`workspace.py create`／`update`，見 3.3）：
+待測 App 的 bundle id 不填在這裡，填在專案設定（`aitest-workspace create`／`update`，見 3.3）：
 爬蟲用它判斷有沒有跑出 App、連線時打開它；批次執行用它重開 App。
 
 `config.toml` 不進 git（每台電腦、每支手機不一樣）。要切換好幾份設定（例如同一台電腦接兩支
@@ -227,7 +247,7 @@ cp config.example.toml config.toml
 確認設定有被讀到：
 
 ```
-uv run python -c "import config as t; print(t.ios_capabilities())"
+uv run python -c "from aitest import config as t; print(t.ios_capabilities())"
 ```
 
 缺欄位的話會直接說缺哪個、要填在哪裡。WDA 建置失敗（`xcodebuild failed with code 65`）想看
@@ -249,7 +269,7 @@ appium --address 127.0.0.1
 uv run python - <<'EOF'
 from appium import webdriver
 from appium.options.ios import XCUITestOptions
-from config import APPIUM_SERVER_URL, ios_capabilities
+from aitest.config import APPIUM_SERVER_URL, ios_capabilities
 
 d = webdriver.Remote(APPIUM_SERVER_URL, options=XCUITestOptions().load_capabilities(ios_capabilities()))
 try:
@@ -292,10 +312,10 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
   - 安裝：把 APK 拖進模擬器視窗，或 `adb install 檔案.apk`
 - `config.toml` 的 `[android]` `udid` 填你的裝置代號
   （`adb devices` 查得到，模擬器預設是 `emulator-5554`）
-- 對應的程式：`capture_screen_map.py --platform android`／`run_test_case.py --platform android`／
-  `viewer_server.py --platform android`（port 一樣是 8767），瀏覽器工具跟
+- 對應的程式：`aitest-scan --platform android`／`aitest-run --platform android`／
+  `aitest-server --platform android`（port 一樣是 8767），瀏覽器工具跟
   iOS 一樣用 `app_map_viewer.html`。地圖可以用
-  `crawl_app_tree.py --platform android` 自動爬（先加 `--dry_run --safe_keywords`
+  `aitest-crawl --platform android` 自動爬（先加 `--dry_run --safe_keywords`
   看會點哪些），或用「手動建樹」建立（節點詳情的「🌱 從這裡點出新畫面…」按鈕，底層呼叫 `/scan_screen`；要用 Android
   的地圖或新建空白地圖，載入 iOS 的 `app_map_tree.json` 會因平台不一致被擋）。Android 爬蟲目前只做過離線驗證
   （用真實畫面 XML），還沒有在能正常使用的 App 上實際爬過
@@ -312,7 +332,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 1. iPhone 接上 USB、解鎖，打開待測 App（停在要操作的畫面）
 2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話開上次用的專案、平台 ios）：
    ```
-   uv run python aitest.py start foo-ios
+   uv run aitest start foo-ios
    ```
    - Appium 已經開著就直接用；沒開的話自動啟動（只綁 127.0.0.1，log 在 `logs/`）
    - 接著啟動 `viewer_server.py`，好了之後自動用瀏覽器打開 http://127.0.0.1:8767/ 並切到這個專案
@@ -324,7 +344,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
    - `--platform android`：沒指定專案時切到 Android
 4. 啟動失敗、或不確定環境有沒有裝好時：
    ```
-   uv run python aitest.py doctor
+   uv run aitest doctor
    ```
    逐項檢查 Python 套件、`config.toml`、API key、Appium 與 driver、Xcode／簽署憑證、手機有沒有
    接上、adb、專案、port，每一項失敗都會寫怎麼修。只讀取、不會操作手機；只用一個平台的話加
@@ -332,11 +352,11 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 
 > 網頁一定要從 http://127.0.0.1:8767/ 開（**不要雙擊 HTML 檔**：用 `file://` 開的話截圖
 > 顯示不出來、也連不到伺服器，頁面頂端會出現提醒）。想手動分開啟動的話，跟以前一樣：
-> 視窗 1 `appium --address 127.0.0.1`、視窗 2 `uv run python viewer_server.py --platform ios`。
+> 視窗 1 `appium --address 127.0.0.1`、視窗 2 `uv run aitest-server --platform ios`。
 
 > `viewer_server.py` 開著的期間會一直佔用同一條 Appium 連線，**這時
 > 不要再另外跑 `crawl_app_tree.py`／`capture_screen_map.py` 這類直接連
-> 裝置的腳本**，會搶連線。要跑的話先在 `aitest.py start` 的視窗按 `Ctrl+C` 關掉；
+> 裝置的腳本**，會搶連線。要跑的話先在 `aitest start` 的視窗按 `Ctrl+C` 關掉；
 > 如果 Appium 是 `aitest.py` 自動開的會一起被關掉，跑腳本前要自己開 `appium --address 127.0.0.1`。
 
 ### 3.2 第一次跑最小流程（確認環境是通的）
@@ -346,13 +366,13 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 1. 手動把 iPhone 導航到一個畫面（例如 App 首頁）
 2. 掃描這個畫面（會呼叫 LLM 生成描述，需要 `GEMINI_API_KEY`）：
    ```
-   uv run python capture_screen_map.py --screen_name my_first_screen
+   uv run aitest-scan --screen_name my_first_screen
    ```
    跑完會看到 `element_map.json` 多一筆 `my_first_screen`，`screenshots/`
    多一張截圖
 3. 建一個專案（見 3.3），試跑自動爬蟲寫進這個專案（先用很小的範圍，確認能動就好，不要一開始就開大範圍）：
    ```
-   uv run python crawl_app_tree.py --project my-app-ios --map main --root_name my_first_screen --max_depth 1 --max_screens 5
+   uv run aitest-crawl --project my-app-ios --map main --root_name my_first_screen --max_depth 1 --max_screens 5
    ```
    跑完會更新 `workspace/projects/my-app-ios/maps/main.json`（這張地圖原本有畫面的話先備份到
    `backups/main-<時間>.json`）。依功能分開爬就換 `--map` 名稱，例如 `--map trading`，
@@ -384,18 +404,18 @@ workspace/projects/foo-demo-ios/
 
 - **建立專案**：
   ```
-  uv run python workspace.py create foo-demo-ios --platform ios --name "你好 Demo iOS" --bundle_id com.foo.securities.tw.foo.Demo
+  uv run aitest-workspace create foo-demo-ios --platform ios --name "你好 Demo iOS" --bundle_id com.foo.securities.tw.foo.Demo
   ```
-  不想記參數的話，只打 `uv run python workspace.py create`，會一步一步問專案代號、平台、顯示名稱、bundle id，最後確認才建立
+  不想記參數的話，只打 `uv run aitest-workspace create`，會一步一步問專案代號、平台、顯示名稱、bundle id，最後確認才建立
 - **把舊資料搬進專案**（複製，原檔不動；截圖會一起複製、路徑會改成相對專案資料夾）：
   ```
-  uv run python workspace.py import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
+  uv run aitest-workspace import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
   ```
   地圖預設存成 `main`，要存成別的名稱加 `--map_name trading`。早期只有一份 `map.json` 的專案，
   第一次被讀到時會自動搬成 `maps/main.json`
 - **修改專案設定**（名稱、bundle id／package；平台不能改，地圖是照那個平台掃出來的）：
   ```
-  uv run python workspace.py update foo-demo-ios --bundle_id com.foo.securities.tw.foo.Demo
+  uv run aitest-workspace update foo-demo-ios --bundle_id com.foo.securities.tw.foo.Demo
   ```
   bundle id 留空的話，iOS 用 `config.toml` 的 `launch_bundle_id`、再沒有就用當下前景的 App，Android 用當下前景的 App；
   兩支以上 App 時建議一定要填。改完網頁重新整理就會讀到
@@ -439,12 +459,14 @@ workspace/projects/foo-demo-ios/
     `assert_text_contains`、`assert_banner` 的值。勾「敏感」（帳密這類）的檔匯出專案 zip 時不帶出去。
     早期的 `accounts.json` 第一次開專案時會自動拆成一組帳號一個變數檔
   - 沒開專案時：地圖照舊在地圖檢視載入／匯出 JSON，測案在「測案編輯」匯入／匯出 JSON，單份執行可以用，批次不行
-- 伺服器預設讀 `./workspace`，要放別的地方用 `viewer_server.py --workspace <路徑>`
-  （`crawl_app_tree.py`、`workspace.py`、`cleanup_images.py` 也都有 `--workspace`）
+- 伺服器預設讀 `./workspace`，要放別的地方用 `aitest-server --workspace <路徑>`
+  （`aitest-crawl`、`aitest-workspace`、`tools/cleanup_images.py` 也都有 `--workspace`）
 
 ---
 
 ## 四、檔案總覽
+
+程式都在 `aitest/` 套件裡（目錄結構見開頭的一覽表），下面表格用檔名列出，`platforms/` 指 `aitest/platforms/`、其餘核心程式在 `aitest/core/`。
 
 ### 4.1 iOS 核心程式
 
@@ -468,7 +490,7 @@ workspace/projects/foo-demo-ios/
 | `config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503、每分鐘上限的 429 自動等待重試；整天額度用完直接報錯）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
 | `common.py` | `StopRequested`／`set_stop_checker()`／`raise_if_stopped()`（網頁按「停止」時讓長迴圈中斷）、`xpath_literal()`。不 import 專案內其他模組，`platforms/` 可以放心用 |
 | `scan_core.py` | 掃描的共用邏輯：九宮格分區、候選元件的身分 key、讀一輪畫面並合併（`read_and_merge_round()`，垂直捲動和 `platforms/` 的橫向容器收集共用）。同樣不 import 專案內其他模組 |
-| `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次／變數檔的讀寫（變數檔改名時，批次裡引用到的一起改），以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面；匯出時不帶勾了「敏感」的變數檔）；`viewer_server.py` 的 `/api/projects/...`、`crawl_app_tree.py --project` 都透過它。CLI：`list`／`create`／`update`／`import-legacy` |
+| `workspace.py` | 專案資料夾（見 3.3）：`Workspace` 類別負責專案、地圖（帶版本號，存檔時版本不符就拒絕，避免互相覆蓋）、測案／批次／變數檔的讀寫（變數檔改名時，批次裡引用到的一起改），以及匯出／匯入 zip（匯入會檢查路徑，不會寫到專案資料夾外面；匯出時不帶勾了「敏感」的變數檔）；`viewer_server.py` 的 `/api/projects/...`、`aitest-crawl --project` 都透過它。CLI：`list`／`create`／`update`／`import-legacy` |
 | `compare_versions.py` | 比對同一畫面新舊版本的元件差異（同一個/疑似同一個/全新/已消失），對應相似度計分規則。這是**正式版本**。`app_map_viewer.html` 原本有一個從這支移植的「改版比對」展示分頁，目前暫時移除（見第八節） |
 
 ### 4.4 瀏覽器工具（由 `viewer_server.py` 提供）
@@ -504,9 +526,9 @@ workspace/projects/foo-demo-ios/
 |---|---|
 | `app_map_tree.json` | `crawl_app_tree.py` 最新一次爬蟲產出的樹狀地圖（全名欄位格式：`screen_uid`/`screen_name`/`elements[]`/`unique_id`...），`app_map_viewer.html` 主要吃這個檔案 |
 | `element_map.json` | 單畫面掃描累積下來的資料（`capture_screen_map.py` 產出，iOS/Android 同一種格式），`run_test_case.py`/`compare_versions.py` 都讀這個檔案，同一畫面重掃會覆蓋、不同畫面會累加 |
-| `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `cleanup_images.py` 清掉沒有地圖在用的 |
-| `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `cleanup_images.py --all_crops` 清掉 |
-| `test_cases/` | `run_test_case.py --screen_name xxx` 讀的 `test_cases/xxx.json`。測案含特定 App 的畫面和操作，不放進工具 repo；網頁用的測案放在專案的 `cases/`，舊的用 `workspace.py import-legacy --cases` 搬進去 |
+| `screenshots/` | 每個畫面的代表截圖（掃描時「捲動前、最頂部」那張），HTML 工具用相對路徑 `screenshots/xxx.png` 顯示；重掃後舊截圖會留著，用 `tools/cleanup_images.py` 清掉沒有地圖在用的 |
+| `crops/` | 無 id 元件的裁切截圖，給人工核對 LLM 描述有沒有判斷正確用，沒有任何程式會讀。`capture_screen_map.py` 預設不再產生，要的話加 `--save_crops`；舊檔用 `tools/cleanup_images.py --all_crops` 清掉 |
+| `test_cases/` | `aitest-run --screen_name xxx` 讀的 `test_cases/xxx.json`。測案含特定 App 的畫面和操作，不放進工具 repo；網頁用的測案放在專案的 `cases/`，舊的用 `aitest-workspace import-legacy --cases` 搬進去 |
 | `test_results/` | 範例：執行測案後存下來的截圖 |
 
 ### 4.6 docs/（文件）
@@ -560,7 +582,7 @@ uv run pytest
 3. **手動建樹產生的節點沒有真正的 `skeleton` 簽章**：`app_map_viewer.html`
    手動新增的節點存檔／匯出成全名格式時，`skeleton` 欄位會是
    `null`（因為只有篩選過的候選元件清單，算不出跟爬蟲一致的模板簽章；爬蟲
-   產生的節點會保留原本的 `skeleton`）。另外 `crawl_app_tree.py --project`
+   產生的節點會保留原本的 `skeleton`）。另外 `aitest-crawl --project`
    對同一張地圖是整份重爬、會蓋掉那張地圖（覆蓋前會先備份到 `backups/<地圖>-<時間>.json`），
    手動建樹的節點要自己從備份補回來；想保留的話爬到另一張（換 `--map` 名稱）。
    如果之後爬蟲重新爬到同一個畫面，不會自動認得這是同一個節點，可能會
@@ -568,7 +590,7 @@ uv run pytest
 4. **Gemini 模型版本是寫死的，Pro 用的是預覽版**：`config.example.toml` 預設
    `gemini-3.8-flash`／`gemini-3.1-pro-preview`（2026-10-02 當時 `gemini-flash-latest`／
    `gemini-pro-latest` 別名實際指向的版本），避免 Google 更新別名時行為／計費突然改變。
-   `gemini-3.1-pro-preview` 是預覽版，Google 可能提前下架或改變行為，`aitest.py doctor`
+   `gemini-3.1-pro-preview` 是預覽版，Google 可能提前下架或改變行為，`aitest doctor`
    會提醒；下架時在 `config.toml` 的 `[llm] model_pro` 換成當下的正式版。要換版本時，
    回應物件的 `model_version` 會告訴你實際用到的是哪一版
 5. **`viewer_server.py` 同一時間只能服務一個 Appium session**：不要同時執行 Python 腳本（`crawl_app_tree.py` 等）

@@ -2,7 +2,7 @@
 
 import re
 
-from crawl_app_tree import android_skeleton_signature, skeleton_signature
+from aitest.core.crawl_app_tree import android_skeleton_signature, skeleton_signature
 
 # ---- iOS ----------------------------------------------------------------
 

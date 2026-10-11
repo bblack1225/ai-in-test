@@ -1,10 +1,10 @@
 """
 一鍵啟動＋環境檢查。
 
-    uv run python aitest.py start                    # 啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器
-    uv run python aitest.py start foo-ios      # 直接開這個專案（平台照專案設定）
-    uv run python aitest.py start --platform android --no-appium
-    uv run python aitest.py doctor                   # 逐項檢查環境，告訴你哪裡沒裝好、怎麼修
+    uv run aitest start                    # 啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器
+    uv run aitest start foo-ios      # 直接開這個專案（平台照專案設定）
+    uv run aitest start --platform android --no-appium
+    uv run aitest doctor                   # 逐項檢查環境，告訴你哪裡沒裝好、怎麼修
 
 start：
   1. Appium 已經在跑就直接用（不會去關它）；沒在跑才自己啟動（只綁 127.0.0.1，
@@ -29,11 +29,11 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-import config
-from viewer_server import DEFAULT_PORT
-from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest import config
+from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.viewer_server import DEFAULT_PORT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = config.PROJECT_ROOT
 LOG_DIR = ROOT / "logs"
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 
@@ -117,7 +117,7 @@ def appium_endpoint() -> tuple[str, str, int]:
 def project_choices(workspace: str) -> str:
     projects = Workspace(workspace).list_projects()
     if not projects:
-        return "  （還沒有專案，用 uv run python workspace.py create 建立）"
+        return "  （還沒有專案，用 uv run aitest-workspace create 建立）"
     return "\n".join(f"  {p['id']:<24} {p['platform']:<8} {p['name']}" for p in projects)
 
 
@@ -218,7 +218,7 @@ def cmd_start(args) -> None:
         print(f"[aitest] Appium 已啟動：{config.APPIUM_SERVER_URL}")
 
     # ---- viewer_server ----
-    cmd = [sys.executable, str(ROOT / "viewer_server.py"), "--platform", platform,
+    cmd = [sys.executable, "-m", "aitest.viewer_server", "--platform", platform,
            "--port", str(args.port), "--workspace", args.workspace]
     # 跟 Appium 一樣自己一個 process group：Ctrl+C 只會送到這裡，再由 stop() 送「一次」SIGINT 給它，
     # 不然它會收到兩次，第二次可能打斷它結束時收 Appium session 的動作
@@ -230,7 +230,7 @@ def cmd_start(args) -> None:
         if project:
             print(f"[aitest] 專案：{project['name']}（{project['platform']}）")
         else:
-            print(f"[aitest] 沒有指定專案，網頁會開上次用的那個。下次可以直接指定：aitest.py start <專案代號>\n"
+            print(f"[aitest] 沒有指定專案，網頁會開上次用的那個。下次可以直接指定：aitest start <專案代號>\n"
                   f"{project_choices(args.workspace)}")
         print("[aitest] 按 Ctrl+C 結束" + ("（會一起關掉這次啟動的 Appium）" if appium_proc else ""))
         if not args.no_browser:
@@ -361,7 +361,7 @@ def check_appium(r: Report, platforms: list[str]) -> None:
             r.fail(f"port {port} 上有 {len(pids)} 個程式在聽（PID {', '.join(pids)}），可能同時開了好幾個 Appium",
                    f"只留一個，多的用 {kill_hint()} 關掉（README 2.8）")
     else:
-        r.info("Appium 目前沒在跑（aitest.py start 會自動啟動）")
+        r.info("Appium 目前沒在跑（aitest start 會自動啟動）")
 
 
 def check_ios(r: Report) -> None:
@@ -424,15 +424,15 @@ def check_workspace(r: Report, workspace: str, port: int) -> None:
     if projects:
         for p in projects:
             maps = ws.list_maps(p["id"])
-            note = "" if p.get("bundle_id") else "（沒填 bundle id，兩支以上 App 時建議用 workspace.py update 補上）"
+            note = "" if p.get("bundle_id") else "（沒填 bundle id，兩支以上 App 時建議用 aitest-workspace update 補上）"
             r.ok(f"專案 {p['id']}：{p['name']}，{p['platform']}，{len(maps)} 張地圖{note}")
     else:
-        r.warn(f"{workspace}/ 底下還沒有專案", "uv run python workspace.py create <代號> --platform ios --name <名稱>（README 3.3）")
+        r.warn(f"{workspace}/ 底下還沒有專案", "uv run aitest-workspace create <代號> --platform ios --name <名稱>（README 3.3）")
     ping = http_json(f"http://127.0.0.1:{port}/ping")
     if ping is not None:
         r.ok(f"viewer_server 正在執行（{ping.get('platform')}）：http://127.0.0.1:{port}/")
     elif listening_pids(port):
-        r.fail(f"port {port} 被其他程式佔用", f"{who_listens_hint(port)} 看是誰，或 aitest.py start --port 換一個")
+        r.fail(f"port {port} 被其他程式佔用", f"{who_listens_hint(port)} 看是誰，或 aitest start --port 換一個")
     else:
         r.ok(f"port {port} 空著，可以啟動 viewer_server")
 
@@ -454,7 +454,7 @@ def cmd_doctor(args) -> None:
         if not args.platform:
             print("只用其中一個平台的話，加 --platform ios 或 --platform android，就不會檢查另一個")
         sys.exit(1)
-    print("環境都沒問題" + (f"（{r.warned} 項提醒）" if r.warned else "") + "，可以 uv run python aitest.py start")
+    print("環境都沒問題" + (f"（{r.warned} 項提醒）" if r.warned else "") + "，可以 uv run aitest start")
 
 
 def main():
@@ -462,7 +462,7 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器")
     s.add_argument("project", nargs="?", default=None,
-                   help="直接開這個專案（平台照專案設定），例如 foo-ios；有哪些用 workspace.py list 查")
+                   help="直接開這個專案（平台照專案設定），例如 foo-ios；有哪些用 aitest-workspace list 查")
     s.add_argument("--platform", choices=("ios", "android"), default=None, help="預設：專案的平台，沒指定專案就是 ios")
     s.add_argument("--no-appium", action="store_true", help="不啟動 Appium（只看地圖、編輯測案）")
     s.add_argument("--no-browser", action="store_true", help="不自動打開瀏覽器")

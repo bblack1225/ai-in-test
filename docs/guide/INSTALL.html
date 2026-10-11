@@ -239,7 +239,7 @@ cd ai-in-test</code></pre><button class="copy" type="button">複製</button></di
 
 <h2 id="s3"><span class="num">03</span>建立 Python 環境</h2>
 <div class="cmd"><pre><code>uv sync</code></pre><button class="copy" type="button">複製</button></div>
-<p>uv 會自動下載 Python 3.12，套件裝在專案的 <code>.venv/</code>。之後執行程式一律用 <code>uv run python ...</code>，不用啟用虛擬環境。</p>
+<p>uv 會自動下載 Python 3.12，套件裝在專案的 <code>.venv/</code>。之後執行程式一律用 <code>uv run ...</code>（例如 <code>uv run aitest start</code>），不用啟用虛擬環境。</p>
 
 <details>
   <summary>不能用 uv：改用 venv + pip</summary>
@@ -251,9 +251,9 @@ source .venv/bin/activate</code></pre><button class="copy" type="button">複製<
   <div class="cmd"><pre><code>python -m venv .venv
 .venv\Scripts\Activate.ps1</code></pre><button class="copy" type="button">複製</button></div>
   <p>提示字元前面出現 <code>(.venv)</code> 就是啟用了。PowerShell 擋下 <code>Activate.ps1</code> 的話，先執行 <code>Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</code>（只對這個視窗有效）。接著安裝套件（兩個系統一樣）：</p>
-  <div class="cmd"><pre><code>pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&gt;=12.3.0" "selenium&gt;=4.49.0"</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="cmd"><pre><code>pip install -e .</code></pre><button class="copy" type="button">複製</button></div>
   <div class="callout note">
-    <p>用這個方式的話，兩份文件裡的 <code>uv run python</code> 都換成 <code>python</code>。每次開新的終端機都要先啟用 <code>.venv</code>。</p>
+    <p><code>pip install -e .</code> 會照 <code>pyproject.toml</code> 裝好套件，並建立 <code>aitest</code> 等指令。用這個方式的話，兩份文件裡指令前面的 <code>uv run</code> 都拿掉（例如 <code>uv run aitest start</code> 改打 <code>aitest start</code>，<code>uv run python tools/…</code> 改打 <code>python tools/…</code>）。每次開新的終端機都要先啟用 <code>.venv</code>。</p>
   </div>
 </details>
 
@@ -267,13 +267,13 @@ source .venv/bin/activate</code></pre><button class="copy" type="button">複製<
   <div class="table-wrap"><table>
     <thead><tr><th>檔案</th><th>要改的地方</th><th>改成</th><th>什麼時候要改</th></tr></thead>
     <tbody>
-      <tr><td><code>aitest.py</code></td><td><code>check_python()</code> 裡的 <code>if v &gt;= (3, 12):</code>，和同一個函式裡錯誤訊息的「需要 3.12 以上」</td><td><code>(3, 11)</code>、「需要 3.11 以上」</td><td>一定要改，不然 doctor 會判定 Python 版本不合格</td></tr>
+      <tr><td><code>aitest/cli.py</code></td><td><code>check_python()</code> 裡的 <code>if v &gt;= (3, 12):</code>，和同一個函式裡錯誤訊息的「需要 3.12 以上」</td><td><code>(3, 11)</code>、「需要 3.11 以上」</td><td>一定要改，不然 doctor 會判定 Python 版本不合格</td></tr>
       <tr><td><code>pyproject.toml</code></td><td><code>requires-python = "&gt;=3.12"</code></td><td><code>"&gt;=3.11"</code></td><td>用 uv 時</td></tr>
       <tr><td><code>.python-version</code></td><td><code>3.12</code></td><td><code>3.11</code></td><td>用 uv 時（<code>uv sync</code> 照這個下載 Python）</td></tr>
       <tr><td><code>uv.lock</code></td><td>不用手改</td><td>改完上面兩個檔案後執行 <code>uv lock</code> 重新產生</td><td>用 uv 時</td></tr>
     </tbody>
   </table></div>
-  <p>用 venv + pip 的話只要改 <code>aitest.py</code>；pip 裝套件時如果有哪個版本不支援 3.11，會直接報錯。改完照第 6 步跑 doctor，再實際跑一份測案確認。</p>
+  <p>用 venv + pip 的話只要改 <code>aitest/cli.py</code> 和 <code>pyproject.toml</code>；pip 裝套件時如果有哪個版本不支援 3.11，會直接報錯。改完照第 6 步跑 doctor，再實際跑一份測案確認。</p>
 </details>
 
 <h2 id="s4"><span class="num">04</span>建立設定檔</h2>
@@ -365,22 +365,22 @@ setx JAVA_HOME "C:\Program Files\Android\Android Studio\jbr"</code></pre><button
 
 <h2 id="s6"><span class="num">06</span>檢查環境</h2>
 <div class="os-label">macOS 測 iOS</div>
-<div class="cmd"><pre><code>uv run python aitest.py doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
+<div class="cmd"><pre><code>uv run aitest doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
 <div class="os-label">測 Android（Windows 一定要加 --platform android）</div>
-<div class="cmd"><pre><code>uv run python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+<div class="cmd"><pre><code>uv run aitest doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
 
 <details>
   <summary>第 3 步用 venv + pip 安裝的話</summary>
-  <p>先在 <code>ai-in-test</code> 資料夾啟用 <code>.venv</code>（提示字元前面出現 <code>(.venv)</code> 就是啟用了），再把上面指令的 <code>uv run python</code> 換成 <code>python</code>：</p>
+  <p>先在 <code>ai-in-test</code> 資料夾啟用 <code>.venv</code>（提示字元前面出現 <code>(.venv)</code> 就是啟用了），再把上面指令前面的 <code>uv run</code> 拿掉：</p>
   <div class="os-label">macOS 測 iOS</div>
   <div class="cmd"><pre><code>source .venv/bin/activate
-python aitest.py doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
+aitest doctor --platform ios</code></pre><button class="copy" type="button">複製</button></div>
   <div class="os-label">macOS 測 Android</div>
   <div class="cmd"><pre><code>source .venv/bin/activate
-python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+aitest doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
   <div class="os-label">Windows（PowerShell）測 Android</div>
   <div class="cmd"><pre><code>.venv\Scripts\Activate.ps1
-python aitest.py doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
+aitest doctor --platform android</code></pre><button class="copy" type="button">複製</button></div>
   <p class="muted">同一個終端機視窗啟用過一次就好，之後不用再打 <code>activate</code> 那一行；開新的視窗才要重新啟用。</p>
 </details>
 
@@ -390,7 +390,7 @@ python aitest.py doctor --platform android</code></pre><button class="copy" type
 <div class="table-wrap"><table>
   <thead><tr><th>症狀</th><th>處理方式</th></tr></thead>
   <tbody>
-    <tr><td><code>TypeError: unsupported operand type(s) for |</code></td><td>用到舊版 Python。改用 <code>uv run python ...</code>，或確認 <code>.venv</code> 已啟用</td></tr>
+    <tr><td><code>TypeError: unsupported operand type(s) for |</code></td><td>用到舊版 Python。改用 <code>uv run ...</code>，或確認 <code>.venv</code> 已啟用</td></tr>
     <tr><td>剛裝的 <code>uv</code>、<code>appium</code>、<code>adb</code> 找不到</td><td>關掉終端機再重開</td></tr>
     <tr><td><span class="chip os">Windows</span> 執行 <code>appium</code> 或 <code>Activate.ps1</code> 出現「已停用指令碼執行」</td><td><code>appium</code> 改打 <code>appium.cmd</code>；啟用 venv 見第 3 步的 <code>Set-ExecutionPolicy</code></td></tr>
     <tr><td><span class="chip ios">iOS</span> <code>xcodebuild failed with code 65</code></td><td>Xcode 沒登入 Apple ID 或簽署失敗，重做 5B「簽署 WebDriverAgent」步驟 1～3</td></tr>

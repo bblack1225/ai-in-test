@@ -251,18 +251,18 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 <div class="cmd"><pre><code>adb shell "dumpsys window | grep mCurrentFocus"</code></pre><button class="copy" type="button">複製</button></div>
 <p>再建立專案，它會一步一步問代號、平台、名稱、bundle id／package：</p>
 <div class="os-label">uv</div>
-<div class="cmd"><pre><code>uv run python workspace.py create</code></pre><button class="copy" type="button">複製</button></div>
+<div class="cmd"><pre><code>uv run aitest-workspace create</code></pre><button class="copy" type="button">複製</button></div>
 <div class="os-label">venv + pip（先啟用 .venv）</div>
-<div class="cmd"><pre><code>python workspace.py create</code></pre><button class="copy" type="button">複製</button></div>
-<p class="muted">bundle id 之後可以用 <code>workspace.py update &lt;專案代號&gt; --bundle_id ...</code> 改。填錯的話連線會失敗。</p>
+<div class="cmd"><pre><code>aitest-workspace create</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">bundle id 之後可以用 <code>aitest-workspace update &lt;專案代號&gt; --bundle_id ...</code> 改。填錯的話連線會失敗。</p>
 <p>新專案的地圖是空的，兩種方式補畫面：</p>
 <ul>
   <li><strong>網頁手動建</strong>：地圖檢視的節點詳情按「🌱 從這裡點出新畫面…」。</li>
   <li><strong>自動爬蟲</strong> <span class="chip warn">待驗證</span>：<strong>這個流程還沒有實際測過</strong>，結果可能跟這裡寫的不一樣，遇到問題請回報給交付窗口。關掉網頁伺服器、自己開 Appium（<code>appium --address 127.0.0.1</code>），手機停在起始畫面，先用小範圍試：
     <div class="os-label">uv</div>
-    <div class="cmd"><pre><code>uv run python crawl_app_tree.py --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="cmd"><pre><code>uv run aitest-crawl --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div>
     <div class="os-label">venv + pip（先啟用 .venv）</div>
-    <div class="cmd"><pre><code>python crawl_app_tree.py --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div></li>
+    <div class="cmd"><pre><code>aitest-crawl --project &lt;專案代號&gt; --map main --root_name 首頁 --max_depth 1 --max_screens 5 --safe_keywords</code></pre><button class="copy" type="button">複製</button></div></li>
 </ul>
 <div class="callout warn">
   <div class="callout-title">爬蟲預設會點所有元件</div>
@@ -273,11 +273,11 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 <ol>
   <li>只開網頁、不接手機或是本身已經啟動 Appium：
     <div class="os-label">uv</div>
-    <div class="cmd"><pre><code>uv run python aitest.py start --no-appium</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="cmd"><pre><code>uv run aitest start --no-appium</code></pre><button class="copy" type="button">複製</button></div>
     <div class="os-label">venv + pip（先啟用 .venv）</div>
-    <div class="cmd"><pre><code>python aitest.py start --no-appium</code></pre><button class="copy" type="button">複製</button></div></li>
+    <div class="cmd"><pre><code>aitest start --no-appium</code></pre><button class="copy" type="button">複製</button></div></li>
   <li>頁首按「📂 匯入專案 zip」，選拿到的 zip。</li>
-  <li>終端機按 <code>Ctrl+C</code>，之後照<a href="#daily">每次使用</a>帶專案代號啟動。專案代號用 <code>uv run python workspace.py list</code> 查（venv + pip：<code>python workspace.py list</code>）。</li>
+  <li>終端機按 <code>Ctrl+C</code>，之後照<a href="#daily">每次使用</a>帶專案代號啟動。專案代號用 <code>uv run aitest-workspace list</code> 查（venv + pip：<code>aitest-workspace list</code>）。</li>
 </ol>
 
 <h2 id="daily">每次使用</h2>
@@ -285,9 +285,9 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <li>手機接上、解鎖，打開待測 App。</li>
   <li>帶專案代號啟動，會自動開 Appium、網頁伺服器和瀏覽器：
     <div class="os-label">uv</div>
-    <div class="cmd"><pre><code>uv run python aitest.py start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
+    <div class="cmd"><pre><code>uv run aitest start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
     <div class="os-label">venv + pip（先啟用 .venv）</div>
-    <div class="cmd"><pre><code>python aitest.py start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div></li>
+    <div class="cmd"><pre><code>aitest start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div></li>
   <li>終端機視窗要一直開著，用完按 <code>Ctrl+C</code>。</li>
 </ol>
 <div class="table-wrap"><table>
@@ -303,9 +303,9 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <div class="callout-title">不帶專案代號的話，要先決定接哪個平台</div>
   <p>網頁伺服器在啟動的那一刻就決定要接 iOS 還是 Android，之後不能在網頁上切換。帶專案代號時照專案的平台；<strong>沒帶的話一律是 iOS</strong>，而網頁會打開這個瀏覽器上次用的專案。所以上次用的是 Android 專案，或打算進網頁後再選 Android 專案的話，至少要加 <code>--platform android</code>：</p>
   <div class="os-label">uv</div>
-  <div class="cmd"><pre><code>uv run python aitest.py start --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="cmd"><pre><code>uv run aitest start --platform android</code></pre><button class="copy" type="button">複製</button></div>
   <div class="os-label">venv + pip（先啟用 .venv）</div>
-  <div class="cmd"><pre><code>python aitest.py start --platform android</code></pre><button class="copy" type="button">複製</button></div>
+  <div class="cmd"><pre><code>aitest start --platform android</code></pre><button class="copy" type="button">複製</button></div>
   <p>平台跟專案對不上時，網頁頁首會提示「專案是 Android，但 viewer_server 目前接的是 iOS」，可以看地圖、編輯測案，但操作手機會被擋下來。這時在終端機按 <code>Ctrl+C</code>，用正確的平台重新啟動。</p>
 </div>
 <div class="callout note">
@@ -435,7 +435,7 @@ pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&g
   <thead><tr><th>症狀</th><th>處理方式</th></tr></thead>
   <tbody>
     <tr><td>driver 有裝，卻報 <code>Could not find a driver for automationName ...</code></td><td>開了好幾個 Appium。macOS：<code>lsof -nP -iTCP:4723 -sTCP:LISTEN</code>，Windows：<code>netstat -ano | findstr :4723</code>，只留一個 PID，其他用 <code>kill</code>／<code>taskkill /PID &lt;PID&gt; /F</code> 關掉</td></tr>
-    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時沒帶專案代號（預設 iOS）。<code>Ctrl+C</code> 後用 <code>aitest.py start &lt;專案代號&gt;</code> 重開</td></tr>
+    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時沒帶專案代號（預設 iOS）。<code>Ctrl+C</code> 後用 <code>aitest start &lt;專案代號&gt;</code> 重開</td></tr>
     <tr><td>port 8767 被佔用</td><td>關掉另一個視窗的伺服器，或加 <code>--port 8768</code></td></tr>
     <tr><td><span class="chip os">Windows</span> <code>Ctrl+C</code> 後下次連不上</td><td>關掉所有 Appium 視窗再重開</td></tr>
     <tr><td><span class="chip android">Android</span> BlueStacks 看不到裝置</td><td>重開過 BlueStacks，再 <code>adb connect 127.0.0.1:5555</code></td></tr>

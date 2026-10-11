@@ -1,6 +1,6 @@
 """run_test_case.match_screen_in_source：執行前的畫面檢查（手機是不是停在測案的起始畫面）"""
 
-from run_test_case import match_screen_in_source
+from aitest.core.run_test_case import match_screen_in_source
 
 IOS_ATTRS = {"id_attrs": ("name",), "label_attrs": ("label",)}
 ANDROID_ATTRS = {"id_attrs": ("resource-id",), "label_attrs": ("content-desc", "text")}

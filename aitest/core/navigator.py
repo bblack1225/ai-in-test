@@ -23,7 +23,7 @@
 import time
 import xml.etree.ElementTree as ET
 
-from run_test_case import raise_if_stopped, run_tap, try_dismiss_dialogs, wait_after_action
+from aitest.core.run_test_case import raise_if_stopped, run_tap, try_dismiss_dialogs, wait_after_action
 
 # 一個畫面要有過半數的指紋元件出現在目前畫面上，才算「可能是這一頁」（跟第0步檢查同標準）
 MATCH_MIN_RECALL = 0.5

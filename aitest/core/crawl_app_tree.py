@@ -39,7 +39,7 @@ iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊�
 
 使用方式：
   1. 手動把 App 導航到子樹根畫面（例如某個 tab 的 landing），保持登入、螢幕解鎖
-  2. python crawl_app_tree.py --root_name foo_accounting --max_depth 3 --max_screens 40
+  2. uv run aitest-crawl --root_name foo_accounting --max_depth 3 --max_screens 40
      Android 加 --platform android（App 會用啟動當下前景的那一支）
      寫進專案：加 --project foo-ios --map accounting
      先 dry-run 看會點什麼：加 --dry_run（只掃根畫面、列候選、不點）
@@ -61,12 +61,12 @@ from pathlib import Path
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
 
-from capture_screen_map import scan_screen
-from workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
-from platforms.android import AndroidPlatform, _text_xpath, parse_bounds
-from platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
-from run_test_case import xpath_literal
-from config import APPIUM_SERVER_URL
+from aitest.config import APPIUM_SERVER_URL
+from aitest.core.capture_screen_map import scan_screen
+from aitest.core.run_test_case import xpath_literal
+from aitest.core.workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
+from aitest.platforms.android import AndroidPlatform, _text_xpath, parse_bounds
+from aitest.platforms.ios import IOSPlatform, _predicate_literal, ios_label_predicate
 
 OUTPUT_PATH = Path("app_map_tree.json")
 
@@ -1258,7 +1258,7 @@ def main():
             project = ws.get_project(args.project)
             OUTPUT_PATH = ws.map_path(args.project, args.map)
         except WorkspaceError as e:
-            raise SystemExit(f"錯誤：{e}（專案要先用 workspace.py create 建立）") from None
+            raise SystemExit(f"錯誤：{e}（專案要先用 aitest-workspace create 建立）") from None
         if args.platform and args.platform != project["platform"]:
             raise SystemExit(f"錯誤：專案「{args.project}」是 {project['platform']}，跟 --platform {args.platform} 不一致")
         args.platform = project["platform"]

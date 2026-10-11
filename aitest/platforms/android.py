@@ -31,10 +31,9 @@ from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException
 
-from common import raise_if_stopped, xpath_literal
-from scan_core import position_bucket, read_and_merge_round
-from config import android_capabilities
-
+from aitest.common import raise_if_stopped, xpath_literal
+from aitest.config import android_capabilities
+from aitest.core.scan_core import position_bucket, read_and_merge_round
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -960,7 +959,7 @@ class AndroidPlatform:
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
         永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
-        from crawl_app_tree import android_dismiss_modal
+        from aitest.core.crawl_app_tree import android_dismiss_modal
         # 系統權限視窗不處理（使用者決定）：權限框是系統的 permissioncontroller／packageinstaller
         # 跳出來的，出現時目前前景的 package 就是它
         try:

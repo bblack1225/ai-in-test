@@ -16,13 +16,13 @@
 交付給不同團隊時，各自只拿自己 App 的專案（匯出成 zip，對方匯入），工具本身是同一份。
 
 CLI：
-    uv run python workspace.py list
-    uv run python workspace.py create foo-demo-ios --platform ios --name "你好 Demo iOS" \\
+    uv run aitest-workspace list
+    uv run aitest-workspace create foo-demo-ios --platform ios --name "你好 Demo iOS" \\
         --bundle_id com.foo.securities.tw.foo.Demo
     # 改名稱、bundle id（平台不能改）
-    uv run python workspace.py update foo-demo-ios --bundle_id com.example.app
+    uv run aitest-workspace update foo-demo-ios --bundle_id com.example.app
     # 把舊的 app_map_tree.json＋用到的截圖＋test_cases/ 搬進專案（不會刪原檔），地圖存成 main
-    uv run python workspace.py import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
+    uv run aitest-workspace import-legacy foo-demo-ios --map app_map_tree.json --cases test_cases/*.json
     # 地圖存成別的名稱：--map_name trading
 
 早期的專案只有一份 map.json，第一次讀到時會自動搬成 maps/main.json。

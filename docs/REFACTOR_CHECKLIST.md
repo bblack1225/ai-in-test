@@ -75,13 +75,21 @@
 - [ ] 驗證：同時跑掃描與 LLM 對話，兩邊用量各自正確
 
 ### 步驟 6：套件化（CHANGELOG「python code 專案結構調整」） `refactor/src-package`
-- [ ] 改成 `src/aitest/`：`core/`、`platforms/`、`llm/`、`cli/`、`config.py`、`common.py`
-- [ ] `pyproject.toml` 加 `[project.scripts]`，指令變成 `uv run aitest ...`
-- [ ] 修正用 `__file__` 找路徑的地方：`config.toml`、`web/`、`logs/`、`aitest.py` 啟動 viewer
-- [ ] 工具腳本移到 `tools/`：`compare_versions`、`cleanup_images`、`capture_transient`
-- [ ] README、`docs/guide/*.html`、`docs/CRAWLER_TREE_HANDOFF.md` 的指令全部更新
-- [ ] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`
-- [ ] 驗證：pytest 全過＋`uv run aitest start` 實機跑一輪
+2026-10-11 決定用根目錄的 `aitest/` 套件，不多包一層 `src/`（分層、避免撞名、console scripts 的好處都拿得到，結構比較簡單）。
+提前到步驟 4、5 之前做：沒有其他進行中的分支，搬家不會造成衝突。
+
+- [x] 改成 `aitest/`：`cli.py`、`config.py`、`common.py`、`viewer_server.py`、`platforms/`、`core/`（`git mv` 保留歷史）
+  - `llm/` 等步驟 7 拆 `viewer_server` 時再建立
+- [x] `pyproject.toml` 加 `[project.scripts]`（`aitest`、`aitest-server`、`aitest-workspace`、`aitest-crawl`、`aitest-scan`、`aitest-run`、`aitest-compare`）和 `[build-system]`（hatchling）
+- [x] 修正用 `__file__` 找路徑的地方：`config.PROJECT_ROOT` 統一指向 repo 根目錄（`config.toml`、`web/`、`logs/`）；`aitest start` 改用 `python -m aitest.viewer_server` 啟動伺服器
+- [x] 工具腳本移到 `tools/`：`cleanup_images`、`capture_transient`（`compare_versions` 是正式比對邏輯、測試也用到，放 `aitest/core/`）
+- [x] README、`docs/guide/*.html`、`docs/CRAWLER_TREE_HANDOFF.md`、程式訊息、網頁裡的指令全部更新；`TROUBLESHOOTING.md` 舊紀錄保留原指令，開頭加說明
+- [x] venv + pip 的安裝方式改成 `pip install -e .`（實際在新的 venv 裝過一次確認可用）
+- [x] 測試改成 `from aitest… import`，拿掉 pytest 的 `pythonpath` 權宜設定
+- [ ] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`（獨立一個分支做，不跟搬家混在一起）
+- [x] 驗證（不用手機）：pytest 72 個全過；所有模組 import、7 個指令和 2 個 tools 的 `--help`、`aitest doctor`；
+  `aitest-server` 啟動後用瀏覽器開網頁、開專案，地圖與截圖正常、console 沒錯誤；`aitest start` 能啟動伺服器
+- [ ] 驗證（實機）：`uv run aitest start` 掃描、跑測案、爬蟲跑一小段
 
 ### 步驟 7：拆 viewer_server（報告 #8） `refactor/split-server`
 - [ ] `llm/prompts.py`：三個 `build_*_prompt` 和常數字串（CHANGELOG「提示詞優化」有獨立的地方可改）
@@ -140,7 +148,7 @@
 | 10 | `except Exception` 讓斷線看起來像找不到元件 | 步驟 4 | [ ] |
 | 11 | AI 定位每次重試都重送整個畫面結構 | 步驟 7 | [ ] |
 | 12 | 文件提到已刪掉的檔案和舊模型名 | 步驟 2 | [x] |
-| 13 | 全部用 print | 步驟 6 | [ ] |
+| 13 | 全部用 print | 步驟 6 之後另開分支 | [ ] |
 | 14 | 沒有程式碼檢查工具設定 | 步驟 2（風格類的 48 筆還沒修） | [x] |
 | 15 | LLM 對話每輪重送全部內容 | 報告也建議先不動，等用量顯示後確認成本再決定 | [-] 暫不做 |
 | 16 | 個人編輯器設定進了 git | 步驟 2 | [x] |

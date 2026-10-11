@@ -15,8 +15,11 @@ import time
 import tomllib
 from pathlib import Path
 
-# 預設跟這支程式放在一起；要用別份設定檔（例如同一台電腦切換兩支手機）設環境變數 AITEST_CONFIG
-CONFIG_PATH = Path(os.environ.get("AITEST_CONFIG") or Path(__file__).with_name("config.toml"))
+# repo 根目錄（aitest/ 套件的上一層）：config.toml、web/、logs/ 都放在這裡
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 預設放在 repo 根目錄；要用別份設定檔（例如同一台電腦切換兩支手機）設環境變數 AITEST_CONFIG
+CONFIG_PATH = Path(os.environ.get("AITEST_CONFIG") or PROJECT_ROOT / "config.toml")
 
 
 class ConfigError(Exception):

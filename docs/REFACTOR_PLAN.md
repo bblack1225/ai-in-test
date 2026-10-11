@@ -54,7 +54,7 @@ aitest / viewer_server / run_test_case / capture_screen_map / crawl_app_tree / n
 | 3 | 純函式測試：用 `docs/reference_data/` 的 page_source XML 當測試資料，不用接手機 |
 | 4 | 平台層收斂：合併三套等畫面穩定、爬蟲的平台規則併入 `platforms/`、共用定位流程、只攔定位失敗的例外 |
 | 5 | `RunContext`：取代全域變數，每次執行一份，直接改成最終樣子不留過渡期；LLM 用量跟著每次操作累計，不會互相覆蓋 |
-| 6 | 改成 `src/aitest/` 套件＋console scripts；`print` 改 `logging` |
+| 6 | 改成根目錄的 `aitest/` 套件（不用 `src/`，2026-10-11 決定）＋console scripts；`print` 改 `logging` |
 | 7 | 拆 `viewer_server.py`：提示詞、執行、API 路由表分開 |
 | 8 | 前端串接準備：API 文件、統一錯誤格式、開發用跨站設定、進度與用量 API |
 | 9 | 收尾：對照報告寫下差距、更新 CHANGELOG |

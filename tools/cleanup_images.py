@@ -19,25 +19,26 @@
 
 使用方式：
   1. 先看會刪哪些（預設只列出，不刪任何檔案）：
-       uv run python cleanup_images.py
-       uv run python cleanup_images.py --refs ~/Downloads/app_map_export.json
+       uv run python tools/cleanup_images.py
+       uv run python tools/cleanup_images.py --refs ~/Downloads/app_map_export.json
   2. 確認沒問題再加 --delete 真的刪除（直接刪除，不會進垃圾桶）：
-       uv run python cleanup_images.py --delete
+       uv run python tools/cleanup_images.py --delete
   3. crops/ 就算還被地圖引用也沒有程式會讀，確定不需要人工核對的話可以整批清掉：
-       uv run python cleanup_images.py --all_crops --delete
+       uv run python tools/cleanup_images.py --all_crops --delete
   4. workspace 專案：加 --project，清的是專案資料夾裡的 screenshots/、crops/，
      引用從專案的 maps/（所有地圖）、backups/（爬蟲覆蓋前的備份）、cases/、batches/ 找；
      網頁開著專案時地圖會自動存檔，不用先匯出：
-       uv run python cleanup_images.py --project foo-demo-ios
+       uv run python tools/cleanup_images.py --project foo-demo-ios
 """
 
 import argparse
 import re
 from pathlib import Path
 
-from workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.config import PROJECT_ROOT
+from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = PROJECT_ROOT
 IMAGE_DIRS = ("screenshots", "crops")
 REF_PATTERN = re.compile(r"(screenshots|crops)/([^\"'\s\\?#]+\.png)")
 

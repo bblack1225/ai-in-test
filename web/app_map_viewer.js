@@ -69,7 +69,7 @@
   // 一律用相對路徑呼叫，不用再填伺服器網址
   var API_BASE = "";
   if (!/^https?:$/.test(location.protocol)) document.getElementById("fileProtocolWarning").hidden = false;
-  // /ping 回傳伺服器目前接的平台（viewer_server.py --platform），舊版伺服器沒有這個欄位就是 null
+  // /ping 回傳伺服器目前接的平台（aitest-server --platform），舊版伺服器沒有這個欄位就是 null
   async function fetchServerPlatform(base) {
     var res = await fetch(base + "/ping");
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -454,11 +454,11 @@
       if (!data.screens || !Array.isArray(data.screens)) { alert("格式不對，找不到 screens 陣列（要用這個工具自己匯出的檔案，或專案正式的 app_map_tree.json）。"); return; }
       if (currentProject) {
         // 開著專案時載入檔案＝匯入成專案裡的一張新地圖，不會蓋掉現有的。截圖不會跟著
-        // 搬進專案，舊地圖連同截圖要搬進來請用 workspace.py import-legacy
+        // 搬進專案，舊地圖連同截圖要搬進來請用 aitest-workspace import-legacy
         var suggested = file.name.replace(/\.json$/i, "").replace(/[^\w一-鿿 .()（）-]+/g, "_");
         var name = (prompt("匯入成專案「" + currentProject.name + "」的一張新地圖，地圖名稱：\n\n" +
           "注意：地圖用到的截圖不會一起搬進專案，畫面可能沒有截圖。舊地圖連同截圖搬進專案請用：\n" +
-          "uv run python workspace.py import-legacy " + currentProject.id + " --map " + file.name + " --map_name 名稱", suggested) || "").trim();
+          "uv run aitest-workspace import-legacy " + currentProject.id + " --map " + file.name + " --map_name 名稱", suggested) || "").trim();
         if (!name) return;
         createProjectMap(name, data).catch(function (err) { alert("匯入地圖失敗：" + err.message); });
         return;
@@ -2972,7 +2972,7 @@
           renderMapPicker();
         }
         renderMapManager();
-        setMapManagerMsg("已刪除「" + name + "」。截圖不會刪，之後可以用 cleanup_images.py --project 清掉沒人用的");
+        setMapManagerMsg("已刪除「" + name + "」。截圖不會刪，之後可以用 tools/cleanup_images.py --project 清掉沒人用的");
       }
     } catch (err) {
       setMapManagerMsg("失敗：" + err.message, true);
@@ -3591,7 +3591,7 @@
     catch (err) { setProjectStatus("⚠️ 讀不到專案清單：" + err.message, true); return; }
     var last = null;
     try { last = localStorage.getItem("lastProject"); } catch (e) { /* 照預設 */ }
-    // aitest.py start <專案> 打開的網址會帶 ?project=，優先開這個
+    // aitest start <專案> 打開的網址會帶 ?project=，優先開這個
     var fromUrl = new URLSearchParams(location.search).get("project");
     if (fromUrl) {
       last = fromUrl;
@@ -3602,7 +3602,7 @@
     var pick = ids.indexOf(last) >= 0 ? last : (ids.length === 1 && last !== "" ? ids[0] : null);
     if (pick) { await openProject(pick); return; }
     setProjectStatus(ids.length ? "選一個專案開始，地圖、測案都會自動存在專案裡"
-      : "還沒有專案：用 uv run python workspace.py create 建立（見 README 3.3），或匯入其他人給的專案 zip");
+      : "還沒有專案：用 uv run aitest-workspace create 建立（見 README 3.3），或匯入其他人給的專案 zip");
   }
 
   initScenarioFromCurrentMap();

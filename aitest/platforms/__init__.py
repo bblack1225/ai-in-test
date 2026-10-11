@@ -3,8 +3,8 @@ iOS／Android 平台差異集中在這個套件：執行測案（run_test_case.p
 （viewer_server.py）只透過平台物件取用這些差異，不自己判斷平台。
 """
 
-from platforms.android import AndroidPlatform
-from platforms.ios import IOSPlatform
+from aitest.platforms.android import AndroidPlatform
+from aitest.platforms.ios import IOSPlatform
 
 PLATFORMS = {"ios": IOSPlatform, "android": AndroidPlatform}
 

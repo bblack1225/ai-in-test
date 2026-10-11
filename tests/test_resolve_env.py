@@ -2,7 +2,7 @@
 
 import pytest
 
-from run_test_case import resolve_env_placeholders, set_run_vars
+from aitest.core.run_test_case import resolve_env_placeholders, set_run_vars
 
 
 @pytest.fixture(autouse=True)

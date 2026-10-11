@@ -7,12 +7,12 @@ Appium Inspector 按 Refresh 抓 page source 太慢，跑馬燈常常在抓到�
 
 用法：
     1. 先在 Appium Inspector 按 Quit Session（同一台手機只能有一個 session）
-    2. uv run python capture_transient.py
+    2. uv run python tools/capture_transient.py
     3. 看到「開始監聽」後，在手機上手動完成下單
     4. 抓到後結果會存在 transient_captures/ 底下
 
     自訂關鍵字 / 監聽秒數：
-    uv run python capture_transient.py --keyword 委託 --keyword 成交 --seconds 120
+    uv run python tools/capture_transient.py --keyword 委託 --keyword 成交 --seconds 120
 """
 
 import argparse
@@ -25,7 +25,7 @@ from appium import webdriver
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 
-from config import APPIUM_SERVER_URL, ios_capabilities
+from aitest.config import APPIUM_SERVER_URL, ios_capabilities
 
 OUTPUT_DIR = Path("transient_captures")
 

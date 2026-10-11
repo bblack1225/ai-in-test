@@ -2,8 +2,8 @@
 
 from conftest import ANDROID_SCREEN, IOS_SCREEN
 
-from capture_screen_map import downgrade_duplicate_native_ids, parse_candidate_elements
-from platforms import android, get_platform, ios
+from aitest.core.capture_screen_map import downgrade_duplicate_native_ids, parse_candidate_elements
+from aitest.platforms import android, get_platform, ios
 
 
 def _by_native_id(candidates):
