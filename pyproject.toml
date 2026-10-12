@@ -6,6 +6,7 @@ dependencies = [
     "appium-python-client>=6.0.7",
     "google-genai>=2.25.0",
     "pillow>=12.3.0",
+    "questionary>=2.1.1",
     "selenium>=4.49.0",
 ]
 

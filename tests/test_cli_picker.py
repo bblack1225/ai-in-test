@@ -15,41 +15,42 @@ def workspace(tmp_path):
     return str(tmp_path / "workspace")
 
 
-def _answers(monkeypatch, *answers):
-    it = iter(answers)
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
+class FakeMenu:
+    """代替方向鍵選單：依序回傳預先決定好的選擇，並記下每次顯示的選項"""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.shown = []
+
+    def __call__(self, message, titles):
+        self.shown.append(titles)
+        return self.answers.pop(0)
 
 
-def test_enter_picks_first_android_project(monkeypatch, workspace):
-    _answers(monkeypatch, "")
-    assert cli.pick_project(workspace) == ("a-android", "android")
+def test_android_projects_listed_first(workspace):
+    menu = FakeMenu(0)
+    assert cli.pick_project(workspace, menu) == ("a-android", "android")
+    assert [t.split()[0] for t in menu.shown[0]] == ["a-android", "z-android", "b-ios", "不開專案，只選平台"]
 
 
-def test_android_listed_before_ios(monkeypatch, workspace):
-    _answers(monkeypatch, "3")
-    assert cli.pick_project(workspace) == ("b-ios", "ios")
+def test_pick_ios_project(workspace):
+    assert cli.pick_project(workspace, FakeMenu(2)) == ("b-ios", "ios")
 
 
-def test_invalid_input_asks_again(monkeypatch, workspace):
-    _answers(monkeypatch, "9", "abc", "2")
-    assert cli.pick_project(workspace) == ("z-android", "android")
+def test_platform_only(workspace):
+    menu = FakeMenu(3, 0)
+    assert cli.pick_project(workspace, menu) == (None, "android")
+    assert menu.shown[1] == ["android", "ios"]
+    assert cli.pick_project(workspace, FakeMenu(3, 1)) == (None, "ios")
 
 
-def test_zero_picks_platform_only(monkeypatch, workspace):
-    _answers(monkeypatch, "0", "")
-    assert cli.pick_project(workspace) == (None, "android")
-    _answers(monkeypatch, "0", "0", "2")
-    assert cli.pick_project(workspace) == (None, "ios")
+def test_no_projects_goes_to_platform_menu(tmp_path):
+    menu = FakeMenu(1)
+    assert cli.pick_project(str(tmp_path / "empty"), menu) == (None, "ios")
+    assert menu.shown == [["android", "ios"]]
 
 
-def test_no_projects_goes_to_platform_menu(monkeypatch, tmp_path):
-    _answers(monkeypatch, "2")
-    assert cli.pick_project(str(tmp_path / "empty")) == (None, "ios")
-
-
-def test_ctrl_c_exits(monkeypatch, workspace):
-    def interrupt(prompt=""):
-        raise KeyboardInterrupt
-    monkeypatch.setattr("builtins.input", interrupt)
+@pytest.mark.parametrize("answers", [(None,), (3, None)])
+def test_ctrl_c_exits(workspace, answers):
     with pytest.raises(SystemExit):
-        cli.pick_project(workspace)
+        cli.pick_project(workspace, FakeMenu(*answers))

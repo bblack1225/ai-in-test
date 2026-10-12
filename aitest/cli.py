@@ -134,41 +134,40 @@ def resolve_project(project_id: str | None, platform: str | None, workspace: str
     return platform or (project or {}).get("platform") or "ios", project
 
 
-def _ask_choice(prompt: str, count: int) -> int:
-    """請使用者輸入 0～count 的數字，直接按 Enter 是 1；Ctrl+C 結束程式"""
-    while True:
-        try:
-            answer = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            sys.exit("\n已取消")
-        if not answer:
-            return 1
-        if answer.isdigit() and 0 <= int(answer) <= count:
-            return int(answer)
-        print(f"   請輸入 0～{count} 的數字")
+def _select(message: str, titles: list[str]) -> int | None:
+    """方向鍵選單：回傳選到第幾個（從 0 開始），Ctrl+C 回傳 None。數字鍵也能直接跳到那一項。"""
+    import questionary
+
+    answer = questionary.select(
+        message,
+        choices=[questionary.Choice(title, value=i) for i, title in enumerate(titles)],
+        instruction="（↑↓ 選擇，Enter 確認，Ctrl+C 取消）",
+        use_shortcuts=len(titles) <= 36,  # questionary 的數字／字母快捷鍵最多 36 個
+    ).ask()
+    return answer
 
 
-def pick_project(workspace: str) -> tuple[str | None, str]:
+def pick_project(workspace: str, choose=_select) -> tuple[str | None, str]:
     """
     start 沒帶專案也沒帶 --platform 時，列出專案讓使用者選，回傳 (專案代號, 平台)。
-    Android 專案排前面（直接按 Enter 選第一個）；選 0 不開專案、只選平台。
+    Android 專案排前面（直接按 Enter 選第一個）；最後一項是「不開專案，只選平台」。
+    choose 是顯示選單的函式（測試時換成假的）。
     """
     projects = sorted(Workspace(workspace).list_projects(), key=lambda p: (p["platform"] != "android", p["id"]))
     if projects:
-        print("選擇要開的專案（直接按 Enter 選 1）：")
-        for i, p in enumerate(projects, 1):
-            print(f"  {i}) {p['id']:<24} {p['platform']:<8} {p['name']}")
-        print("  0) 不開專案，只選平台")
-        choice = _ask_choice("> ", len(projects))
-        if choice:
-            p = projects[choice - 1]
-            return p["id"], p["platform"]
+        titles = [f"{p['id']:<24} {p['platform']:<8} {p['name']}" for p in projects] + ["不開專案，只選平台"]
+        choice = choose("選擇要開的專案", titles)
+        if choice is None:
+            sys.exit("已取消")
+        if choice < len(projects):
+            return projects[choice]["id"], projects[choice]["platform"]
     else:
-        print("還沒有專案（用 uv run aitest-workspace create 建立），先選平台：")
-    print("選擇平台（直接按 Enter 選 1）：\n  1) android\n  2) ios")
-    while (choice := _ask_choice("> ", 2)) == 0:
-        print("   請輸入 1 或 2")
-    return None, ("android", "ios")[choice - 1]
+        print("還沒有專案（用 uv run aitest-workspace create 建立），先選平台")
+    platforms = ["android", "ios"]
+    choice = choose("選擇平台", platforms)
+    if choice is None:
+        sys.exit("已取消")
+    return None, platforms[choice]
 
 
 # ---------------------------------------------------------------------------
