@@ -428,8 +428,8 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 uv sync</code></pre><button class="copy" type="button">複製</button></div>
 <div class="os-label">venv + pip（先啟用 .venv）</div>
 <div class="cmd"><pre><code>git pull
-pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&gt;=12.3.0" "selenium&gt;=4.49.0"</code></pre><button class="copy" type="button">複製</button></div>
-<p class="muted">pip 的套件清單跟<a href="INSTALL.html#s3">安裝第 3 步</a>的一樣。<code>workspace/</code> 和 <code>config.toml</code> 不會被動到。工具由交付窗口統一維護，需要修改請回報，不要直接改程式。</p>
+pip install -e .</code></pre><button class="copy" type="button">複製</button></div>
+<p class="muted">用 uv 的話，其實 <code>uv run</code> 每次執行前都會自動同步套件，忘了 <code>uv sync</code> 也沒關係；用 pip 的話一定要重跑 <code>pip install -e .</code>，新加的套件、指令才會裝上。<code>workspace/</code> 和 <code>config.toml</code> 不會被動到。工具由交付窗口統一維護，需要修改請回報，不要直接改程式。</p>
 
 <h2 id="faq">常見問題</h2>
 <div class="table-wrap"><table>
