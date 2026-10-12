@@ -1,6 +1,6 @@
 """scan_core.py：九宮格分區、跨捲動輪次的身分 key、讀一輪畫面並合併"""
 
-from aitest.core.scan_core import (
+from aitest.platforms.scan_core import (
     candidate_identity_key,
     candidate_signature,
     identity_keys_in_region,

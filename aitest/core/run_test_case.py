@@ -49,14 +49,19 @@ from pathlib import Path
 
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.common.exceptions import InvalidElementStateException, InvalidSessionIdException, NoSuchElementException
+from selenium.common.exceptions import (
+    InvalidElementStateException,
+    InvalidSessionIdException,
+    NoSuchElementException,
+    WebDriverException,
+)
 
-# set_stop_checker、xpath_literal 這裡沒用到，留著是因為 viewer_server、crawl_app_tree 從這支 import
+# set_stop_checker 這裡沒用到，留著是因為 viewer_server 從這支 import
 from aitest.common import StopRequested, raise_if_stopped
 from aitest.common import set_stop_checker as set_stop_checker
-from aitest.common import xpath_literal as xpath_literal
 from aitest.config import APPIUM_SERVER_URL
 from aitest.platforms import PLATFORMS, get_platform
+from aitest.platforms.base import wait_until_stable
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")
@@ -96,7 +101,9 @@ def try_dismiss_dialogs(platform, driver) -> list[str]:
         return []
     try:
         dismissed = platform.dismiss_dialogs(driver)
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [關閉非預期彈窗] 檢查失敗，照原本結果繼續: {e}")
         return []
     if dismissed:
@@ -122,7 +129,9 @@ def idle_wait_disabled(driver):
     try:
         original = driver.get_settings().get("waitForIdleTimeout")
         driver.update_settings({"waitForIdleTimeout": 0})
-    except Exception:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
         original = None
     try:
         yield
@@ -130,7 +139,9 @@ def idle_wait_disabled(driver):
         if original is not None:
             try:
                 driver.update_settings({"waitForIdleTimeout": original})
-            except Exception:
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException:
                 pass
 
 
@@ -165,7 +176,7 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5,
         attempts += 1
         try:
             outcome = check()
-        except StopRequested:
+        except (StopRequested, InvalidSessionIdException):
             raise
         except Exception as e:
             # 畫面刷新中元件剛好被換掉（stale）之類的，下一輪再查
@@ -194,7 +205,9 @@ def _locate_by_custom_xpath(driver, el: dict):
         return None
     try:
         matches = driver.find_elements(AppiumBy.XPATH, custom_xpath)
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [自訂XPath] 查詢失敗: {custom_xpath}  ({e})")
         return None
     print(f"    [自訂XPath] {custom_xpath} -> 查到 {len(matches)} 個")
@@ -363,7 +376,9 @@ def _read_text_by_position(platform, driver, el: dict, y_tolerance: float = 10.0
         return None
     try:
         root = ET.fromstring(driver.page_source)
-    except Exception:
+    except InvalidSessionIdException:
+        raise
+    except (WebDriverException, ET.ParseError):
         return None
 
     left, right = bounds["x"], bounds["x"] + bounds["width"]
@@ -505,29 +520,15 @@ def layout_signature(platform, page_source: str):
     return [platform.layout_key(node) for node in root.iter()]
 
 
-def wait_after_action(platform, driver, max_wait: float = 3.0, poll_interval: float = 0.4) -> None:
+def wait_after_action(platform, driver, max_wait: float = 3.0) -> None:
     """
-    tap/input_text 之後改成輪詢 page_source 直到版面連續兩次一致或到時間
-    上限為止，取代原本寫死的 `time.sleep(1)`——原本固定1秒的等待，遇到
-    App本身有較長轉場/非同步載入（例如測試App的轉場畫面刻意設計2秒
-    loading）時可能不夠，下一步容易在畫面還沒更新完就執行。時間上限抓得比
-    掃描的 wait_for_screen_stable（~7.5秒）短很多，避免被本來就不會停止變化的
-    動態內容（跑馬燈、loading動畫）拖慢太多測案執行時間。
-
-    max_wait 是實際經過的秒數。iOS 讀一次 page_source 要 1~3 秒，原本只累加
-    poll_interval，畫面一直在變時（報價跳動）實際會等到 8 次讀取、十幾二十秒。
+    tap/input_text 之後等版面連續兩次一致（最多 max_wait 秒，用真實經過時間算），
+    取代原本寫死的 `time.sleep(1)`——遇到 App 本身有較長轉場/非同步載入（例如測試 App
+    的轉場畫面刻意設計 2 秒 loading）時固定 1 秒不夠，下一步容易在畫面還沒更新完就執行。
+    上限抓得比掃描前的等待（7.5 秒）短很多，避免被本來就不會停止變化的動態內容
+    （跑馬燈、loading 動畫）拖慢太多測案執行時間。輪詢方式見 platforms/base.wait_until_stable。
     """
-    previous = None
-    deadline = time.time() + max_wait
-    while True:
-        try:
-            current = layout_signature(platform, driver.page_source)
-        except Exception:
-            return
-        if current == previous or time.time() >= deadline:
-            return
-        previous = current
-        time.sleep(poll_interval)
+    wait_until_stable(driver, lambda source: layout_signature(platform, source), max_wait=max_wait)
 
 
 def next_is_banner_check(steps: list, current_index: int) -> bool:

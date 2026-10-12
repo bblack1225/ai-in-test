@@ -13,16 +13,31 @@ XML 節點 tag 本身就是 class，座標是 x/y/width/height 數值屬性；�
 `mobile: tap`；自動定位用 iOS predicate（比 XPath 快很多，見 ios_label_predicate）。
 """
 
+import hashlib
+import json
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 
 from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
+from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
 from aitest.common import raise_if_stopped
 from aitest.config import CONFIG, ios_capabilities
-from aitest.core.scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
+from aitest.platforms import locate
+from aitest.platforms.base import (
+    CHROME_BOTTOM_FRACTION,
+    CHROME_TOP_FRACTION,
+    MODAL_ACK_ONLY_LABELS,
+    MODAL_DISMISS_LABELS,
+    MODAL_HINT_MARKERS,
+    candidate_pattern,
+    histogram_bucket,
+    looks_like_data,
+    wait_until_stable,
+)
+from aitest.platforms.scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -57,8 +72,8 @@ def find_scrollable_regions(xml_source: str, classes: set = SCROLLABLE_CLASSES) 
     Android 靠 mobile: scrollGesture 的布林回傳值，iOS 只能靠內容比對，
     可靠度略低）。
 
-    預設 `classes` 是全部可捲動類型（垂直定位重查用，見本檔案的
-    _locate_by_xpath_with_scroll）；橫向卡片收集會傳
+    預設 `classes` 是全部可捲動類型（定位時捲容器重查用，見 platforms/locate.py 的
+    locate_with_scroll）；橫向卡片收集會傳
     HORIZONTAL_SCROLL_CANDIDATE_CLASSES 進來排除 Table。
     """
     root = ET.fromstring(xml_source)
@@ -290,7 +305,9 @@ def skip_visible_in_page_source(driver):
     try:
         original = driver.get_settings().get("pageSourceExcludedAttributes", "")
         driver.update_settings({"pageSourceExcludedAttributes": "visible"})
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"  [提示] 無法設定跳過 visible，照原本方式讀畫面結構（{e}）")
         yield
         return
@@ -299,11 +316,13 @@ def skip_visible_in_page_source(driver):
     finally:
         try:
             driver.update_settings({"pageSourceExcludedAttributes": original})
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             print(f"  [警告] 恢復 pageSourceExcludedAttributes 失敗，之後掃描前請重新連線（{e}）")
 
 
-def _predicate_literal(text: str) -> str:
+def predicate_literal(text: str) -> str:
     return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
@@ -312,166 +331,23 @@ def ios_label_predicate(class_name: str, label: str) -> str:
     XPath 在 iOS 上每查一次都要先把整份畫面結構序列化傳回來（一次 1~3 秒），
     predicate 直接在手機上比對，所以自動定位一律用這個；使用者存的 custom_xpath
     需要表達結構關係（第幾個 Cell 裡的第幾個元件），predicate 做不到，維持 XPath。"""
-    return f"type == {_predicate_literal(class_name)} AND label == {_predicate_literal(label)}"
+    return f"type == {predicate_literal(class_name)} AND label == {predicate_literal(label)}"
 
 
-def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8):
+def find_anchor(driver, text: str):
     """
-    用 class + label 查精確 XPath，查不到就自己捲動可捲動容器、每輪重新查同一條
-    精確 XPath，取代原本只看當下快照、不會捲動的 _locate_by_xpath（已移除）。
-    比照 Android 版（platforms/android.py）的同名函式移植。
-
-    為什麼 iOS 也需要這個：iOS 的 Accessibility Tree 對「捲出畫面外」的元件
-    多半還是找得到（節點仍在，見 TROUBLESHOOTING #16/#28），這種情況
-    ensure_visible() 的 `mobile: scroll` `toVisible` 已經能處理。但長的
-    XCUIElementTypeTable / CollectionView 有 cell 重用，離畫面夠遠的 row 會
-    整個從 tree 上消失，這時精確 XPath 查 0 個、ensure_visible 也無從捲起
-    （沒有 element 可以 toVisible），舊流程只能退到用 element_map.json 裡
-    「掃描當下」的舊座標盲點，捲動位置一旦不同就點錯。這個函式補上這一段：
-    自己捲容器、邊捲邊用精確 XPath 重查。
-
-    跟 Android 版的差異：Android 的 scroll_step 有布林回傳值可判斷「捲不動了」；
-    iOS 的 driver.swipe 沒有，改用「捲動前後 page_source 沒變」當「這個容器
-    捲不動 / 已到底」的依據，可靠度略低（同一個已知落差，見
-    capture_screen_map.swipe_within_region 說明）。
-
-    查詢結果處理跟 Android 版一致：
-      - 剛好 1 個 → 直接用
-      - >1 個 → 真的有歧義，捲再多也不會變唯一，直接放棄交給呼叫端的錨點消歧義
-      - 0 個 → 捲動重試（先用涵蓋畫面主要範圍的通用區域，再逐一試畫面上其他
-        可捲動容器）
+    錨點消歧義（platforms/locate.py 的 locate_by_anchor）用：找文字是 text 的唯一一個元件。
+    iOS 不用先捲動——元件即使捲出畫面外，Accessibility Tree 依然找得到（見已知問題16），
+    找到答案之後呼叫端仍然會用 ensure_visible() 確保真的可以點擊/驗證。
     """
-    label = el.get("label", "")
-    if not label:
-        return None
-
-    predicate = ios_label_predicate(el["class"], label)
-
-    def _query():
-        try:
-            return driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
-        except Exception as e:
-            print(f"    [XPath+捲動] 查詢失敗: {predicate}  ({e})")
-            return []
-
-    matches = _query()
-    print(f"    [XPath+捲動] 第0輪（不捲）: {predicate} -> 查到 {len(matches)} 個")
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        return None  # 真的有歧義，交給呼叫端的錨點消歧義處理
-
-    def _scroll_search(region_bounds, region_label):
-        previous_source = None
-        for round_index in range(1, max_rounds + 1):
-            raise_if_stopped()
-            swipe_within_region(driver, region_bounds, "down")
-            time.sleep(0.5)
-            current_source = driver.page_source
-            if current_source == previous_source:
-                print(f"    [XPath+捲動] {region_label} 捲動前後畫面沒變，判定捲不動了，停止")
-                return None
-            previous_source = current_source
-            found = _query()
-            print(f"    [XPath+捲動] {region_label} 第{round_index}輪: 查到 {len(found)} 個")
-            if len(found) == 1:
-                return found[0]
-            if len(found) > 1:
-                return None
-        return None
-
-    size = driver.get_window_size()
-    outer_area = {
-        "x": int(size["width"] * 0.1),
-        "y": int(size["height"] * 0.15),
-        "width": int(size["width"] * 0.8),
-        "height": int(size["height"] * 0.7),
-    }
-    matched = _scroll_search(outer_area, "主要區域")
-    if matched is not None:
-        return matched
-
     try:
-        regions = find_scrollable_regions(driver.page_source)
-    except Exception:
-        regions = []
-    for region in regions:
-        matched = _scroll_search(region["bounds"], f"容器（{region['class']}）")
-        if matched is not None:
-            return matched
-
-    return None
-
-
-def _locate_by_anchor(driver, el: dict):
-    """
-    跟 Android 版（platforms/android.py 的 _locate_by_anchor）同樣的
-    錨點消歧義邏輯，處理「清單裡每一列都有一個文字相同的操作按鈕」這種
-    純 XPath 查不到唯一結果的情境（見 TROUBLESHOOTING #36）。用 fingerprint
-    裡的 nearby_text（同一列裡能唯一辨識這一列的文字）當錨點，在所有符合
-    class+label 的候選裡，挑跟錨點 Y 座標最接近的一個。
-
-    跟 Android 版的關鍵差異：iOS 沒有 UiScrollable.scrollIntoView() 這種
-    「邊捲邊找」的機制可用，但也不需要——iOS 元件即使捲出畫面外，
-    Accessibility Tree 依然找得到（節點真的存在，見已知問題16），所以
-    錨點本身直接查詢就查得到，不用先捲動。找到答案之後，呼叫端
-    仍然會用 ensure_visible() 確保真的可以點擊/驗證。
-    """
-    nearby_text_list = (el.get("fingerprint") or {}).get("nearby_text") or []
-    label = el.get("label", "")
-    if not nearby_text_list or not label:
+        anchors = driver.find_elements(AppiumBy.IOS_PREDICATE, f"label == {predicate_literal(text)}")
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
+        print(f"    [錨點消歧義] 錨點查詢失敗: {type(e).__name__}")
         return None
-
-    try:
-        anchors = driver.find_elements(AppiumBy.IOS_PREDICATE,
-                                       f"label == {_predicate_literal(nearby_text_list[0])}")
-    except Exception as e:
-        print(f"    [錨點消歧義] 錨點查詢失敗: {e}")
-        return None
-    if len(anchors) != 1:
-        return None
-    anchor_y = anchors[0].location["y"]
-
-    try:
-        candidates = driver.find_elements(AppiumBy.IOS_PREDICATE, ios_label_predicate(el["class"], label))
-    except Exception:
-        return None
-    if not candidates:
-        return None
-
-    closest = min(candidates, key=lambda c: abs(c.location["y"] - anchor_y))
-    print(f"    [錨點消歧義] 用鄰近文字「{nearby_text_list[0]}」（y={anchor_y}）"
-          f"從 {len(candidates)} 個同文字候選中挑出最接近的一個")
-    return closest
-
-
-def locate_generated_element(driver, el: dict):
-    """
-    無 native id 元件的定位順序：
-      1. 先試精確查詢（class + label）；查不到就自己捲動可捲動容器、邊捲邊
-         重查（_locate_by_xpath_with_scroll，見其說明），涵蓋「元件因 cell
-         重用而暫時不在 tree 上」的情況；查到唯一一個才用
-      2. 查到多個（真的有歧義）時，改用 nearby_text 當錨點消歧義
-         （_locate_by_anchor，見其說明）
-      3. 都找不到才回傳 None，呼叫端改用座標
-    """
-    label = el.get("label", "")
-    if not label:
-        print(f"    [定位] label 為空，直接改用座標")
-        return None
-
-    matched = _locate_by_xpath_with_scroll(driver, el)
-    source = "XPath（含捲動）"
-    if matched is None:
-        matched = _locate_by_anchor(driver, el)
-        source = "鄰近文字錨點"
-    if matched is None:
-        return None
-
-    print(f"    [命中元件屬性（{source}）] location={matched.location}  size={matched.size}  "
-          f"name={matched.get_attribute('name')!r}  label={matched.get_attribute('label')!r}  "
-          f"value={matched.get_attribute('value')!r}  enabled={matched.get_attribute('enabled')!r}")
-    return matched
+    return anchors[0] if len(anchors) == 1 else None
 
 
 def ensure_visible(driver, element):
@@ -487,7 +363,9 @@ def ensure_visible(driver, element):
             return element
         print("    [捲動至可視範圍] 元件目前不在可視範圍內，嘗試捲動...")
         driver.execute_script("mobile: scroll", {"element": element.id, "toVisible": True})
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [捲動至可視範圍] 檢查/捲動失敗，照原本流程繼續: {e}")
     return element
 
@@ -515,7 +393,9 @@ def focus_input(driver, element, timeout: float = 3.0):
             if active is not None and active.get_attribute("type") in _INPUT_TYPES:
                 print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 name={active.get_attribute('name')!r}")
                 return active, True
-        except Exception:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             pass
         if time.time() >= deadline:
             return None, True
@@ -546,7 +426,7 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0,
     found = {t: None for t in texts}
     seen_at = {}
     predicate = "type == 'XCUIElementTypeStaticText' AND (" + " OR ".join(
-        f"label CONTAINS {_predicate_literal(t)}" for t in texts) + ")"
+        f"label CONTAINS {predicate_literal(t)}" for t in texts) + ")"
 
     original_idle = driver.get_settings().get("waitForIdleTimeout")
     driver.update_settings({"waitForIdleTimeout": 0})
@@ -556,7 +436,9 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0,
             try:
                 labels = [e.get_attribute("label") or "" for e in
                           driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)]
-            except Exception:
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException:
                 # 元素剛好在讀屬性時消失（stale），下一輪再查
                 labels = []
             now = time.time()
@@ -572,6 +454,276 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0,
         if original_idle is not None:
             driver.update_settings({"waitForIdleTimeout": original_idle})
     return found, seen_at, ""
+
+
+# ---------------------------------------------------------------------------
+# 爬蟲（crawl_app_tree.py）用：哪些算可點、是不是同一個畫面、怎麼關對話框、怎麼返回
+# ---------------------------------------------------------------------------
+
+# 爬蟲會嘗試點擊的 class（其他一律不點）
+CRAWL_CLASSES = {
+    "XCUIElementTypeButton",
+    "XCUIElementTypeCell",
+    "XCUIElementTypeSegmentedControl",
+}
+
+# 選中的 tab：XCUITest 底下被選中的分頁按鈕 value 會是 "1"
+_SELECTED_VALUES = {"1", "true", "selected"}
+
+
+def skeleton_signature(page_source: str) -> tuple[dict, str]:
+    """
+    把畫面濃縮成「模板級」骨架 + 一個穩定 hash（screen_uid），爬蟲判斷「這個畫面有沒有看過」用。
+
+    只取這幾類穩定資訊：
+      - native_ids：真正的 accessibilityIdentifier（name 存在、name != label、
+        且看起來不像資料）
+      - class_histogram：每種 class 出現幾個（分桶：0-4 精確，之後 5-9 / 10-19 / 20+）
+      - selected_tab：TabBar 裡目前選中的分頁文字
+      - nav_title：導覽列標題（非數字 / 日期時才採用）
+
+    只看 visible=true 的節點——爬蟲每次都是「剛導航到、停在最頂部」的一致狀態，
+    這個假設成立；如果之後改成爬到一半也重算簽章，要重新評估。
+    """
+    root = ET.fromstring(page_source)
+
+    native_ids: set[str] = set()
+    class_counts: dict[str, int] = {}
+    nav_title = None
+    selected_tab = None
+
+    for node in root.iter():
+        tag = node.tag
+        if not tag.startswith("XCUIElementType"):
+            continue
+        attrib = node.attrib
+        if attrib.get("visible", "false") != "true":
+            continue
+
+        class_counts[tag] = class_counts.get(tag, 0) + 1
+
+        name = (attrib.get("name") or "").strip()
+        label = (attrib.get("label") or "").strip()
+        if name and name != label and not looks_like_data(name):
+            native_ids.add(name)
+
+        if tag == "XCUIElementTypeNavigationBar":
+            title = name or label
+            if title and not looks_like_data(title):
+                nav_title = title
+
+    for tabbar in root.iter("XCUIElementTypeTabBar"):
+        for btn in tabbar.iter("XCUIElementTypeButton"):
+            if btn.attrib.get("value") in _SELECTED_VALUES or btn.attrib.get("selected") == "true":
+                selected_tab = (btn.attrib.get("label") or btn.attrib.get("name") or "").strip()
+                break
+
+    skeleton = {
+        "native_ids": sorted(native_ids),
+        "class_histogram": {k: histogram_bucket(v) for k, v in sorted(class_counts.items())},
+        "selected_tab": selected_tab,
+        "nav_title": nav_title,
+    }
+    canonical = json.dumps(skeleton, sort_keys=True, ensure_ascii=False)
+    screen_uid = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
+    return skeleton, screen_uid
+
+
+def _element_identifier(a: dict) -> str:
+    """跟 capture_screen_map 產出的識別字串一致：name 是真正的 id 時用 name，
+    否則用 label（這樣才比對得到 scan_screen 產出的 candidate）。"""
+    name = (a.get("name") or "").strip()
+    label = (a.get("label") or "").strip()
+    return name if (name and name != label) else label
+
+
+def interactive_statictext_keys(page_source: str) -> set[tuple[str, str]]:
+    """
+    找出「看起來可點、但 class 是 StaticText」的元件的 (class, identifier)。
+
+    很多 App（含你好Demo）的分頁列 / 選單項目是 accessible=true 的 StaticText
+    包在 eOther 裡，不是 Button/Cell，naive 的 Button/Cell click-crawl 會整個漏掉。
+    判定條件：
+      - visible=true 且 accessible=true（是獨立的無障礙元素）
+      - 文字不像資料（排除報價、百分比、金額、日期）
+      - 沒有 Button/Cell 祖先（有的話它只是那個元件的子文字，點父元件就好）
+    """
+    root = ET.fromstring(page_source)
+    parent = {c: p for p in root.iter() for c in p}
+    keys: set[tuple[str, str]] = set()
+    for node in root.iter():
+        if node.tag != "XCUIElementTypeStaticText":
+            continue
+        a = node.attrib
+        if a.get("visible") != "true" or a.get("accessible") != "true":
+            continue
+        ident = _element_identifier(a)
+        if not ident or looks_like_data(ident):
+            continue
+        p = parent.get(node)
+        skip = False
+        while p is not None:
+            if p.tag in ("XCUIElementTypeButton", "XCUIElementTypeCell"):
+                skip = True
+                break
+            p = parent.get(p)
+        if not skip:
+            keys.add((node.tag, ident))
+    return keys
+
+
+def persistent_chrome_keys(page_source: str, screen_height: float) -> set[tuple[str, str]]:
+    """
+    「常駐框架」元件的 (class, label/name)：畫面最上緣 / 最下緣的可點元件（頂部
+    導覽列、底部 tab bar / 導覽 Button 列），加上 TabBar 底下的所有元件。
+
+    不管實際 class 是不是 XCUIElementTypeTabBar——你好Demo 這類 App 的底部
+    導覽是一排 name 開頭「btn 」的 Button，不是標準 TabBar。用來把常駐框架從
+    非根層畫面（或整支子樹）的爬蟲候選裡排掉。
+    """
+    root = ET.fromstring(page_source)
+    keys: set[tuple[str, str]] = set()
+    chrome_classes = CRAWL_CLASSES | {"XCUIElementTypeStaticText"}
+
+    for tabbar in root.iter("XCUIElementTypeTabBar"):
+        for node in tabbar.iter():
+            ident = _element_identifier(node.attrib)
+            if node.tag.startswith("XCUIElementType") and ident:
+                keys.add((node.tag, ident))
+
+    for node in root.iter():
+        if node.tag not in chrome_classes:
+            continue
+        a = node.attrib
+        ident = _element_identifier(a)
+        if not ident:
+            continue
+        try:
+            cy = float(a.get("y", 0)) + float(a.get("height", 0)) / 2
+        except ValueError:
+            continue
+        if cy <= screen_height * CHROME_TOP_FRACTION or cy >= screen_height * CHROME_BOTTOM_FRACTION:
+            keys.add((node.tag, ident))
+    return keys
+
+
+def _first_button_label(driver, labels: list[str]):
+    """畫面上第一個文字在 labels 裡的按鈕，回傳 (元件, 文字)；沒有回傳 (None, None)"""
+    predicate = "type == 'XCUIElementTypeButton' AND label IN {" + ", ".join(
+        predicate_literal(label) for label in labels) + "}"
+    try:
+        matches = driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
+        if matches:
+            return matches[0], (matches[0].get_attribute("label") or "").strip()
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass
+    return None, None
+
+
+def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+    """
+    偵測並關掉擋在前面的提示對話框（報價連線中斷、root 偵測、行銷推播、
+    「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
+
+    先點「純關閉」語意的按鈕（我知道了 / 關閉 / 略過…）；找不到、且畫面上
+    出現 XCUIElementTypeAlert 時，才點「確定 / OK」這類確認語意的。永遠不點
+    NEVER_TAP_LABELS（關閉APP…，兩份按鈕清單裡本來就沒有）。
+
+    效能（兩層）：
+      1. 傳 page_source 進來時，先用字串快篩，沒有任何 modal 線索就直接 return，
+         不做任何 WDA 呼叫
+      2. 就算快篩沒篩掉，找按鈕也是**一條 predicate 把整批候選文字用 IN 查一次**
+         （`type == 'XCUIElementTypeButton' AND label IN {X, Y, …}`），不是列舉畫面上
+         所有 Button 再逐一 get_attribute("label")——元件數大的畫面後者可能要
+         上百次 WDA 往返，前者固定 1-2 次
+    """
+    if page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS):
+        return []
+
+    dismissed: list[str] = []
+    for _ in range(max_rounds):
+        element, target = _first_button_label(driver, MODAL_DISMISS_LABELS)
+        if element is None:
+            # 找不到「純關閉」類，只有真的出現 XCUIElementTypeAlert 時才進一步
+            # 查「確定/OK」這類確認語意的——避免在一般畫面上把「確定」誤點掉
+            try:
+                has_alert = bool(driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeAlert"))
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException:
+                has_alert = False
+            if has_alert:
+                element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS)
+        if element is None:
+            break
+        try:
+            element.click()
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            break
+        dismissed.append(target or "?")
+        wait_until_stable(driver)
+    return dismissed
+
+
+def go_back(driver) -> None:
+    """依序試：導覽列返回鍵 → 左上角按鈕 → 原生 back → 從左緣往右滑。
+    iOS 沒有系統返回鍵，只能猜；每一種失敗（找不到、點不到）就換下一種"""
+    try:
+        for nav_bar in driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeNavigationBar"):
+            buttons = nav_bar.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeButton")
+            if buttons:
+                buttons[0].click()
+                return
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass
+    try:
+        for btn in driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeButton"):
+            loc = btn.location
+            if loc["x"] < 80 and loc["y"] < 120:
+                btn.click()
+                return
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass
+    try:
+        driver.back()
+        return
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass
+    try:
+        size = driver.get_window_size()
+        driver.swipe(1, size["height"] // 2, int(size["width"] * 0.9), size["height"] // 2, 300)
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass
+
+
+class IOSScreenAnalysis:
+    """一個畫面的 page_source 解析一次，給 crawl_app_tree.crawl_screen 判斷每個元件用"""
+
+    def __init__(self, page_source: str):
+        # 「看起來可點的 StaticText」（分頁列 / 選單項目常見，見 interactive_statictext_keys）
+        self._interactive_st = interactive_statictext_keys(page_source)
+
+    def is_candidate(self, el: dict) -> bool:
+        el_ident = el.get("native_id") or el.get("label", "")
+        return el["class"] in CRAWL_CLASSES or (el["class"], el_ident) in self._interactive_st
+
+    def text(self, el: dict) -> str:
+        return el.get("label", "")
+
+    def pattern(self, el: dict) -> str:
+        return candidate_pattern(el)
 
 
 # 系統權限視窗才會有的按鈕（通知、定位、相機、聯絡人、追蹤…都有「不允許」）
@@ -628,7 +780,9 @@ class IOSPlatform:
         """整個畫面捲一頁；沒有回傳值可判斷有沒有捲動，成功回傳 None，指令失敗回傳 False"""
         try:
             driver.execute_script("mobile: scroll", {"direction": direction})
-        except Exception:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             return False
         return None
 
@@ -639,8 +793,33 @@ class IOSPlatform:
     def page_source_context(self, driver):
         return skip_visible_in_page_source(driver)
 
+    # --- 無 native id 元件的定位（流程在 platforms/locate.py）---
+    class_text_by = AppiumBy.IOS_PREDICATE
+    fallback_label = None  # 沒有最後備援
+
+    def class_text_query(self, class_name: str, label: str) -> str:
+        return ios_label_predicate(class_name, label)
+
+    def find_by_class_and_text(self, driver, class_name: str, label: str) -> list:
+        return locate.find_by_class_and_text(self, driver, class_name, label)
+
+    def scroll_once(self, driver, bounds: dict, direction: str) -> None:
+        """iOS 的 swipe 沒有「有沒有真的捲動」的回傳值，回傳 None 讓呼叫端比對前後畫面"""
+        swipe_within_region(driver, bounds, direction)
+        time.sleep(0.5)
+        return None
+
+    def scrollable_regions(self, xml_source: str) -> list[dict]:
+        return find_scrollable_regions(xml_source)
+
+    def find_anchor(self, driver, text: str):
+        return find_anchor(driver, text)
+
+    def locate_fallback(self, driver, el: dict):
+        return None
+
     def locate_generated_element(self, driver, el: dict):
-        return locate_generated_element(driver, el)
+        return locate.locate_generated_element(self, driver, el)
 
     def ensure_visible(self, driver, element):
         return ensure_visible(driver, element)
@@ -662,7 +841,9 @@ class IOSPlatform:
         if submit:
             try:
                 driver.hide_keyboard()
-            except Exception as e:
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException as e:
                 print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
         return "PASS"
 
@@ -675,10 +856,9 @@ class IOSPlatform:
     def stop_capture(self, driver, save_path: str | None) -> str | None:
         return None
 
-    # --- 批次執行的導航（navigator.py）---
+    # --- 批次執行的導航（navigator.py）、爬蟲 ---
     def go_back(self, driver) -> None:
-        """iOS 沒有系統返回鍵，沿用爬蟲猜返回鈕的做法（導覽列返回鍵 → 左上角按鈕 → 左緣右滑）"""
-        from aitest.core.crawl_app_tree import go_back
+        """iOS 沒有系統返回鍵，用猜的（導覽列返回鍵 → 左上角按鈕 → 原生 back → 左緣右滑）"""
         go_back(driver)
 
     def app_id(self, driver) -> str | None:
@@ -687,26 +867,43 @@ class IOSPlatform:
         if launch:
             return launch
         try:
-            return driver.execute_script("mobile: activeAppInfo").get("bundleId")
-        except Exception:
+            info = driver.execute_script("mobile: activeAppInfo")
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             return None
+        return (info or {}).get("bundleId")
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
-        from aitest.core.crawl_app_tree import dismiss_modal
+        永遠不點「關閉APP／登出」的規則都在那裡）"""
         # 系統權限視窗不處理（使用者決定）：有些權限框的按鈕是「不允許／好」，
         # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
         try:
             if driver.find_elements(AppiumBy.IOS_PREDICATE, _PERMISSION_ALERT_PREDICATE):
                 print("    [關閉非預期彈窗] 畫面上是系統權限視窗，不處理")
                 return []
-        except Exception:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             return []
         return dismiss_modal(driver)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()
+
+    # --- 爬蟲（crawl_app_tree.py）---
+    def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
+        return skeleton_signature(page_source)
+
+    def analyze(self, page_source: str) -> IOSScreenAnalysis:
+        return IOSScreenAnalysis(page_source)
+
+    def chrome_keys(self, page_source: str, screen_height: float) -> set:
+        return persistent_chrome_keys(page_source, screen_height)
+
+    def dismiss_modal(self, driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+        return dismiss_modal(driver, max_rounds, page_source)
 
     # --- page_source XML 節點 ---
     def node_class(self, node) -> str:

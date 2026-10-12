@@ -1,8 +1,9 @@
-"""crawl_app_tree 的骨架簽章：爬蟲判斷「這個畫面有沒有看過」的依據"""
+"""爬蟲的骨架簽章（platforms/ios.py、platforms/android.py）：爬蟲判斷「這個畫面有沒有看過」的依據"""
 
 import re
 
-from aitest.core.crawl_app_tree import android_skeleton_signature, skeleton_signature
+from aitest.platforms.android import android_skeleton_signature
+from aitest.platforms.ios import skeleton_signature
 
 # ---- iOS ----------------------------------------------------------------
 

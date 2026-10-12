@@ -88,6 +88,13 @@ def test_android_nearby_text_from_siblings(android_watchlist):
     assert row_a_delete["nearby_text"] == ["範例甲", "123.45"]
 
 
+def test_android_nearby_text_skips_hidden_siblings(android_watchlist):
+    """displayed=false 的兄弟節點（「隱藏的提示」）不算鄰近文字"""
+    ids = _by_native_id(android.parse_candidates_raw(android_watchlist, *ANDROID_SCREEN))
+    # 「新增自選」的兄弟節點裡只有隱藏的提示有文字，原本會被當成鄰近文字
+    assert ids["com.example.demo:id/btn_add"]["nearby_text"] == []
+
+
 def test_android_scrollable_regions(android_watchlist):
     assert android.has_scrollable_content(android_watchlist) is True
     regions = android.find_scrollable_regions(android_watchlist)

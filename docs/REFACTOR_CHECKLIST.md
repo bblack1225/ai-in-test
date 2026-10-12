@@ -49,20 +49,35 @@
 - [x] `tests/test_resolve_env.py`：`${LOGIN_ID}` 替換、缺少變數的回報
 - [x] `tests/test_llm_retry.py`：503／429 重試（步驟 2 的改動）
 - [x] `uv run pytest` 全過（72 個，約 0.5 秒）；故意改壞解析邏輯 4 處，測試都會失敗
-- [ ] 沒測到：爬蟲 `finally` 的修正（`crawl_screen` 要接手機，等步驟 4 平台層整理後再補）
+- [x] 爬蟲 `finally` 的修正：步驟 4 之後補上 `tests/test_crawl_screen.py`（假的平台物件跑 `crawl_screen`，子畫面中止時例外有往上傳；把 `break` 放回 `finally` 測試會失敗）
 - [x] 發現的既有行為：Android 的 `nearby_text` 會把 `displayed="false"` 隱藏節點的文字也算進去 → 排進步驟 4 修
 
 ### 步驟 4：平台層收斂 `refactor/platform-unify`
-- [ ] 報告 #5：三套「等畫面穩定」合併成一個 `wait_until_stable`，掃描版改用真實時間計時
-- [ ] 報告 #6：`crawl_app_tree.py` 的 `IOSCrawlRules`／`AndroidCrawlRules` 併入 `IOSPlatform`／`AndroidPlatform`，爬蟲改用 `get_platform()`
-- [ ] `crawl_app_tree.py` 不再使用平台的私有函式（`_text_xpath`、`_predicate_literal`）
-- [ ] 報告 #7：無 ID 元件的定位流程抽成共用模組，平台只提供「查一次」「捲一次」「最後備援」
-- [ ] 報告 #7：iOS 補上 Android 已有的「捲容器前先縮邊界」
-- [ ] 報告 #10：定位備援只攔定位失敗的例外，`InvalidSessionIdException` 往上傳（先改 `platforms/`）
-- [ ] 報告 #10：爬蟲、server 裡剩下的 `except Exception` 逐步收斂
-- [ ] `scan_core.py` 跟著收進平台層或 core
-- [ ] Android `parse_candidates_raw` 的 `nearby_text` 排除 `displayed="false"` 的隱藏節點（步驟 3 發現），補測試；iOS 是否有同樣問題一起確認
-- [ ] 驗證：pytest 全過＋實機跑完整測案、爬蟲
+- [x] 報告 #5：三套「等畫面穩定」合併成 `platforms/base.wait_until_stable`（比對什麼、等多久由呼叫端給），
+  掃描版改用真實時間計時（原本「輪詢 5 次、每次隔 1.5 秒」，改成最多 7.5 秒）
+  - `run_test_case.wait_after_action`、`capture_screen_map.wait_for_screen_stable` 留著當薄包裝（呼叫的地方多，各自帶好比對方式和時間上限）；爬蟲的 `wait_stable` 刪掉，直接呼叫
+  - 掃描版原本每輪都印一行「第 N 次讀取…」，改成只印最後結果
+- [x] 報告 #6：`IOSCrawlRules`／`AndroidCrawlRules` 併入 `IOSPlatform`／`AndroidPlatform`（`skeleton`、`analyze`、`chrome_keys`、`dismiss_modal`、`go_back`、`find_by_class_and_text`），爬蟲改用 `get_platform()`
+  - 爬蟲的平台判斷函式搬到 `platforms/ios.py`、`platforms/android.py` 的「爬蟲用」那一段，共用規則（對話框按鈕清單、常駐框架範圍、`looks_like_data`…）放 `platforms/base.py`
+  - 爬蟲的全域 `RULES` 拿掉，改成跟跑測案一樣把 `platform` 當第一個參數傳
+  - 順便解掉 `platforms/` 反過來 import `crawl_app_tree`（`go_back`、`dismiss_dialogs` 原本放在函式裡 import 避開循環）
+- [x] `crawl_app_tree.py` 不再使用平台的私有函式（`_text_xpath`、`_predicate_literal` 改成公開的 `text_xpath`、`predicate_literal`，爬蟲也不直接用了）
+- [x] 報告 #7：無 ID 元件的定位流程抽成 `platforms/locate.py`，平台只提供「查一次」（`class_text_by`＋`class_text_query`）、「捲一次」（`scroll_once`）、「最後備援」（`locate_fallback`）
+  - 跟原本規劃的差異：平台另外還要提供「找錨點」（`find_anchor`）和「列出可捲動容器」（`scrollable_regions`）——錨點 iOS 直接查、Android 要邊捲邊找，做法不同
+- [x] 報告 #7：iOS 補上 Android 已有的「捲容器前先縮邊界」（`base.shrink_bounds`，Android 的橫向容器收集也改用它）
+- [x] 報告 #10：定位備援只攔定位失敗的例外，`InvalidSessionIdException` 往上傳（先改 `platforms/`）
+  - 做法：`except Exception` 改成「先丟 `InvalidSessionIdException`，再攔 `WebDriverException`」；連不上 Appium server 的錯誤本來就不是 `WebDriverException`，也會往上傳
+  - `platforms/` 裡已經沒有 `except Exception`
+- [x] 報告 #10：爬蟲、server 裡剩下的 `except Exception` 逐步收斂
+  - 爬蟲：全部改完（5 處）
+  - 跑測案／導航：定位、讀畫面、設定相關的改完；`retry_assert` 的檢查保留廣泛攔截（檢查函式什麼錯都可能丟），但 `InvalidSessionIdException` 先往上丟；`_execute_step_safely` 本來就有處理
+  - server：跟手機互動的 3 處（`_locate_best_effort`、`test_xpath`、AI 定位的 XPath 試查）改完。剩 8 處刻意保留：LLM 呼叫／回應解析（4）、HTTP 最外層回 500（2）、重連前的 `driver.quit()`（1）、批次裡一份測案出錯不影響下一份（1）——步驟 7 拆 server 時再看
+- [x] `scan_core.py` 搬到 `platforms/scan_core.py`（`platforms/` 不再 import `core/`）
+- [x] Android `parse_candidates_raw` 的 `nearby_text` 排除 `displayed="false"` 的隱藏節點，補測試
+  - 影響：受影響的元件（旁邊有隱藏節點的）重新掃描後 `gen::` 唯一 ID 會變（指紋含 `nearby_text`）
+  - iOS 確認過也有同樣情況（`visible="false"` 的兄弟節點文字也算進去），**這次沒改，待確認**：iOS 的 `visible=false` 多半是「捲出畫面外但節點還在」，錨點用 predicate 還是查得到；改的話 iOS 的 `gen::` ID 也會跟著變
+- [x] 驗證（不用手機）：pytest 94 個全過（新增 `test_locate.py`、`test_wait_until_stable.py`、`test_crawl_screen.py`）；各模組單獨 import、`aitest-crawl/scan/run/server --help`、`aitest doctor`
+- [x] 驗證（實機，2026-10-12）：使用者實機測試沒問題
 
 ### 步驟 5：RunContext 與 LLM 用量（報告 #4、CHANGELOG「token 使用量」後端部分） `refactor/run-context`
 - [ ] `RunContext`：vars、var_sources、dismiss_dialogs、stop_checker、progress、usage
@@ -141,12 +156,12 @@
 | 2 | 沒有自動化測試 | 步驟 3 | [x] |
 | 3 | Gemini 429 不重試 | 步驟 2 | [x] |
 | 4 | 執行期設定放在全域變數 | 步驟 1（部分）、步驟 5 | [ ] |
-| 5 | 等畫面穩定有三種寫法 | 步驟 4 | [ ] |
-| 6 | 爬蟲自己又做了一套平台切換 | 步驟 4 | [ ] |
-| 7 | iOS／Android 定位程式複製貼上 | 步驟 4 | [ ] |
+| 5 | 等畫面穩定有三種寫法 | 步驟 4 | [x] |
+| 6 | 爬蟲自己又做了一套平台切換 | 步驟 4 | [x] |
+| 7 | iOS／Android 定位程式複製貼上 | 步驟 4 | [x] |
 | 8 | viewer_server 一支檔案做五件事 | 步驟 7 | [ ] |
 | 9 | 前端 3,600 行擠在一個檔案 | 交給前端；後端提供步驟 8 的 API 文件 | [-] 交給前端 |
-| 10 | `except Exception` 讓斷線看起來像找不到元件 | 步驟 4 | [ ] |
+| 10 | `except Exception` 讓斷線看起來像找不到元件 | 步驟 4（server 剩 8 處留到步驟 7） | [x] |
 | 11 | AI 定位每次重試都重送整個畫面結構 | 步驟 7 | [ ] |
 | 12 | 文件提到已刪掉的檔案和舊模型名 | 步驟 2 | [x] |
 | 13 | 全部用 print | 步驟 6 之後另開分支 | [ ] |

@@ -18,10 +18,13 @@ Android（UiAutomator2）平台：執行測案、橋接伺服器用到的 Androi
     被建出來，找不到，所以要用「邊捲邊找」（UiScrollable.scrollIntoView）。
     兩邊卡住的環節不同，才需要用不同的 API，ensure_visible() 在這裡不用做事。
 
-無 native id 元件的定位順序見 locate_generated_element()。
+無 native id 元件的定位流程兩個平台共用（platforms/locate.py），這裡只提供查詢方式、
+捲動手勢、錨點查詢和最後備援（UiScrollable.scrollIntoView）。
 """
 
 import base64
+import hashlib
+import json
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -29,11 +32,31 @@ from contextlib import nullcontext
 
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
-from selenium.common.exceptions import InvalidElementStateException, NoSuchElementException
+from selenium.common.exceptions import (
+    InvalidElementStateException,
+    InvalidSessionIdException,
+    NoSuchElementException,
+    WebDriverException,
+)
 
 from aitest.common import raise_if_stopped, xpath_literal
 from aitest.config import android_capabilities
-from aitest.core.scan_core import position_bucket, read_and_merge_round
+from aitest.platforms import locate
+from aitest.platforms.base import (
+    CHROME_BOTTOM_FRACTION,
+    CHROME_TOP_FRACTION,
+    MODAL_ACK_ONLY_LABELS,
+    MODAL_DISMISS_LABELS,
+    MODAL_HINT_MARKERS,
+    NEVER_TAP_LABELS,
+    candidate_pattern,
+    histogram_bucket,
+    looks_like_data,
+    main_scroll_area,
+    shrink_bounds,
+    wait_until_stable,
+)
+from aitest.platforms.scan_core import position_bucket, read_and_merge_round
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -125,7 +148,9 @@ def parse_candidates_raw(xml_source: str, screen_width: int, screen_height: int)
             siblings = list(parent)
             sibling_index = siblings.index(node)
             for sib in siblings:
-                if sib is node:
+                # 隱藏的兄弟節點（displayed=false）畫面上看不到，不算鄰近文字：它的文字可能
+                # 之後才出現、或根本不會出現，算進來會讓錨點消歧義拿一段看不到的字去找
+                if sib is node or sib.attrib.get("displayed", "true") == "false":
                     continue
                 sib_text = (sib.attrib.get("content-desc") or sib.attrib.get("text") or "").strip()
                 if sib_text:
@@ -151,6 +176,11 @@ def parse_candidates_raw(xml_source: str, screen_width: int, screen_height: int)
         })
 
     return candidates
+
+
+def scroll_area(bounds: dict) -> dict:
+    """{x, y, width, height} 換成 `mobile: scrollGesture` 要的 {left, top, width, height}"""
+    return {"left": bounds["x"], "top": bounds["y"], "width": bounds["width"], "height": bounds["height"]}
 
 
 def scroll_step(driver, scroll_area: dict, direction: str, percent: float) -> bool:
@@ -183,19 +213,11 @@ def collect_horizontal_region(platform, driver, region: dict, screen_width: int,
 
     回傳 True 代表這確實是個橫向容器且已收集完成。
     """
-    b = region["bounds"]
     # 捲動手勢的操作範圍略縮在容器邊界內，避免手勢起點/終點剛好落在邊界外
-    margin_x = max(int(b["width"] * 0.05), 1)
-    margin_y = max(int(b["height"] * 0.2), 1)
-    scroll_area = {
-        "left": b["x"] + margin_x,
-        "top": b["y"] + margin_y,
-        "width": max(b["width"] - margin_x * 2, 1),
-        "height": max(b["height"] - margin_y * 2, 1),
-    }
+    area = scroll_area(shrink_bounds(region["bounds"]))
 
     read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
-    if not scroll_step(driver, scroll_area, "right", scroll_percent):
+    if not scroll_step(driver, area, "right", scroll_percent):
         return False  # 捲不動，這不是一個真的橫向清單
 
     print(f"  [橫向捲動收集] 偵測到巢狀橫向容器（{region['class']}），開始邊捲邊抓...")
@@ -204,7 +226,7 @@ def collect_horizontal_region(platform, driver, region: dict, screen_width: int,
         new_count, *_ = read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
         print(f"  [橫向捲動收集] 第{round_index + 1}輪：新增{new_count}個，"
               f"累積合併{len(merged)}個不重複元件")
-        if not scroll_step(driver, scroll_area, "right", scroll_percent):
+        if not scroll_step(driver, area, "right", scroll_percent):
             print(f"  [橫向捲動收集] 系統回報已經無法再往右捲，判定已捲到底，停止")
             break
         time.sleep(0.5)
@@ -214,7 +236,7 @@ def collect_horizontal_region(platform, driver, region: dict, screen_width: int,
 
     # 捲回最左邊，避免影響後續的垂直捲動或其他操作
     for _ in range(max_rounds):
-        if not scroll_step(driver, scroll_area, "left", scroll_percent):
+        if not scroll_step(driver, area, "left", scroll_percent):
             break
         time.sleep(0.3)
 
@@ -232,121 +254,22 @@ def uiautomator_string_literal(value: str) -> str:
     return f'"{escaped}"'
 
 
-def _text_xpath(class_name: str, label: str) -> str:
+def text_xpath(class_name: str, label: str) -> str:
+    """class + 文字的 XPath：label 在掃描時是 content-desc 優先、沒有才用 text，所以兩個屬性用 or 一起查"""
     literal = xpath_literal(label)
     return f'//{class_name}[@text={literal} or @content-desc={literal}]'
 
 
-def _locate_by_xpath_with_scroll(driver, el: dict, max_rounds: int = 8, scroll_percent: float = 0.75):
+def _scroll_into_view(driver, text: str, log_tag: str):
     """
-    用 class + (text 或 content-desc) 查 XPath，查不到就自己捲動、重新查，
-    取代原本純粹「只看當下快照」的 _locate_by_xpath（已移除）。
+    用 UiAutomator 原生的 UiScrollable.scrollIntoView() 讓系統自動捲動已知的可捲動容器、
+    邊捲邊找，找到文字是 text（先比 text，再比 content-desc）的元件就停下來並回傳。
 
-    跟 UiScrollable.scrollIntoView（_locate_by_scroll_into_view）的關鍵差異：
-    這裡每一輪重新查的都是同一條「有比對 class」的精確XPath，不會像
-    UiSelector().text(X) 那樣完全不管class，誤抓到文字剛好一樣但class不同
-    的別的元件；而且 text/content-desc 是用 `or` 合併在同一條查詢裡一次查完，
-    不會像 scrollIntoView 拆成兩次獨立呼叫、第二次卻從第一次捲完的位置
-    （可能已經捲到底）繼續找，反而找不到明明存在的目標。
-
-    捲動邏輯沿用掃描階段「邊捲邊抓」驗證過的 scroll_step()（用
-    mobile: scrollGesture 的布林回傳值判斷「捲不捲得動」，不是猜固定次數）：
-      1. 先在目前畫面查一次（不捲）
-      2. 查到剛好1個 → 直接用
-      3. 查到 >1 個 → 真的有歧義，捲再多次也不會變唯一，直接放棄交給
-         呼叫端的錨點消歧義處理（繼續捲反而可能捲進更多同文字元件）
-      4. 查到 0 個 → 用涵蓋畫面主要範圍的通用區域捲動重新查，直到查到
-         剛好1個、查到>1個（放棄），或捲到底還是0個
-      5. 通用區域捲到底還是0個 → 檢查目前畫面上有沒有其他可捲動容器
-         （find_scrollable_regions，不管是巢狀在主容器裡還是跟主容器
-         平行的獨立區塊都抓得到，因為是對整棵tree找scrollable=true的
-         節點，不是只找特定容器底下的子節點），對每一個都重複同樣的
-         捲動重試邏輯，用該容器自己的bounds當捲動範圍
+    這跟 XPath 本質不同：XPath 查的是「當下這一瞬間」的畫面快照，元件還沒被捲到、根本沒
+    被建出來時，XPath 再怎麼查都是 0 個結果（已實測驗證，見 TROUBLESHOOTING #27/#28）；
+    這個指令則是先捲動、確保元件真的存在於畫面上之後才查。
     """
-    label = el.get("label", "")
-    if not label:
-        return None
-
-    xpath = _text_xpath(el["class"], label)
-
-    def _query():
-        try:
-            return driver.find_elements(AppiumBy.XPATH, xpath)
-        except Exception as e:
-            print(f"    [XPath+捲動] 查詢失敗: {xpath}  ({e})")
-            return []
-
-    matches = _query()
-    print(f"    [XPath+捲動] 第0輪（不捲）: {xpath} -> 查到 {len(matches)} 個")
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        return None  # 真的有歧義，交給呼叫端的錨點消歧義處理
-
-    def _scroll_search(scroll_area, region_label):
-        for round_index in range(1, max_rounds + 1):
-            raise_if_stopped()
-            if not scroll_step(driver, scroll_area, "down", scroll_percent):
-                print(f"    [XPath+捲動] {region_label} 已經捲不動了，停止")
-                return None
-            matches = _query()
-            print(f"    [XPath+捲動] {region_label} 第{round_index}輪: 查到 {len(matches)} 個")
-            if len(matches) == 1:
-                return matches[0]
-            if len(matches) > 1:
-                return None  # 真的有歧義
-        return None
-
-    size = driver.get_window_size()
-    screen_width, screen_height = size["width"], size["height"]
-    outer_area = {
-        "left": int(screen_width * 0.1),
-        "top": int(screen_height * 0.15),
-        "width": int(screen_width * 0.8),
-        "height": int(screen_height * 0.7),
-    }
-    found = _scroll_search(outer_area, "主要區域")
-    if found is not None:
-        return found
-
-    try:
-        regions = find_scrollable_regions(driver.page_source)
-    except Exception:
-        regions = []
-
-    for region in regions:
-        b = region["bounds"]
-        margin_x = max(int(b["width"] * 0.05), 1)
-        margin_y = max(int(b["height"] * 0.2), 1)
-        region_area = {
-            "left": b["x"] + margin_x,
-            "top": b["y"] + margin_y,
-            "width": max(b["width"] - margin_x * 2, 1),
-            "height": max(b["height"] - margin_y * 2, 1),
-        }
-        found = _scroll_search(region_area, f"巢狀/平行容器（{region['class']}）")
-        if found is not None:
-            return found
-
-    return None
-
-
-def _locate_by_scroll_into_view(driver, el: dict):
-    """
-    畫面當下找不到、但可能在可捲動容器裡尚未捲到的情況：改用 UiAutomator
-    原生的 UiScrollable.scrollIntoView()，讓系統自動捲動已知的可捲動容器、
-    邊捲邊找，找到符合條件（text 或 content-desc）的元件就停下來並回傳。
-
-    這跟純 XPath 本質不同：XPath 查的是「當下這一瞬間」的畫面快照，元件如果
-    還沒被捲到、根本沒被建出來，XPath 再怎麼查都是 0 個結果（已實測驗證，
-    見 TROUBLESHOOTING #27/#28）；這個指令則是先捲動、確保元件真的存在於
-    畫面上之後才查，呼叫端不需要自己算捲動距離或記錄掃描當下是第幾輪捲動抓到的。
-    """
-    label = el.get("label", "")
-    if not label:
-        return None
-
-    literal = uiautomator_string_literal(label)
+    literal = uiautomator_string_literal(text)
     for attr in ("text", "description"):
         selector = (
             f'new UiScrollable(new UiSelector().scrollable(true)).scrollIntoView('
@@ -354,107 +277,38 @@ def _locate_by_scroll_into_view(driver, el: dict):
         )
         try:
             matched = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, selector)
-            print(f"    [UiScrollable] 捲動後用 {attr} 找到元件: {label!r}")
-            return matched
+            return matched, attr
         except NoSuchElementException:
             continue
-        except Exception as e:
-            print(f"    [UiScrollable] 查詢失敗（{attr}）: {e}")
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
+            print(f"    [{log_tag}] 查詢失敗（{attr}）: {type(e).__name__}")
             continue
-    return None
+    return None, None
 
 
-def _locate_by_anchor(driver, el: dict):
+def find_anchor(driver, text: str):
     """
-    當目標元件本身的 class+文字不足以唯一定位時（清單裡常見：每一列都有一個
-    文字一模一樣的操作按鈕，例如全部都叫「刪除」），改用 fingerprint 裡的
-    nearby_text（通常是同一列裡能唯一辨識這一列的文字，例如「項目 003」）
-    當錨點：
-
-    1. 先用 UiScrollable.scrollIntoView() 把錨點文字捲到畫面上（錨點文字
-       通常才是真正唯一的，這一步順便解決「元件還沒捲到畫面內」的問題，
-       不需要另外呼叫 scrollIntoView 兩次）
-    2. 錨點現在確定可見，取得它的 Y 座標
-    3. 在畫面上所有符合目標 class+文字 的候選裡，挑 Y 座標離錨點最近的一個
-       （同一列的元件彼此 Y 座標通常很接近，這比「隨便挑第一個符合的」可靠
-       得多——實測發現 _locate_by_scroll_into_view() 在這種情境下會默默
-       回傳錯的那一個，不會報錯也不會提示，是這個函式存在的原因）
+    錨點消歧義（platforms/locate.py 的 locate_by_anchor）用：用 scrollIntoView 把錨點文字捲到
+    畫面上再回傳。錨點文字通常才是真正唯一的，這一步順便解決「元件還沒捲到畫面內」的問題。
     """
-    nearby_text_list = (el.get("fingerprint") or {}).get("nearby_text") or []
-    label = el.get("label", "")
-    if not nearby_text_list or not label:
-        return None
-
-    anchor_text = nearby_text_list[0]
-    anchor_literal = uiautomator_string_literal(anchor_text)
-    anchor = None
-    for attr in ("text", "description"):
-        selector = (
-            f'new UiScrollable(new UiSelector().scrollable(true)).scrollIntoView('
-            f'new UiSelector().{attr}({anchor_literal}))'
-        )
-        try:
-            anchor = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, selector)
-            break
-        except NoSuchElementException:
-            continue
-        except Exception as e:
-            print(f"    [錨點消歧義] 錨點查詢失敗（{attr}）: {e}")
-            continue
-    if anchor is None:
-        return None
-
-    anchor_y = anchor.location["y"]
-    try:
-        candidates = driver.find_elements(AppiumBy.XPATH, _text_xpath(el["class"], label))
-    except Exception:
-        return None
-    if not candidates:
-        return None
-
-    closest = min(candidates, key=lambda c: abs(c.location["y"] - anchor_y))
-    print(f"    [錨點消歧義] 用鄰近文字「{anchor_text}」（y={anchor_y}）"
-          f"從 {len(candidates)} 個同文字候選中挑出最接近的一個")
-    return closest
+    anchor, _ = _scroll_into_view(driver, text, "錨點消歧義")
+    return anchor
 
 
-def locate_generated_element(driver, el: dict):
+def locate_by_scroll_into_view(driver, el: dict):
     """
-    無 native id 元件的定位順序：
-      1. 先試 XPath（class+文字），查到唯一一個就直接用；查不到才自己
-         捲動＋重新查（_locate_by_xpath_with_scroll，見其說明），涵蓋
-         「元件單純還沒捲到畫面上」的情況；查到>1個是真的有歧義，不會
-         浪費時間再捲，直接進下一層
-      2. 換用 nearby_text 當錨點消歧義（_locate_by_anchor，見其說明——
-         這是清單裡「每列都有一個文字相同的操作按鈕」這種常見情境的
-         正確解法，不能靠純 XPath 解決，見 TROUBLESHOOTING #36：純
-         XPath/UiScrollable 在文字不唯一時會「默默選錯」）
-      3. 沒有 nearby_text 可用時，退回 UiScrollable.scrollIntoView()
-         （注意：這條路徑在文字不唯一時可能選到錯的元件，只是沒有更好的
-         選項時的次佳備援）
-      4. 都找不到才回傳 None，呼叫端改用座標
+    定位的最後備援：直接用 scrollIntoView 找文字跟 label 一樣的元件。
+    注意：這條路徑完全不比對 class，文字不唯一時可能選到錯的元件（實測發現清單裡
+    「每列都有一個刪除鈕」時會默默回傳錯的那一個），只是沒有更好的選項時的次佳備援。
     """
     label = el.get("label", "")
     if not label:
-        print(f"    [定位] label 為空，直接改用座標")
         return None
-
-    matched = _locate_by_xpath_with_scroll(driver, el)
-    source = "XPath（含捲動）"
-    if matched is None:
-        matched = _locate_by_anchor(driver, el)
-        source = "鄰近文字錨點"
-    if matched is None:
-        matched = _locate_by_scroll_into_view(driver, el)
-        source = "UiScrollable"
-    if matched is None:
-        return None
-
-    print(f"    [命中元件屬性（{source}）] location={matched.location}  size={matched.size}  "
-          f"resource-id={matched.get_attribute('resource-id')!r}  "
-          f"text={matched.get_attribute('text')!r}  "
-          f"content-desc={matched.get_attribute('content-desc')!r}  "
-          f"enabled={matched.get_attribute('enabled')!r}")
+    matched, attr = _scroll_into_view(driver, label, "UiScrollable")
+    if matched is not None:
+        print(f"    [UiScrollable] 捲動後用 {attr} 找到元件: {label!r}")
     return matched
 
 
@@ -524,7 +378,9 @@ def prepare_banner_watch(driver) -> None:
         if _pre_watch_settings is None:
             _pre_watch_settings = {k: current[k] for k in ("enableMultiWindows",) if k in current}
         driver.update_settings({"enableMultiWindows": True})
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [跑馬燈] 提早打開 enableMultiWindows 失敗：{type(e).__name__}")
 
 
@@ -611,19 +467,25 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
             for selector in selectors:
                 try:
                     record(read_texts(driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, selector)), time.time())
-                except Exception:
+                except InvalidSessionIdException:
+                    raise
+                except WebDriverException:
                     # 元素剛好在讀屬性時消失（stale），下一輪再查
                     pass
             try:
                 toasts = read_texts(driver.find_elements(AppiumBy.XPATH, "//android.widget.Toast"))
                 record(toasts, time.time())
                 note_new(f"Toast：{t.strip()}" for t in toasts if t.strip())
-            except Exception:
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException:
                 pass
             if near_selector and not all(found.values()):
                 try:
                     labels = read_texts(driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, near_selector))
-                except Exception:
+                except InvalidSessionIdException:
+                    raise
+                except WebDriverException:
                     labels = []
                 if near_baseline is None:
                     near_baseline = set(labels)  # 一開始畫面上就有的（買進按鈕、看委託…）不算
@@ -643,7 +505,9 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
                         source_baseline = set(t.strip() for t in source_texts)
                     else:
                         note_new(source_texts)
-                except Exception:
+                except InvalidSessionIdException:
+                    raise
+                except WebDriverException:
                     pass
                 last = source_times[-1] if source_times else 0
                 next_source_at = time.time() + (3 * last if last > slow_source else 0)
@@ -657,7 +521,9 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
                     driver.update_settings({"enableMultiWindows": False})
                     driver.update_settings({"enableMultiWindows": True})
                     window_refreshes += 1
-                except Exception:
+                except InvalidSessionIdException:
+                    raise
+                except WebDriverException:
                     pass
                 next_refresh_at = now + 2.0
             time.sleep(poll_interval)
@@ -706,7 +572,9 @@ def _find_edit_text(element):
         return element
     try:
         inner = element.find_elements(AppiumBy.XPATH, ".//android.widget.EditText")
-    except Exception:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
         inner = []
     return inner[0] if inner else element
 
@@ -738,7 +606,9 @@ def _submit_input(driver) -> None:
     """按鍵盤的「完成」送出，讓點開後才跳出的輸入列把值寫回畫面並收起來"""
     try:
         driver.execute_script("mobile: performEditorAction", {"action": "done"})
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [輸入] 鍵盤「完成」送出失敗，改按 Enter: {e}")
         driver.press_keycode(66)  # KEYCODE_ENTER
 
@@ -769,7 +639,9 @@ def _typed_mismatch(target, value: str) -> str | None:
         if target.get_attribute("password") == "true":
             return None
         actual = target.get_attribute("text") or ""
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         print(f"    [輸入] 讀不回輸入框內容，不比對: {e}")
         return None
     if actual == value or _MASK_CHARS & set(actual):
@@ -834,9 +706,259 @@ def input_text(driver, element, value: str, submit: bool = False) -> str:
         try:
             if driver.is_keyboard_shown():
                 driver.hide_keyboard()
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# 爬蟲（crawl_app_tree.py）用：哪些算可點、是不是同一個畫面、怎麼關對話框
+#
+#   跟 iOS 最大的差別：
+#     - 可不可以點直接看 clickable 屬性（系統回報），不用像 iOS 用 class 白名單猜
+#     - 有系統返回鍵，go_back 不用猜導覽列按鈕
+#     - 骨架多一個 current_activity（不同 Activity 一定是不同畫面；但很多 App 整支
+#       只有一個 Activity、靠 Fragment 切畫面，所以只是其中一個特徵，不單獨用）
+#     - 可點的常常是容器（LinearLayout 包一個 TextView），文字在子元件上
+#     - 清單每一列共用同一個 resource-id（掃描時會被降級成沒有 native id），
+#       同模板取樣要改用「畫面上重複出現的 resource-id」當 pattern
+# ---------------------------------------------------------------------------
+
+_TAB_HINTS = ("TabLayout", "BottomNavigationView", "NavigationBarView", "TabWidget")
+_TOOLBAR_HINTS = ("Toolbar", "ActionBar")
+# 系統 AlertDialog 會有的 id（自訂對話框沒有，另外看視窗有沒有蓋滿畫面）
+_DIALOG_IDS = ("android:id/alertTitle", "android:id/message", "android:id/button1", "android:id/button2")
+
+
+def _node_text(a: dict) -> str:
+    """跟掃描時的 label 一樣：content-desc 優先，沒有才用 text"""
+    return (a.get("content-desc") or a.get("text") or "").strip()
+
+
+def _native_id(a: dict) -> str:
+    """跟掃描時判斷 native id 一樣：resource-id 等於顯示文字的不算（文字回填，不穩定）"""
+    rid = (a.get("resource-id") or "").strip()
+    if rid and rid != (a.get("text") or "").strip() and rid != (a.get("content-desc") or "").strip():
+        return rid
+    return ""
+
+
+def _ui_nodes(root) -> list:
+    """真正的 UI 節點：跳過 <hierarchy> 根節點、displayed=false 的節點"""
+    return [n for n in root.iter()
+            if n.attrib.get("class") not in (None, "", "hierarchy") and n.attrib.get("displayed") != "false"]
+
+
+def _has_ancestor_class(node, parent_map: dict, hints: tuple) -> bool:
+    """node 自己或祖先的 class 名稱含有 hints 其中之一"""
+    while node is not None:
+        if any(h in node.attrib.get("class", "") for h in hints):
+            return True
+        node = parent_map.get(node)
+    return False
+
+
+def _first_text(node) -> str:
+    return next((t for t in (_node_text(n.attrib) for n in node.iter()) if t), "")
+
+
+def android_skeleton_signature(page_source: str, activity: str | None) -> tuple[dict, str]:
+    """
+    iOS 版 skeleton_signature（platforms/ios.py）的 Android 對應：一樣只取穩定資訊、
+    忽略資料，多一個 activity。
+      - native_ids：真正的 resource-id（不是文字回填、不像資料）；清單每列共用的
+        同一個 id 在集合裡只算一次，資料筆數不同不會變成不同畫面
+      - class_histogram：同 iOS 的分桶
+      - selected_tab：分頁容器（TabLayout / BottomNavigationView…）裡 selected=true
+        的項目文字；沒有標準分頁容器的 App（自訂 view）退回用任何 selected=true 的項目
+      - nav_title：Toolbar / ActionBar 裡的標題文字；沒有的話退回用畫面上方
+        resource-id 含 title 的 TextView
+    """
+    root = ET.fromstring(page_source)
+    parent_map = {c: p for p in root.iter() for c in p}
+    try:
+        screen_height = float(root.attrib.get("height", 0))
+    except ValueError:
+        screen_height = 0
+
+    native_ids: set[str] = set()
+    class_counts: dict[str, int] = {}
+    nav_title = title_fallback = None
+    selected_tab = selected_fallback = None
+
+    for node in _ui_nodes(root):
+        a = node.attrib
+        cls = a["class"]
+        class_counts[cls] = class_counts.get(cls, 0) + 1
+
+        rid = _native_id(a)
+        if rid and not looks_like_data(rid):
+            native_ids.add(rid)
+
+        text = _node_text(a)
+        if cls.endswith("TextView") and text and not looks_like_data(text):
+            if nav_title is None and _has_ancestor_class(node, parent_map, _TOOLBAR_HINTS):
+                nav_title = text
+            if title_fallback is None and "title" in (a.get("resource-id") or "").lower():
+                b = parse_bounds(a.get("bounds", ""))
+                if b and (not screen_height or b["y"] < screen_height * 0.2):
+                    title_fallback = text
+
+        if a.get("selected") == "true":
+            label = _first_text(node)
+            if label and not looks_like_data(label):
+                if selected_tab is None and _has_ancestor_class(node, parent_map, _TAB_HINTS):
+                    selected_tab = label
+                if selected_fallback is None:
+                    selected_fallback = label
+
+    skeleton = {
+        "activity": activity,
+        "native_ids": sorted(native_ids),
+        "class_histogram": {k: histogram_bucket(v) for k, v in sorted(class_counts.items())},
+        "selected_tab": selected_tab or selected_fallback,
+        "nav_title": nav_title or title_fallback,
+    }
+    canonical = json.dumps(skeleton, sort_keys=True, ensure_ascii=False)
+    screen_uid = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
+    return skeleton, screen_uid
+
+
+def android_chrome_keys(page_source: str, screen_height: float) -> set[tuple[str, str]]:
+    """iOS 版 persistent_chrome_keys 的 Android 對應：分頁容器（TabLayout /
+    BottomNavigationView…）裡的元件，加上畫面最上緣 / 最下緣的可點元件。
+    key 是 (class, native id 或自己的文字)，跟 crawl_screen 裡 el_ident 的算法一致。"""
+    root = ET.fromstring(page_source)
+    parent_map = {c: p for p in root.iter() for c in p}
+    keys: set[tuple[str, str]] = set()
+    for node in _ui_nodes(root):
+        a = node.attrib
+        ident = _native_id(a) or _node_text(a)
+        if not ident:
+            continue
+        if _has_ancestor_class(node, parent_map, _TAB_HINTS):
+            keys.add((a["class"], ident))
+            continue
+        if a.get("clickable") != "true":
+            continue
+        b = parse_bounds(a.get("bounds", ""))
+        if b is None:
+            continue
+        cy = b["y"] + b["height"] / 2
+        if cy <= screen_height * CHROME_TOP_FRACTION or cy >= screen_height * CHROME_BOTTOM_FRACTION:
+            keys.add((a["class"], ident))
+    return keys
+
+
+def _is_dialog(page_source: str) -> bool:
+    """畫面上是不是對話框：系統 AlertDialog 的 id，或最上層視窗沒有蓋滿畫面
+    （自訂對話框，例如「主機無法連線」那種置中的框）"""
+    if any(i in page_source for i in _DIALOG_IDS):
+        return True
+    try:
+        root = ET.fromstring(page_source)
+        screen_area = float(root.attrib["width"]) * float(root.attrib["height"])
+    except (ET.ParseError, KeyError, ValueError):
+        return False
+    window = next((n for n in root if n.attrib.get("class") not in (None, "", "hierarchy")), None)
+    b = parse_bounds(window.attrib.get("bounds", "")) if window is not None else None
+    return bool(b and screen_area and b["width"] * b["height"] < screen_area * 0.85)
+
+
+def _find_by_texts(driver, texts: list[str]) -> list:
+    conds = " or ".join(f"@text={xpath_literal(t)} or @content-desc={xpath_literal(t)}" for t in texts)
+    try:
+        return driver.find_elements(AppiumBy.XPATH, f"//*[{conds}]")
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        return []
+
+
+def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+    """iOS 版 dismiss_modal 的 Android 對應：先找「純關閉」語意的按鈕；找不到、
+    且畫面確定是對話框時，才點「確定 / OK」這類確認語意的。永遠不點 NEVER_TAP_LABELS。
+    快篩：沒有任何 modal 線索、也不是對話框，就不做任何裝置查詢。"""
+    if (page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS)
+            and not _is_dialog(page_source)):
+        return []
+
+    dismissed: list[str] = []
+    for _ in range(max_rounds):
+        matches = _find_by_texts(driver, MODAL_DISMISS_LABELS)
+        if not matches:
+            try:
+                is_dialog = _is_dialog(driver.page_source)
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException:
+                is_dialog = False
+            if is_dialog:
+                matches = _find_by_texts(driver, MODAL_ACK_ONLY_LABELS)
+        if not matches:
+            break
+        element = matches[0]
+        try:
+            target = ((element.get_attribute("text") or element.get_attribute("content-desc")) or "").strip()
+            if target in NEVER_TAP_LABELS:
+                break
+            element.click()
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            break
+        dismissed.append(target or "?")
+        wait_until_stable(driver)
+    return dismissed
+
+
+class AndroidScreenAnalysis:
+    """一個畫面的 page_source 解析一次，給 crawl_app_tree.crawl_screen 判斷每個元件用"""
+
+    def __init__(self, page_source: str):
+        root = ET.fromstring(page_source)
+        self._by_bounds: dict[tuple, object] = {}
+        self._rid_counts: dict[tuple, int] = {}
+        for node in _ui_nodes(root):
+            a = node.attrib
+            b = parse_bounds(a.get("bounds", ""))
+            if b is None:
+                continue
+            self._by_bounds.setdefault((a["class"], b["x"], b["y"], b["width"], b["height"]), node)
+            rid = a.get("resource-id")
+            if rid:
+                self._rid_counts[(a["class"], rid)] = self._rid_counts.get((a["class"], rid), 0) + 1
+
+    def _node(self, el: dict):
+        b = el["bounds"]
+        return self._by_bounds.get((el["class"], b["x"], b["y"], b["width"], b["height"]))
+
+    def is_candidate(self, el: dict) -> bool:
+        return bool(el.get("clickable"))
+
+    def text(self, el: dict) -> str:
+        """元件自己沒有文字時（可點的容器），用子孫的文字代表它"""
+        if el.get("label"):
+            return el["label"]
+        node = self._node(el)
+        if node is None:
+            return ""
+        texts = [t for t in (_node_text(n.attrib) for n in node.iter()) if t]
+        return " ".join(dict.fromkeys(texts))[:60]
+
+    def pattern(self, el: dict) -> str:
+        """有編號的 native id 照 iOS 的方式去掉編號；清單每列共用的 resource-id
+        （掃描時已降級成沒有 native id）就用那個 id 本身當 pattern"""
+        pat = candidate_pattern(el)
+        if pat or el.get("native_id"):
+            return pat
+        node = self._node(el)
+        rid = node.attrib.get("resource-id") if node is not None else ""
+        if rid and self._rid_counts.get((el["class"], rid), 0) > 1:
+            return rid
+        return ""
 
 
 class AndroidPlatform:
@@ -885,13 +1007,7 @@ class AndroidPlatform:
 
     def scroll_screen(self, driver, screen_width: int, screen_height: int, direction: str) -> bool:
         """整個畫面捲一段，回傳系統回報的「這次有沒有真的捲動」"""
-        scroll_area = {
-            "left": int(screen_width * 0.1),
-            "top": int(screen_height * 0.15),
-            "width": int(screen_width * 0.8),
-            "height": int(screen_height * 0.7),
-        }
-        return scroll_step(driver, scroll_area, direction, self.scroll_percent)
+        return self.scroll_once(driver, main_scroll_area(screen_width, screen_height), direction)
 
     def element_flags(self, el: dict) -> dict:
         """原始屬性照實寫進 element_map，留給 viewer 篩選用"""
@@ -900,8 +1016,31 @@ class AndroidPlatform:
     def page_source_context(self, driver):
         return nullcontext()
 
+    # --- 無 native id 元件的定位（流程在 platforms/locate.py）---
+    class_text_by = AppiumBy.XPATH
+    fallback_label = "UiScrollable"
+
+    def class_text_query(self, class_name: str, label: str) -> str:
+        return text_xpath(class_name, label)
+
+    def find_by_class_and_text(self, driver, class_name: str, label: str) -> list:
+        return locate.find_by_class_and_text(self, driver, class_name, label)
+
+    def scroll_once(self, driver, bounds: dict, direction: str) -> bool:
+        """回傳系統回報的「這次有沒有真的捲動」"""
+        return scroll_step(driver, scroll_area(bounds), direction, self.scroll_percent)
+
+    def scrollable_regions(self, xml_source: str) -> list[dict]:
+        return find_scrollable_regions(xml_source)
+
+    def find_anchor(self, driver, text: str):
+        return find_anchor(driver, text)
+
+    def locate_fallback(self, driver, el: dict):
+        return locate_by_scroll_into_view(driver, el)
+
     def locate_generated_element(self, driver, el: dict):
-        return locate_generated_element(driver, el)
+        return locate.locate_generated_element(self, driver, el)
 
     def ensure_visible(self, driver, element):
         # 定位時已經用「邊捲邊找」把元件捲進畫面，找到的就是可互動的（見模組說明）
@@ -931,7 +1070,9 @@ class AndroidPlatform:
         try:
             driver.start_recording_screen(timeLimit=180, bitRate=4000000, forceRestart=True)
             return True
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             print(f"    [錄影] 開始錄影失敗，這次不錄：{type(e).__name__}：{e}")
             return False
 
@@ -939,7 +1080,9 @@ class AndroidPlatform:
         """停止錄影；save_path 有給才存成 mp4（PASS 時不留檔），回傳存好的路徑"""
         try:
             data = driver.stop_recording_screen()
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             print(f"    [錄影] 停止錄影失敗：{type(e).__name__}：{e}")
             return None
         if not save_path or not data:
@@ -948,7 +1091,7 @@ class AndroidPlatform:
             f.write(base64.b64decode(data))
         return save_path
 
-    # --- 批次執行的導航（navigator.py）---
+    # --- 批次執行的導航（navigator.py）、爬蟲 ---
     def go_back(self, driver) -> None:
         driver.back()
 
@@ -958,13 +1101,14 @@ class AndroidPlatform:
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）；crawl_app_tree 會 import 這個模組，放這裡 import 避免循環"""
-        from aitest.core.crawl_app_tree import android_dismiss_modal
+        永遠不點「關閉APP／登出」的規則都在那裡）"""
         # 系統權限視窗不處理（使用者決定）：權限框是系統的 permissioncontroller／packageinstaller
         # 跳出來的，出現時目前前景的 package 就是它
         try:
             package = driver.current_package or ""
-        except Exception:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             return []
         if "permissioncontroller" in package or "packageinstaller" in package:
             print(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
@@ -973,6 +1117,25 @@ class AndroidPlatform:
 
     def element_text(self, element) -> str:
         return (element.get_attribute("text") or element.get_attribute("content-desc") or "").strip()
+
+    # --- 爬蟲（crawl_app_tree.py）---
+    def skeleton(self, driver, page_source: str) -> tuple[dict, str]:
+        try:
+            activity = driver.current_activity
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            activity = None
+        return android_skeleton_signature(page_source, activity)
+
+    def analyze(self, page_source: str) -> AndroidScreenAnalysis:
+        return AndroidScreenAnalysis(page_source)
+
+    def chrome_keys(self, page_source: str, screen_height: float) -> set:
+        return android_chrome_keys(page_source, screen_height)
+
+    def dismiss_modal(self, driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+        return android_dismiss_modal(driver, max_rounds, page_source)
 
     # --- page_source XML 節點 ---
     def node_class(self, node) -> str:

@@ -61,7 +61,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
-from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException
+from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException, WebDriverException
 
 from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
 from aitest.core.capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
@@ -146,7 +146,8 @@ def ensure_session_alive():
     混在一起，讓 do_POST() 原本設計的自動重連邏輯永遠等不到這個例外傳上來
     （實測踩過：session失效時，/inspect 只會回報「找不到這個元件」，完全看不出
     是連線問題，見 TROUBLESHOOTING #39）。這裡改成在最前面主動探測，不依賴
-    內層程式碼願不願意把例外往外拋。
+    內層程式碼願不願意把例外往外拋。（重構步驟 4 之後 platforms/、定位相關的程式
+    已經改成讓 InvalidSessionIdException 往上傳，這個探測保留：重連要在處理請求前做）
     """
     global driver
     if driver is None:
@@ -166,7 +167,9 @@ def _locate_best_effort(driver, el: dict):
             matches = driver.find_elements(AppiumBy.XPATH, el["custom_xpath"])
             if len(matches) == 1:
                 return matches[0]
-        except Exception:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
             pass
     if el.get("id_source") == "native" and el.get("native_id"):
         try:
@@ -232,7 +235,9 @@ def test_xpath(xpath: str) -> dict:
     d = get_driver()
     try:
         matches = d.find_elements(AppiumBy.XPATH, xpath)
-    except Exception as e:
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
         return {"count": 0, "error": f"{type(e).__name__}: {e}"}
 
     preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
@@ -339,7 +344,9 @@ def agent_generate_xpath(el: dict) -> dict:
         last_xpath = candidate
         try:
             matches = d.find_elements(AppiumBy.XPATH, candidate)
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             log.append(f"第{attempt}次：「{candidate}」語法錯誤（{e}）")
             feedback = f"這個XPath「{candidate}」語法錯誤：{e}，請修正"
             continue
