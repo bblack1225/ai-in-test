@@ -48,8 +48,9 @@ from google.genai import types
 from PIL import Image
 
 from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
-from aitest.core.scan_core import candidate_signature, read_and_merge_round
 from aitest.platforms import PLATFORMS, get_platform
+from aitest.platforms.base import wait_until_stable
+from aitest.platforms.scan_core import candidate_signature, read_and_merge_round
 
 # ---------------------------------------------------------------------------
 # 1. 輸出路徑設定
@@ -86,35 +87,28 @@ def is_screenshot_blocked(screenshot_png: bytes, sample_step: int = 17, threshol
 
 
 def wait_for_screen_stable(platform, driver, screen_width: int, screen_height: int,
-                            max_polls: int = 5, poll_interval_sec: float = 1.5) -> bool:
+                            max_wait: float = 7.5, poll_interval_sec: float = 1.5) -> bool:
     """
-    輪詢直到連續兩次讀到的候選元件內容一致，判定畫面已經穩定
+    掃描前等到連續兩次讀到的候選元件內容一致，判定畫面已經穩定
     （不再是非同步資料載入中，例如 Apple Health 資料還沒回來、佔位符還沒換成真實內容）。
+    最多等 max_wait 秒（真實經過時間，原本是「輪詢 5 次」，iOS 讀一次 page_source 就要
+    1~3 秒，實際會等到十幾秒）。輪詢方式見 platforms/base.wait_until_stable。
 
     這個檢查只反覆讀 page_source 解析候選元件，不呼叫 LLM、不截圖，成本很低。
 
     注意：這個機制只能解決「暫時性、之後會定下來」的不穩定（例如非同步載入），
     對於「設計上就會一直變」的內容（輪播 banner、即時跳動的數字/文案）沒有效果——
-    這種情況輪詢到 max_polls 還是會判定不穩定，屬於預期行為，代表這個畫面本身
+    這種情況等到 max_wait 還是會判定不穩定，屬於預期行為，代表這個畫面本身
     有需要人工留意的動態內容，不是輪詢邏輯有問題。
     """
-    previous_signature = None
-    for attempt in range(1, max_polls + 1):
-        page_source = driver.page_source
-        candidates = parse_candidate_elements(platform, page_source, screen_width, screen_height)
-        signature = candidate_signature(candidates)
+    def signature(page_source: str) -> tuple:
+        return candidate_signature(parse_candidate_elements(platform, page_source, screen_width, screen_height))
 
-        if signature == previous_signature:
-            print(f"  [畫面穩定檢查] 第{attempt}次讀取與前一次一致，判定畫面已穩定")
-            return True
-
-        previous_signature = signature
-        if attempt < max_polls:
-            print(f"  [畫面穩定檢查] 第{attempt}次讀取，內容與前一次不同，"
-                  f"{poll_interval_sec}秒後重讀確認...")
-            time.sleep(poll_interval_sec)
-
-    print(f"  [警告] 輪詢{max_polls}次後畫面內容依然持續變化，可能有非同步載入尚未完成、"
+    started = time.monotonic()
+    if wait_until_stable(driver, signature, max_wait=max_wait, poll_interval=poll_interval_sec):
+        print(f"  [畫面穩定檢查] 連續兩次讀取一致，判定畫面已穩定（{time.monotonic() - started:.1f} 秒）")
+        return True
+    print(f"  [警告] 等了 {max_wait:g} 秒畫面內容依然持續變化，可能有非同步載入尚未完成、"
           f"或本身就是輪播/即時更新的動態內容。這次掃描結果會照最後一次讀到的繼續產出，"
           f"但需要人工複核這次資料是否可信（見 screen_stable_at_scan 欄位）")
     return False

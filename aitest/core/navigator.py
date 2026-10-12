@@ -23,6 +23,8 @@
 import time
 import xml.etree.ElementTree as ET
 
+from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
+
 from aitest.core.run_test_case import raise_if_stopped, run_tap, try_dismiss_dialogs, wait_after_action
 
 # 一個畫面要有過半數的指紋元件出現在目前畫面上，才算「可能是這一頁」（跟第0步檢查同標準）
@@ -158,7 +160,9 @@ class Navigator:
                 log.append("App 不在前景（可能是返回鍵退出了），重新拉回前景")
                 self.driver.activate_app(self.app_id)
                 wait_after_action(self.platform, self.driver, max_wait=5)
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             log.append(f"確認 App 狀態失敗：{type(e).__name__}")
 
     def restart_app(self, log: list) -> bool:
@@ -169,7 +173,9 @@ class Navigator:
         try:
             self.driver.terminate_app(self.app_id)
             self.driver.activate_app(self.app_id)
-        except Exception as e:
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
             log.append(f"重開 App 失敗：{type(e).__name__}：{e}")
             return False
         time.sleep(2)  # 啟動畫面、splash 動畫
