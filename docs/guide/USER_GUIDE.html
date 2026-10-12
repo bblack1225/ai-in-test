@@ -287,7 +287,8 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
     <div class="os-label">uv</div>
     <div class="cmd"><pre><code>uv run aitest start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
     <div class="os-label">venv + pip（先啟用 .venv）</div>
-    <div class="cmd"><pre><code>aitest start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div></li>
+    <div class="cmd"><pre><code>aitest start &lt;專案代號&gt;</code></pre><button class="copy" type="button">複製</button></div>
+    <p class="muted">不記得專案代號的話，不接代號直接執行，會列出專案讓你輸入編號選（直接按 Enter 選第一個 Android 專案）。</p></li>
   <li>終端機視窗要一直開著，用完按 <code>Ctrl+C</code>。</li>
 </ol>
 <div class="table-wrap"><table>
@@ -435,7 +436,7 @@ pip install "appium-python-client&gt;=6.0.7" "google-genai&gt;=2.25.0" "pillow&g
   <thead><tr><th>症狀</th><th>處理方式</th></tr></thead>
   <tbody>
     <tr><td>driver 有裝，卻報 <code>Could not find a driver for automationName ...</code></td><td>開了好幾個 Appium。macOS：<code>lsof -nP -iTCP:4723 -sTCP:LISTEN</code>，Windows：<code>netstat -ano | findstr :4723</code>，只留一個 PID，其他用 <code>kill</code>／<code>taskkill /PID &lt;PID&gt; /F</code> 關掉</td></tr>
-    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時沒帶專案代號（預設 iOS）。<code>Ctrl+C</code> 後用 <code>aitest start &lt;專案代號&gt;</code> 重開</td></tr>
+    <tr><td>網頁警告「專案是 Android，但 viewer_server 目前接的是 iOS」</td><td>啟動時選了「不開專案」並選了 iOS，或用 <code>--platform ios</code> 啟動。<code>Ctrl+C</code> 後用 <code>aitest start &lt;專案代號&gt;</code> 重開</td></tr>
     <tr><td>port 8767 被佔用</td><td>關掉另一個視窗的伺服器，或加 <code>--port 8768</code></td></tr>
     <tr><td><span class="chip os">Windows</span> <code>Ctrl+C</code> 後下次連不上</td><td>關掉所有 Appium 視窗再重開</td></tr>
     <tr><td><span class="chip android">Android</span> BlueStacks 看不到裝置</td><td>重開過 BlueStacks，再 <code>adb connect 127.0.0.1:5555</code></td></tr>

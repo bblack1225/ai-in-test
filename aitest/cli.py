@@ -1,7 +1,7 @@
 """
 一鍵啟動＋環境檢查。
 
-    uv run aitest start                    # 啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器
+    uv run aitest start                    # 先列出專案讓你選，再啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器
     uv run aitest start foo-ios      # 直接開這個專案（平台照專案設定）
     uv run aitest start --platform android --no-appium
     uv run aitest doctor                   # 逐項檢查環境，告訴你哪裡沒裝好、怎麼修
@@ -134,6 +134,43 @@ def resolve_project(project_id: str | None, platform: str | None, workspace: str
     return platform or (project or {}).get("platform") or "ios", project
 
 
+def _ask_choice(prompt: str, count: int) -> int:
+    """請使用者輸入 0～count 的數字，直接按 Enter 是 1；Ctrl+C 結束程式"""
+    while True:
+        try:
+            answer = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            sys.exit("\n已取消")
+        if not answer:
+            return 1
+        if answer.isdigit() and 0 <= int(answer) <= count:
+            return int(answer)
+        print(f"   請輸入 0～{count} 的數字")
+
+
+def pick_project(workspace: str) -> tuple[str | None, str]:
+    """
+    start 沒帶專案也沒帶 --platform 時，列出專案讓使用者選，回傳 (專案代號, 平台)。
+    Android 專案排前面（直接按 Enter 選第一個）；選 0 不開專案、只選平台。
+    """
+    projects = sorted(Workspace(workspace).list_projects(), key=lambda p: (p["platform"] != "android", p["id"]))
+    if projects:
+        print("選擇要開的專案（直接按 Enter 選 1）：")
+        for i, p in enumerate(projects, 1):
+            print(f"  {i}) {p['id']:<24} {p['platform']:<8} {p['name']}")
+        print("  0) 不開專案，只選平台")
+        choice = _ask_choice("> ", len(projects))
+        if choice:
+            p = projects[choice - 1]
+            return p["id"], p["platform"]
+    else:
+        print("還沒有專案（用 uv run aitest-workspace create 建立），先選平台：")
+    print("選擇平台（直接按 Enter 選 1）：\n  1) android\n  2) ios")
+    while (choice := _ask_choice("> ", 2)) == 0:
+        print("   請輸入 1 或 2")
+    return None, ("android", "ios")[choice - 1]
+
+
 # ---------------------------------------------------------------------------
 # start
 # ---------------------------------------------------------------------------
@@ -178,6 +215,9 @@ def cmd_start(args) -> None:
             signal.signal(sig, _raise_interrupt)
     # 輸出導到檔案時也要即時看得到（例如用 > log 記錄）
     sys.stdout.reconfigure(line_buffering=True)
+    # 專案、平台都沒指定時跳選單；不是在終端機互動執行（例如被其他程式呼叫）就照舊用預設值
+    if args.project is None and args.platform is None and sys.stdin.isatty():
+        args.project, args.platform = pick_project(args.workspace)
     platform, project = resolve_project(args.project, args.platform, args.workspace)
     viewer_url = f"http://127.0.0.1:{args.port}/" + (f"?project={quote(args.project)}" if args.project else "")
 
@@ -462,8 +502,9 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("start", help="啟動 Appium（沒開的話）＋ viewer_server，打開瀏覽器")
     s.add_argument("project", nargs="?", default=None,
-                   help="直接開這個專案（平台照專案設定），例如 foo-ios；有哪些用 aitest-workspace list 查")
-    s.add_argument("--platform", choices=("ios", "android"), default=None, help="預設：專案的平台，沒指定專案就是 ios")
+                   help="直接開這個專案（平台照專案設定），例如 foo-ios；專案和 --platform 都沒給的話會列出專案讓你選")
+    s.add_argument("--platform", choices=("ios", "android"), default=None,
+                   help="預設：專案的平台；專案也沒指定的話跳選單讓你選（不是在終端機執行時用 ios）")
     s.add_argument("--no-appium", action="store_true", help="不啟動 Appium（只看地圖、編輯測案）")
     s.add_argument("--no-browser", action="store_true", help="不自動打開瀏覽器")
     d = sub.add_parser("doctor", help="逐項檢查環境（只讀取，不操作手機）")

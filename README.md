@@ -12,6 +12,8 @@
 uv run aitest start foo-ios
 ```
 
+不記得專案代號的話只打 `uv run aitest start`，會列出專案讓你選（直接按 Enter 選第一個 Android 專案）。
+
 環境有沒有裝好、哪裡沒裝好，用 `uv run aitest doctor` 檢查。
 
 ### 環境需要準備什麼
@@ -330,7 +332,7 @@ Python 環境（2.2）和 API Key（2.3）跟 iOS 共用，其餘差異：
 ### 3.1 每次使用的啟動方式
 
 1. iPhone 接上 USB、解鎖，打開待測 App（停在要操作的畫面）
-2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話開上次用的專案、平台 ios）：
+2. 一個指令啟動（後面接專案代號，平台照專案設定；不接的話會列出專案讓你選，選 0 可以不開專案、只選平台）：
    ```
    uv run aitest start foo-ios
    ```
