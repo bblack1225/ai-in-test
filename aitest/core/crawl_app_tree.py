@@ -63,6 +63,7 @@ from aitest.core.capture_screen_map import scan_screen
 from aitest.core.workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import CHROME_BOTTOM_FRACTION, CHROME_TOP_FRACTION, NEVER_TAP_LABELS, wait_until_stable
+from aitest.run_context import RunContext
 
 OUTPUT_PATH = Path("app_map_tree.json")
 
@@ -118,9 +119,9 @@ def went_outside_app(driver, bundle_id: str) -> str | None:
     except WebDriverException:
         pass
     try:
-        ctx = driver.current_context
-        if ctx and ctx != "NATIVE_APP":
-            return f"context={ctx}"
+        context = driver.current_context
+        if context and context != "NATIVE_APP":
+            return f"context={context}"
     except InvalidSessionIdException:
         raise
     except WebDriverException:
@@ -291,7 +292,7 @@ def _screen_name(skeleton: dict, suggested: str, existing_names: set[str]) -> st
 # 遞迴爬
 # ---------------------------------------------------------------------------
 
-def crawl_screen(platform, driver, suggested_name: str, parent_uid: str | None, entry_el: dict | None,
+def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | None, entry_el: dict | None,
                   path: list, depth: int, cfg: dict, state: dict) -> str:
     src = driver.page_source
     dismissed = platform.dismiss_modal(driver, page_source=src)
@@ -327,7 +328,7 @@ def crawl_screen(platform, driver, suggested_name: str, parent_uid: str | None, 
 
     print(f"\n[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
           f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
-    screen_data = scan_screen(platform, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
+    screen_data = scan_screen(ctx, platform, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
                                page_source=src, out_dir=cfg.get("out_dir"))
 
     record = {
@@ -513,7 +514,7 @@ def crawl_screen(platform, driver, suggested_name: str, parent_uid: str | None, 
         # break 不能寫在 finally 裡：finally 裡的 break 會吃掉正在往上傳的例外，
         # 子畫面丟出的 CrawlAborted（例如偵測到登出）會被吞掉、爬蟲繼續點下去
         try:
-            crawl_screen(platform, driver, child_suggested, uid, el, child_path, depth + 1, cfg, state)
+            crawl_screen(ctx, platform, driver, child_suggested, uid, el, child_path, depth + 1, cfg, state)
         finally:
             recovered = recover_to(platform, driver, uid, path=path, state=state)
             if not recovered:
@@ -540,16 +541,18 @@ def _hits_risky_keyword(el: dict) -> bool:
     return any(k in text for k in _RISKY_KEYWORDS)
 
 
-def crawl(platform, driver, cfg: dict) -> dict:
+def crawl(ctx, platform, driver, cfg: dict) -> dict:
     state = {"screens": {}, "edges": [], "skipped": [], "visit_order": []}
     try:
-        crawl_screen(platform, driver, cfg["root_name"], None, None, [], 0, cfg, state)
+        crawl_screen(ctx, platform, driver, cfg["root_name"], None, None, [], 0, cfg, state)
         print(f"\n[爬蟲] 完成，共收錄 {len(state['screens'])} 個不重複畫面")
     except CrawlAborted as e:
         print(f"\n[爬蟲中止] {e}")
         print(f"  已收錄 {len(state['screens'])} 個畫面，資料已存到 {OUTPUT_PATH}")
         state["aborted_reason"] = str(e)
     save_map(state, cfg["meta"])
+    if cfg["describe"]:
+        print(f"  LLM 用量（畫面描述）：{ctx.usage.summary()}")
     for uid in state["visit_order"]:
         r = state["screens"][uid]
         print(f"  {'  ' * r['depth']}- {r['screen_name']} (depth {r['depth']}, {len(r['elements'])} 元件)")
@@ -641,7 +644,7 @@ def main():
     }
 
     try:
-        crawl(platform, driver, cfg)
+        crawl(RunContext(), platform, driver, cfg)
     finally:
         driver.quit()
 

@@ -91,6 +91,13 @@
   function failText(prefix, err, hint) {
     return err.platformMismatch ? "⚠️ " + err.message : prefix + "：" + err.message + hint;
   }
+  // 後端回傳的這次操作 LLM 用量（usage）→ 一行說明；這次沒有呼叫 LLM（例如掃描沒勾描述）回傳空字串
+  function usageText(u) {
+    if (!u || !u.calls) return "";
+    var n = function (v) { return (v || 0).toLocaleString(); };
+    return "LLM 用量：呼叫 " + u.calls + " 次，共 " + n(u.total_tokens) + " tokens（輸入 " + n(u.prompt_tokens) +
+      "／輸出 " + n(u.output_tokens) + "）";
+  }
   async function renderServerStatus(base, statusEl, dataPlatform) {
     statusEl.textContent = "檢查中…"; statusEl.className = "conn-status unknown";
     try {
@@ -707,6 +714,8 @@
       rebuildAll();
       selectScreen(s.uid);
       markMapDirty();
+      var usage = usageText(data.usage);
+      if (usage) detailBody.insertAdjacentHTML("afterbegin", '<div class="usage-line">掃描完成。' + escapeHtml(usage) + "</div>");
     } catch (err) {
       resultEl.textContent = failText("掃描失敗", err, "（viewer_server.py 有啟動嗎？手機是否已經停在這個新畫面？）");
       resultEl.className = "tap-result fail";
@@ -814,7 +823,9 @@
       });
       if (filled) markMapDirty();
       selectScreen(s.uid);
-      alert("已補上 " + filled + " / " + targets.length + " 個元件的描述" + (filled < targets.length ? "（沒補到的是 LLM 沒回傳，可以再按一次）" : ""));
+      var usage = usageText(data.usage);
+      alert("已補上 " + filled + " / " + targets.length + " 個元件的描述" + (filled < targets.length ? "（沒補到的是 LLM 沒回傳，可以再按一次）" : "") +
+        (usage ? "\n" + usage : ""));
     } catch (err) {
       alert(failText("產生描述失敗", err, "（viewer_server.py 有啟動嗎？）"));
       btn.disabled = false;
@@ -863,7 +874,8 @@
           screenshot: null, w: null, h: null, els: [], _blank: true
         };
         applyScanResultToBlankScreen(newRoot, data.screen_data);
-        resultEl.textContent = "掃描好了，在跳出的視窗選入口元件（關掉視窗就是取消，地圖不會變）";
+        var usage = usageText(data.usage);
+        resultEl.textContent = "掃描好了，在跳出的視窗選入口元件（關掉視窗就是取消，地圖不會變）" + (usage ? "。" + usage : "");
         resultEl.className = "tap-result pass";
         btn.disabled = false;
         openModal(newRoot, { linkRoot: oldRoot });
@@ -1148,12 +1160,12 @@
       if (data.success) {
         el.custom_xpath = data.xpath;
         markMapDirty();
-        resultEl.textContent = "AI已找到唯一XPath並套用（第" + data.attempts + "次嘗試成功）";
+        resultEl.textContent = "AI已找到唯一XPath並套用（第" + data.attempts + "次嘗試成功）" + (usageText(data.usage) ? "。" + usageText(data.usage) : "");
         resultEl.className = "xpath-editor-result pass";
-        if (onApplied) onApplied(data.xpath);
+        if (onApplied) onApplied(data.xpath, resultEl.textContent);
       } else {
         resultEl.textContent = "AI無法定位出唯一XPath（已嘗試" + data.attempts + "次，最後一次：" +
-          ((data.log && data.log[data.log.length - 1]) || "無詳細訊息") + "）";
+          ((data.log && data.log[data.log.length - 1]) || "無詳細訊息") + "）" + (usageText(data.usage) ? "。" + usageText(data.usage) : "");
         resultEl.className = "xpath-editor-result error";
       }
     } catch (err) {
@@ -1291,7 +1303,14 @@
       renderModalPicked(el);
     });
     document.getElementById("modalAgentXpathBtn").addEventListener("click", function () {
-      callAgentXPathShort(el, xpathResult, function () { renderModalPicked(el); });
+      callAgentXPathShort(el, xpathResult, function (xpath, message) {
+        renderModalPicked(el);
+        // 重畫後編輯區會收起來、結果訊息也不見：打開編輯區，把 AI 定位的結果（含 LLM 用量）放回去
+        document.getElementById("modalXpathEditor").hidden = false;
+        var result = document.getElementById("modalXpathResult");
+        result.textContent = message;
+        result.className = "xpath-editor-result pass";
+      });
     });
   }
 
@@ -1450,12 +1469,13 @@
       };
     });
   }
-  function renderScenarioList(scenarios) {
+  function renderScenarioList(scenarios, usage) {
+    var usageHtml = usageText(usage) ? '<div class="usage-line">' + escapeHtml(usageText(usage)) + "</div>" : "";
     if (!scenarios || !scenarios.length) {
-      scenarioResultHost.innerHTML = '<div class="empty-state">沒有產生出情境，可能是選的畫面元件太少或太單純，換選幾個畫面再試試。</div>';
+      scenarioResultHost.innerHTML = usageHtml + '<div class="empty-state">沒有產生出情境，可能是選的畫面元件太少或太單純，換選幾個畫面再試試。</div>';
       return;
     }
-    var html = "";
+    var html = usageHtml;
     scenarios.forEach(function (sc, i) {
       html += '<div class="script-step-card">' +
         '<div class="script-step-index">' + (i + 1) + '</div>' +
@@ -1486,11 +1506,13 @@
       });
       var data = await res.json();
       if (data.error) {
-        scenarioResultHost.innerHTML = '<div class="empty-state">分析失敗：' + escapeHtml(data.error) + '</div>';
+        // LLM 有回應、只是回傳格式不對時也已經花了額度，用量照樣顯示
+        scenarioResultHost.innerHTML = '<div class="empty-state">分析失敗：' + escapeHtml(data.error) + "</div>" +
+          (usageText(data.usage) ? '<div class="usage-line">' + escapeHtml(usageText(data.usage)) + "</div>" : "");
         return;
       }
       scenarioLastList = data.scenarios || [];
-      renderScenarioList(scenarioLastList);
+      renderScenarioList(scenarioLastList, data.usage);
     } catch (err) {
       scenarioResultHost.innerHTML = '<div class="empty-state">連線失敗：' + escapeHtml(err.message) + '（viewer_server.py 有啟動嗎？）</div>';
     } finally {
@@ -1959,6 +1981,7 @@
         restoreUnsentMessage();
       } else {
         appendChatMessage("model", data.reply);
+        if (usageText(data.usage)) appendChatMessage("usage-note", usageText(data.usage));
         llmgenChatHistory.push({ role: "model", text: data.reply });
         var parsed = extractJsonCodeBlock(data.reply);
         if (parsed && Array.isArray(parsed.steps)) {

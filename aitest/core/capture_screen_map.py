@@ -51,6 +51,7 @@ from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_re
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import wait_until_stable
 from aitest.platforms.scan_core import candidate_signature, read_and_merge_round
+from aitest.run_context import RunContext
 
 # ---------------------------------------------------------------------------
 # 1. 輸出路徑設定
@@ -270,7 +271,7 @@ def make_generated_unique_id(screen_name: str, fingerprint: dict) -> str:
 # 6. LLM：批次生成「有 native id」元件的用途描述
 # ---------------------------------------------------------------------------
 
-def describe_native_elements(platform, screen_name: str, elements: list[dict]) -> dict:
+def describe_native_elements(ctx, platform, screen_name: str, elements: list[dict]) -> dict:
     """
     elements: 有 native_id 的候選元件清單
     回傳 {class::native_id: description} 的對照表
@@ -304,6 +305,7 @@ def describe_native_elements(platform, screen_name: str, elements: list[dict]) -
 """
 
     response = generate_content_with_retry(
+        usage=ctx.usage,
         model=LLM_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -336,7 +338,7 @@ def describe_native_elements(platform, screen_name: str, elements: list[dict]) -
 # 7. LLM：批次生成「沒有 native id」元件的用途描述（視覺輔助）
 # ---------------------------------------------------------------------------
 
-def describe_generated_elements(platform, screen_name: str, screenshot_png: bytes, screenshot_available: bool,
+def describe_generated_elements(ctx, platform, screen_name: str, screenshot_png: bytes, screenshot_available: bool,
                                  elements: list[dict], temp_ids: list[str]) -> dict:
     """
     elements 與 temp_ids 一一對應，回傳 {temp_id: description} 的對照表。
@@ -398,6 +400,7 @@ def describe_generated_elements(platform, screen_name: str, screenshot_png: byte
         contents = prompt
 
     response = generate_content_with_retry(
+        usage=ctx.usage,
         model=LLM_MODEL,
         contents=contents,
         config=types.GenerateContentConfig(
@@ -459,11 +462,11 @@ def crop_element_screenshot(screenshot_png: bytes, bounds: dict, save_path: Path
 # 9. 主流程：掃描一個畫面，產生完整元件地圖資料
 # ---------------------------------------------------------------------------
 
-def scan_screen(platform, driver, screen_name: str, describe: bool = True, scroll: bool = True,
+def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, scroll: bool = True,
                 wait_stable: bool = True, page_source: str | None = None, save_crops: bool = False,
                 out_dir: Path | None = None) -> dict:
     """
-    掃描目前畫面，產出完整元件地圖資料。
+    掃描目前畫面，產出完整元件地圖資料。ctx 用來累計這次掃描的 LLM 用量（describe=True 時）。
 
     describe=True（預設）：呼叫 LLM 為每個元件生成用途描述。
     describe=False：跳過所有 LLM 呼叫，description 留空、description_source
@@ -540,7 +543,7 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
     description_source = "llm_generated" if describe else "skipped"
 
     # --- 處理有 native id 的元件 ---
-    native_descriptions = describe_native_elements(platform, screen_name, native_elements) if describe else {}
+    native_descriptions = describe_native_elements(ctx, platform, screen_name, native_elements) if describe else {}
 
     result_elements = []
     for el in native_elements:
@@ -573,7 +576,7 @@ def scan_screen(platform, driver, screen_name: str, describe: bool = True, scrol
         round_screenshot_png = round_screenshots[round_index]
         temp_ids = [f"e{round_index}_{i}" for i in range(len(round_elements))]
         generated_descriptions = describe_generated_elements(
-            platform, screen_name, round_screenshot_png, not screenshot_blocked, round_elements, temp_ids
+            ctx, platform, screen_name, round_screenshot_png, not screenshot_blocked, round_elements, temp_ids
         ) if describe else {}
 
         for tid, el in zip(temp_ids, round_elements):
@@ -685,11 +688,13 @@ def main():
 
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=platform.make_options())
 
+    ctx = RunContext()
     try:
-        screen_data = scan_screen(platform, driver, args.screen_name, save_crops=args.save_crops)
+        screen_data = scan_screen(ctx, platform, driver, args.screen_name, save_crops=args.save_crops)
         save_to_json(screen_data, output_path)
     finally:
         driver.quit()
+    print(f"這次掃描的 LLM 用量：{ctx.usage.summary()}")
 
 
 if __name__ == "__main__":

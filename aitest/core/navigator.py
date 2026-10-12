@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
-from aitest.core.run_test_case import raise_if_stopped, run_tap, try_dismiss_dialogs, wait_after_action
+from aitest.core.run_test_case import run_tap, try_dismiss_dialogs, wait_after_action
 
 # 一個畫面要有過半數的指紋元件出現在目前畫面上，才算「可能是這一頁」（跟第0步檢查同標準）
 MATCH_MIN_RECALL = 0.5
@@ -136,12 +136,13 @@ def identify_screen(platform, page_source: str, index: MapIndex) -> tuple[dict |
 
 class Navigator:
     """
-    一次批次執行共用一個 Navigator：記住 App 的 id（重開 App 用）、登入測案、
-    使用者的選項，navigate_to() 每次導航的過程都寫進傳進來的 log。
+    一次批次執行共用一個 Navigator：記住這次執行的 ctx（停止、關彈窗開關、變數）、App 的 id
+    （重開 App 用）、登入測案、使用者的選項，navigate_to() 每次導航的過程都寫進傳進來的 log。
     """
 
-    def __init__(self, platform, driver, app_id: str | None, run_setup=None, setup_start: str | None = None,
+    def __init__(self, ctx, platform, driver, app_id: str | None, run_setup=None, setup_start: str | None = None,
                  allow_restart: bool = True, max_moves: int = 15, max_backs: int = 6):
+        self.ctx = ctx
         self.platform = platform
         self.driver = driver
         self.app_id = app_id
@@ -180,7 +181,7 @@ class Navigator:
             return False
         time.sleep(2)  # 啟動畫面、splash 動畫
         wait_after_action(self.platform, self.driver, max_wait=8)
-        dismissed = try_dismiss_dialogs(self.platform, self.driver)
+        dismissed = try_dismiss_dialogs(self.ctx, self.platform, self.driver)
         if dismissed:
             log.append(f"App 啟動後跳出彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
         if self.run_setup:
@@ -210,7 +211,7 @@ class Navigator:
         backs = 0
         setup_done = False
         for _ in range(self.max_moves):
-            raise_if_stopped()
+            self.ctx.raise_if_stopped()
             self._ensure_app_foreground(log)
             current, detail = identify_screen(self.platform, self.driver.page_source, index)
             if current is not None and current["uid"] == target["uid"]:
@@ -234,14 +235,14 @@ class Navigator:
                 if entry is None:
                     log.append(f"目前在 {detail}，但地圖沒記錄怎麼進到「{next_name}」，沒辦法往下點")
                     return False
-                outcome = run_tap(self.platform, self.driver, entry)
+                outcome = run_tap(self.ctx, self.platform, self.driver, entry)
                 log.append(f"目前在 {detail}，往下點「{entry.get('label') or entry.get('native_id') or entry.get('unique_id')}」"
                            f"進「{next_name}」：{outcome}")
                 wait_after_action(self.platform, self.driver)
                 continue
 
             if current is None:
-                dismissed = try_dismiss_dialogs(self.platform, self.driver)
+                dismissed = try_dismiss_dialogs(self.ctx, self.platform, self.driver)
                 if dismissed:
                     log.append(f"辨識不出目前畫面，先關掉彈窗（按了「{'」「'.join(dismissed)}」）")
                     continue

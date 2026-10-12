@@ -56,12 +56,10 @@ from selenium.common.exceptions import (
     WebDriverException,
 )
 
-# set_stop_checker 這裡沒用到，留著是因為 viewer_server 從這支 import
-from aitest.common import StopRequested, raise_if_stopped
-from aitest.common import set_stop_checker as set_stop_checker
 from aitest.config import APPIUM_SERVER_URL
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import wait_until_stable
+from aitest.run_context import RunContext, StopRequested
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")
@@ -85,19 +83,11 @@ def load_element_lookup(screen_name: str) -> dict:
     raise SystemExit(f"element_map.json 裡找不到畫面「{screen_name}」")
 
 
-# 執行測案時「步驟失敗先關掉非預期彈窗再重試」的開關（viewer 的勾選框／命令列 --dismiss_dialogs），
-# 預設關閉：測案本來就要操作的對話框（例如「確定買進」確認框）不該被自動關掉
-_dismiss_dialogs_enabled = False
-
-
-def set_dismiss_dialogs(enabled: bool) -> None:
-    global _dismiss_dialogs_enabled
-    _dismiss_dialogs_enabled = bool(enabled)
-
-
-def try_dismiss_dialogs(platform, driver) -> list[str]:
-    """開關有開才去找彈窗，回傳按過的按鈕文字；沒開或沒找到回傳空清單"""
-    if not _dismiss_dialogs_enabled:
+def try_dismiss_dialogs(ctx, platform, driver) -> list[str]:
+    """ctx.dismiss_dialogs 有開才去找彈窗，回傳按過的按鈕文字；沒開或沒找到回傳空清單。
+    開關對應網頁的勾選框／命令列 --dismiss_dialogs，預設關閉：測案本來就要操作的對話框
+    （例如「確定買進」確認框）不該被自動關掉"""
+    if not ctx.dismiss_dialogs:
         return []
     try:
         dismissed = platform.dismiss_dialogs(driver)
@@ -145,7 +135,7 @@ def idle_wait_disabled(driver):
                 pass
 
 
-def retry_assert(check, timeout=None, poll_interval: float = 0.5,
+def retry_assert(ctx, check, timeout=None, poll_interval: float = 0.5,
                  on_fail=None, on_fail_interval: float = 3.0) -> str:
     """
     assert_visible / assert_text_contains 的步驟有寫 timeout（秒）時，在期限內反覆
@@ -172,7 +162,7 @@ def retry_assert(check, timeout=None, poll_interval: float = 0.5,
         return with_dismiss_note(outcome, handled) if handled else outcome
 
     while True:
-        raise_if_stopped()
+        ctx.raise_if_stopped()
         attempts += 1
         try:
             outcome = check()
@@ -218,28 +208,17 @@ def _locate_by_custom_xpath(driver, el: dict):
 
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
-# 這次執行選的變數檔（專案 vars/ 裡的，已經依優先順序合併好），優先於環境變數；
-# sources 是選了哪些檔，找不到變數時寫進錯誤訊息
-_run_vars: dict = {}
-_run_vars_sources: list = []
-
-
-def set_run_vars(values: dict | None, sources: list | None = None) -> None:
-    global _run_vars, _run_vars_sources
-    _run_vars = dict(values or {})
-    _run_vars_sources = list(sources or [])
-
-
-def resolve_env_placeholders(value: str) -> tuple[str, list[str]]:
+def resolve_env_placeholders(ctx, value: str) -> tuple[str, list[str]]:
     """把 "${LOGIN_PASSWORD}" 這類代號換成實際的值，回傳 (換好的值, 沒設定的變數名稱)。
     帳號密碼、股票代號這類值不寫死在測案 JSON（測案會匯出、分享、commit），執行時才讀進來：
-    先找這次選的變數檔（set_run_vars），沒有再找啟動 viewer_server 的那個 shell 的環境變數"""
+    先找這次選的變數檔（ctx.vars，專案 vars/ 裡的、已經依優先順序合併好），
+    沒有再找啟動 viewer_server 的那個 shell 的環境變數"""
     missing = []
 
     def replace(match):
         name = match.group(1)
-        if name in _run_vars:
-            return _run_vars[name]
+        if name in ctx.vars:
+            return ctx.vars[name]
         if name not in os.environ:
             missing.append(name)
             return match.group(0)
@@ -248,13 +227,13 @@ def resolve_env_placeholders(value: str) -> tuple[str, list[str]]:
     return _ENV_PLACEHOLDER.sub(replace, value or ""), missing
 
 
-def missing_vars_outcome(missing: list[str]) -> str:
-    chosen = "、".join(_run_vars_sources) if _run_vars_sources else "沒有選"
+def missing_vars_outcome(ctx, missing: list[str]) -> str:
+    chosen = "、".join(ctx.var_sources) if ctx.var_sources else "沒有選"
     return (f"FAIL（找不到變數：{'、'.join(missing)}；這次選的變數檔：{chosen}，也沒有同名的環境變數。"
             f"請在變數檔補上，或執行時多選一個有這個變數的檔）")
 
 
-def _locate_input_element(platform, driver, el: dict):
+def _locate_input_element(ctx, platform, driver, el: dict):
     """input_text 用的定位：自訂XPath → native id → 自動定位，回傳 (元件, 定位方式)，找不到元件是 None"""
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
@@ -264,34 +243,34 @@ def _locate_input_element(platform, driver, el: dict):
             return driver.find_element(platform.native_by, el["native_id"]), f"{platform.native_id_name} 定位"
         except NoSuchElementException:
             return None, f"找不到元件: {el['native_id']}"
-    matched = platform.locate_generated_element(driver, el)
+    matched = platform.locate_generated_element(ctx, driver, el)
     if matched is not None:
         return matched, platform.generated_locate_label
     return None, "無 native id 且自動定位查無唯一結果，不用座標盲點輸入"
 
 
-def run_input_text(platform, driver, el: dict, value: str) -> str:
-    resolved, missing = resolve_env_placeholders(value)
+def run_input_text(ctx, platform, driver, el: dict, value: str) -> str:
+    resolved, missing = resolve_env_placeholders(ctx, value)
     if missing:
-        return missing_vars_outcome(missing)
+        return missing_vars_outcome(ctx, missing)
 
-    element, how = _locate_input_element(platform, driver, el)
+    element, how = _locate_input_element(ctx, platform, driver, el)
     dismissed = []
     if element is None:
-        raise_if_stopped()
-        dismissed = try_dismiss_dialogs(platform, driver)
+        ctx.raise_if_stopped()
+        dismissed = try_dismiss_dialogs(ctx, platform, driver)
         if dismissed:
-            element, how = _locate_input_element(platform, driver, el)
+            element, how = _locate_input_element(ctx, platform, driver, el)
     if element is None:
         return with_dismiss_note(f"FAIL（{how}）", dismissed) if dismissed else f"FAIL（{how}）"
 
     platform.ensure_visible(driver, element)
-    target, opened = platform.focus_input(driver, element)
+    target, opened = platform.focus_input(ctx, driver, element)
     if target is None:
         return f"FAIL（{how}；元件不是輸入框，點了之後也沒有出現取得焦點的輸入框）"
     try:
         # 結果文字不帶輸入的值：可能是密碼
-        outcome = platform.input_text(driver, target, resolved, submit=opened)
+        outcome = platform.input_text(ctx, driver, target, resolved, submit=opened)
     except InvalidElementStateException as e:
         return f"FAIL（輸入框不接受輸入：{e.msg.splitlines()[0] if e.msg else type(e).__name__}）"
     outcome = with_note(outcome, how)
@@ -300,7 +279,7 @@ def run_input_text(platform, driver, el: dict, value: str) -> str:
     return with_dismiss_note(outcome, dismissed) if dismissed else outcome
 
 
-def run_tap(platform, driver, el: dict) -> str:
+def run_tap(ctx, platform, driver, el: dict) -> str:
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
         platform.ensure_visible(driver, custom)
@@ -316,29 +295,29 @@ def run_tap(platform, driver, el: dict) -> str:
         except NoSuchElementException:
             return f"FAIL（找不到元件: {el['native_id']}）"
 
-    matched = platform.locate_generated_element(driver, el)
+    matched = platform.locate_generated_element(ctx, driver, el)
     if matched is not None:
         platform.ensure_visible(driver, matched)
         matched.click()
         return f"PASS（{platform.generated_locate_label}）"
 
-    raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
+    ctx.raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
     # 找不到元件可能是被彈窗擋住：這時用舊座標盲點會點在彈窗上、還回報 PASS，
     # 所以退回座標點擊前先關彈窗、再找一次
-    dismissed = try_dismiss_dialogs(platform, driver)
+    dismissed = try_dismiss_dialogs(ctx, platform, driver)
     if dismissed:
-        matched = platform.locate_generated_element(driver, el)
+        matched = platform.locate_generated_element(ctx, driver, el)
         if matched is not None:
             platform.ensure_visible(driver, matched)
             matched.click()
             return with_dismiss_note(f"PASS（{platform.generated_locate_label}）", dismissed)
-        raise_if_stopped()
+        ctx.raise_if_stopped()
     platform.tap_by_coordinates(driver, el["bounds"])
     outcome = "PASS（座標點擊，備援方式）"
     return with_dismiss_note(outcome, dismissed) if dismissed else outcome
 
 
-def run_assert_visible(platform, driver, el: dict) -> str:
+def run_assert_visible(ctx, platform, driver, el: dict) -> str:
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
         platform.ensure_visible(driver, custom)
@@ -352,7 +331,7 @@ def run_assert_visible(platform, driver, el: dict) -> str:
         except NoSuchElementException:
             return "FAIL（找不到元件）"
 
-    matched = platform.locate_generated_element(driver, el)
+    matched = platform.locate_generated_element(ctx, driver, el)
     if matched is not None:
         platform.ensure_visible(driver, matched)
         return f"PASS（{platform.generated_locate_label}）" if matched.is_displayed() else "FAIL（元件存在但不可見）"
@@ -406,7 +385,7 @@ def _read_text_by_position(platform, driver, el: dict, y_tolerance: float = 10.0
     return text
 
 
-def run_assert_text_contains(platform, driver, el: dict, expected_text: str) -> str:
+def run_assert_text_contains(ctx, platform, driver, el: dict, expected_text: str) -> str:
     """
     驗證元件目前顯示的文字內容有沒有包含指定字串，而不是只驗證存不存在/可不可見
     ——assert_visible 做不到這件事。給 LLM 產生的跨畫面測案用（viewer「LLM
@@ -433,7 +412,7 @@ def run_assert_text_contains(platform, driver, el: dict, expected_text: str) -> 
                 if expected_text in position_text:
                     return f"PASS（位置定位，實際文字：「{position_text}」）"
                 return f"FAIL（位置定位，預期文字包含「{expected_text}」，實際文字：「{position_text}」）"
-            target_el = platform.locate_generated_element(driver, el)
+            target_el = platform.locate_generated_element(ctx, driver, el)
             label = platform.generated_locate_label
 
     if target_el is None:
@@ -537,7 +516,7 @@ def next_is_banner_check(steps: list, current_index: int) -> bool:
     return current_index < len(steps) and steps[current_index].get("action") == "assert_banner"
 
 
-def execute_step(platform, driver, step: dict, el: dict | None) -> str:
+def execute_step(ctx, platform, driver, step: dict, el: dict | None) -> str:
     """
     執行一個步驟、回傳結果文字（PASS/FAIL/SKIP 開頭）。命令列（run_test_case）跟
     viewer_server 的測案執行共用，差別只在呼叫端怎麼找到 el（單一畫面 vs 每步自帶
@@ -547,45 +526,43 @@ def execute_step(platform, driver, step: dict, el: dict | None) -> str:
     if action == "assert_banner":
         # 跑馬燈不在 element_map 裡，不需要 target；在測案裡執行時會先被
         # run_step_in_case 攔下來跟後面連續的 assert_banner 合併監看，這裡是單獨一步的情況
-        return run_banner_group(platform, driver, [step])[0]
+        return run_banner_group(ctx, platform, driver, [step])[0]
 
     if el is None:
         where = f"畫面「{step['screen_name']}」的資料" if step.get("screen_name") else "element_map.json"
         return f"FAIL（{where}裡找不到 {step.get('target')}，畫面資料可能已過期，建議重新掃描）"
 
     if action == "tap":
-        return run_tap(platform, driver, el)
+        return run_tap(ctx, platform, driver, el)
     if action == "input_text":
-        return run_input_text(platform, driver, el, step.get("value", ""))
+        return run_input_text(ctx, platform, driver, el, step.get("value", ""))
     # 有 timeout 的驗證：等待期間就順便關非預期彈窗（開關沒開時 try_dismiss_dialogs 直接回空清單）
-    dismiss = lambda: try_dismiss_dialogs(platform, driver)
+    dismiss = lambda: try_dismiss_dialogs(ctx, platform, driver)
     if action == "assert_visible":
-        return retry_assert(lambda: run_assert_visible(platform, driver, el), step.get("timeout"),
-                            on_fail=dismiss if _dismiss_dialogs_enabled else None)
+        return retry_assert(ctx, lambda: run_assert_visible(ctx, platform, driver, el), step.get("timeout"),
+                            on_fail=dismiss if ctx.dismiss_dialogs else None)
     if action == "assert_text_contains":
-        expected, missing = resolve_env_placeholders(step.get("value", ""))
+        expected, missing = resolve_env_placeholders(ctx, step.get("value", ""))
         if missing:
-            return missing_vars_outcome(missing)
-        return retry_assert(lambda: run_assert_text_contains(platform, driver, el, expected),
-                            step.get("timeout"), on_fail=dismiss if _dismiss_dialogs_enabled else None)
+            return missing_vars_outcome(ctx, missing)
+        return retry_assert(ctx, lambda: run_assert_text_contains(ctx, platform, driver, el, expected),
+                            step.get("timeout"), on_fail=dismiss if ctx.dismiss_dialogs else None)
     return f"FAIL（未知的 action: {action}）"
 
 
-def banner_texts(step: dict) -> list[str]:
+def banner_texts(ctx, step: dict) -> list[str]:
     value = step.get("value")
     texts = [value] if isinstance(value, str) else list(value or [])
     # 跑馬燈文字也可以用變數（例如 "${STOCK_CODE}"）；沒設定的照原樣留著，結果裡看得出是哪個沒換到
-    return [resolve_env_placeholders(t)[0] for t in texts if t]
+    return [resolve_env_placeholders(ctx, t)[0] for t in texts if t]
 
 
-# 跑馬燈監看的錄影狀態：run_step_in_case 在觸發的那一步之前開錄、記下開始時間，
-# run_banner_group 監看完停止（有 FAIL 才存檔），用開始時間把「第幾秒抓到什麼」對到影片上
-_banner_capture = {"started": None}
-
-
-def run_banner_group(platform, driver, group: list) -> list[str]:
+def run_banner_group(ctx, platform, driver, group: list) -> list[str]:
     """
     把連續好幾個 assert_banner 步驟合併成「一次監看」，回傳每一步各自的結果文字。
+
+    錄影：run_step_in_case 在觸發的那一步之前開錄、把開始時間記在 ctx.banner_capture_started，
+    這裡監看完停止（有 FAIL 才存檔），用開始時間把「第幾秒抓到什麼」對到影片上。
 
     接連跳出好幾個跑馬燈時（例如「買進-委託處理中」→「委託狀態已可查詢」），
     如果一步一步分開等，前一步等比較久的話，輪到下一步時它的跑馬燈可能已經
@@ -601,13 +578,13 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
     if not platform.supports_banner:
         return [f"SKIP（assert_banner 在 {platform.name} 還沒實作）"] * len(group)
 
-    texts = list(dict.fromkeys(t for step in group for t in banner_texts(step)))
+    texts = list(dict.fromkeys(t for step in group for t in banner_texts(ctx, step)))
     timeout = sum(step.get("timeout", 10) for step in group)
     watch_started = time.time()
     try:
-        found, seen_at, note = platform.watch_banner(driver, texts, timeout) if texts else ({}, {}, "")
+        found, seen_at, note = platform.watch_banner(ctx, driver, texts, timeout) if texts else ({}, {}, "")
     finally:
-        rec_started, _banner_capture["started"] = _banner_capture["started"], None
+        rec_started, ctx.banner_capture_started = ctx.banner_capture_started, None
     if rec_started is not None:
         missed = not texts or not all(found.get(t) for t in texts)
         video = platform.stop_capture(
@@ -621,7 +598,7 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
     outcomes = []
     order_violations = []  # (後一步的 k, 早了幾秒)
     for k, step in enumerate(group):
-        step_texts = banner_texts(step)
+        step_texts = banner_texts(ctx, step)
         if not step_texts:
             outcomes.append("FAIL（assert_banner 的 value 沒有指定要等的文字）")
             continue
@@ -630,7 +607,7 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
             outcomes.append(f"FAIL（{timeout:g} 秒內沒看到跑馬燈文字：{'、'.join(missing)}"
                             + (f"，{note}" if note else "") + "）")
         elif step.get("in_order") and k > 0:
-            outcome, early_by = _check_banner_order(group[k - 1], step_texts, found, seen_at)
+            outcome, early_by = _check_banner_order(ctx, group[k - 1], step_texts, found, seen_at)
             outcomes.append(outcome)
             if early_by is not None:
                 order_violations.append((k, early_by))
@@ -639,7 +616,7 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
             outcomes.append(f"PASS（跑馬燈出現，抓到的文字：{'、'.join(seen)}）")
     for k, early_by in order_violations:
         if outcomes[k - 1].startswith("PASS"):
-            seen = "、".join(sorted({found[t].strip() for t in banner_texts(group[k - 1])}))
+            seen = "、".join(sorted({found[t].strip() for t in banner_texts(ctx, group[k - 1])}))
             outcomes[k - 1] = (f"FAIL（跑馬燈有出現，但比下一個跑馬燈晚 {early_by:.1f} 秒出現，順序不對"
                                f"（下一步要求在它之後出現）；抓到的文字：{seen}）")
     if len(group) > 1:
@@ -648,12 +625,12 @@ def run_banner_group(platform, driver, group: list) -> list[str]:
     return outcomes
 
 
-def _check_banner_order(previous_step: dict, step_texts: list[str], found: dict,
+def _check_banner_order(ctx, previous_step: dict, step_texts: list[str], found: dict,
                         seen_at: dict) -> tuple[str, float | None]:
     """in_order 的步驟：確認這一步的文字不早於前一步的文字出現（前提是這一步的文字都抓到了）。
     回傳 (結果文字, 順序不對時早了幾秒，其他情況 None)，讓呼叫端把前一步也標 FAIL"""
     seen = "、".join(sorted({found[t].strip() for t in step_texts}))
-    prev_texts = banner_texts(previous_step)
+    prev_texts = banner_texts(ctx, previous_step)
     if not prev_texts or not all(t in seen_at for t in prev_texts):
         return f"FAIL（跑馬燈有出現，但前一個跑馬燈沒抓到，無法確認先後順序；抓到的文字：{seen}）", None
     this_first = min(seen_at[t] for t in step_texts)
@@ -665,27 +642,27 @@ def _check_banner_order(previous_step: dict, step_texts: list[str], found: dict,
     return f"PASS（跑馬燈依序出現，比前一個晚 {this_first - prev_last:.1f} 秒；抓到的文字：{seen}）", None
 
 
-def execute_step_dismissing_dialogs(platform, driver, step: dict, el: dict | None) -> str:
+def execute_step_dismissing_dialogs(ctx, platform, driver, step: dict, el: dict | None) -> str:
     """
     執行一步；失敗時（而且開關有開）檢查是不是被非預期彈窗擋住，有的話關掉再重試一次。
     只在失敗時才檢查：正常情況不多花時間，也不會誤關測案本來就要操作的對話框。
     el 是 None（地圖裡找不到 target）是資料問題，關彈窗也沒用，不重試。
     """
-    outcome = _execute_step_safely(platform, driver, step, el)
+    outcome = _execute_step_safely(ctx, platform, driver, step, el)
     if not outcome.startswith("FAIL") or el is None:
         return outcome
-    dismissed = try_dismiss_dialogs(platform, driver)
+    dismissed = try_dismiss_dialogs(ctx, platform, driver)
     if not dismissed:
         return outcome
-    return with_dismiss_note(_execute_step_safely(platform, driver, step, el), dismissed)
+    return with_dismiss_note(_execute_step_safely(ctx, platform, driver, step, el), dismissed)
 
 
-def _execute_step_safely(platform, driver, step: dict, el: dict | None) -> str:
+def _execute_step_safely(ctx, platform, driver, step: dict, el: dict | None) -> str:
     """一步裡發生沒預料到的錯誤（Appium 回報元件狀態不對、連線抖動…）只讓這一步 FAIL，
     不要整份測案中斷——批次執行時一份測案中斷，後面的測案也跟著跑不了。
     停止請求跟 Appium session 整個斷掉這類「繼續跑也沒意義」的錯誤照常往外丟"""
     try:
-        return execute_step(platform, driver, step, el)
+        return execute_step(ctx, platform, driver, step, el)
     except StopRequested:
         raise
     except InvalidSessionIdException:
@@ -695,7 +672,7 @@ def _execute_step_safely(platform, driver, step: dict, el: dict | None) -> str:
         return f"FAIL（執行時發生錯誤：{type(e).__name__}{'：' + first_line[0] if first_line else ''}）"
 
 
-def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
+def run_step_in_case(ctx, platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
     """
     在一份測案裡執行第 i 步（從1起算）。遇到 assert_banner 時，把它跟後面連續的
     assert_banner 一起交給 run_banner_group 合併監看，後面那幾步的結果先存在
@@ -707,18 +684,18 @@ def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, ban
     step = steps[i - 1]
     if step.get("action") != "assert_banner":
         if not (platform.supports_banner and next_is_banner_check(steps, i)):
-            return execute_step_dismissing_dialogs(platform, driver, step, el)
+            return execute_step_dismissing_dialogs(ctx, platform, driver, step, el)
         # 下一步要驗跑馬燈：這一步（通常是送出委託的 tap）也不能等 App 靜止。UiAutomator2／XCUITest
         # 點擊後預設會等畫面靜止才回傳（最多 waitForIdleTimeout，預設 10 秒），報價一直跳的
         # 下單頁永遠不會靜止，點擊要等好幾秒才回來，第一個跑馬燈就在這段時間出現又消失了
         # 跑馬燈偶爾漏看、又不好重現：從觸發的這一步之前就開始錄影，監看完沒抓到才留檔
-        platform.prepare_banner_watch(driver)
+        platform.prepare_banner_watch(ctx, driver)
         if platform.start_capture(driver):
             time.sleep(0.5)  # 等錄影程式真的開始錄，免得錄不到按下去那一刻
-            _banner_capture["started"] = time.time()
+            ctx.banner_capture_started = time.time()
         started = time.time()
         with idle_wait_disabled(driver):
-            outcome = execute_step_dismissing_dialogs(platform, driver, step, el)
+            outcome = execute_step_dismissing_dialogs(ctx, platform, driver, step, el)
         elapsed = time.time() - started
         if elapsed > 1.5:
             outcome = with_note(outcome, f"這一步花了 {elapsed:.1f} 秒，跑馬燈可能在這段時間就出現了")
@@ -726,7 +703,7 @@ def run_step_in_case(platform, driver, steps: list, i: int, el: dict | None, ban
     end = i
     while end < len(steps) and steps[end].get("action") == "assert_banner":
         end += 1
-    outcomes = run_banner_group(platform, driver, steps[i - 1:end])
+    outcomes = run_banner_group(ctx, platform, driver, steps[i - 1:end])
     banner_outcomes.update({i + k: o for k, o in enumerate(outcomes) if k > 0})
     return outcomes[0]
 
@@ -739,12 +716,12 @@ def should_wait_after(platform, steps: list, current_index: int) -> bool:
     return not (platform.supports_banner and next_is_banner_check(steps, current_index))
 
 
-def run_test_case(platform, driver, test_case: dict, element_lookup: dict):
+def run_test_case(ctx, platform, driver, test_case: dict, element_lookup: dict):
     results = []
     steps = test_case["steps"]
     banner_outcomes = {}
     for i, step in enumerate(steps, 1):
-        outcome = run_step_in_case(platform, driver, steps, i, element_lookup.get(step.get("target")),
+        outcome = run_step_in_case(ctx, platform, driver, steps, i, element_lookup.get(step.get("target")),
                                    banner_outcomes)
         results.append((i, step, outcome))
         print(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
@@ -769,7 +746,7 @@ def main():
                         help="步驟失敗時先關掉擋在前面的非預期彈窗（行銷/評分/推播邀請…）再重試一次")
     args = parser.parse_args()
     platform = get_platform(args.platform)
-    set_dismiss_dialogs(args.dismiss_dialogs)
+    ctx = RunContext(dismiss_dialogs=args.dismiss_dialogs)
 
     test_case = load_test_case(args.screen_name)
     element_lookup = load_element_lookup(args.screen_name)
@@ -781,7 +758,7 @@ def main():
     try:
         with platform.page_source_context(driver):
             on_screen = verify_current_screen(platform, driver, args.screen_name, element_lookup)
-            if not on_screen and try_dismiss_dialogs(platform, driver):
+            if not on_screen and try_dismiss_dialogs(ctx, platform, driver):
                 # 畫面對不上可能只是被非預期彈窗蓋住，關掉後再檢查一次
                 on_screen = verify_current_screen(platform, driver, args.screen_name, element_lookup)
             if not on_screen:
@@ -792,7 +769,7 @@ def main():
                     f"test_results/{args.screen_name}_after.png 方便你確認目前實際在哪個畫面，"
                     f"但若這支 App 有 FLAG_SECURE 保護，這張截圖可能是純黑色，無法用來確認畫面）。"
                 )
-            results = run_test_case(platform, driver, test_case, element_lookup)
+            results = run_test_case(ctx, platform, driver, test_case, element_lookup)
             save_result_screenshot(driver, args.screen_name)
     finally:
         driver.quit()

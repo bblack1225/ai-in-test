@@ -25,7 +25,6 @@ import xml.etree.ElementTree as ET
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
-from aitest.common import raise_if_stopped
 from aitest.platforms.base import main_scroll_area, shrink_bounds
 
 
@@ -33,7 +32,7 @@ def find_by_class_and_text(platform, driver, class_name: str, label: str) -> lis
     return driver.find_elements(platform.class_text_by, platform.class_text_query(class_name, label))
 
 
-def locate_with_scroll(platform, driver, el: dict, max_rounds: int = 8):
+def locate_with_scroll(ctx, platform, driver, el: dict, max_rounds: int = 8):
     """
     用 class + 文字查，查不到就自己捲動、每輪重查同一條查詢：
       - 剛好 1 個 → 直接用
@@ -73,7 +72,7 @@ def locate_with_scroll(platform, driver, el: dict, max_rounds: int = 8):
     def _scroll_search(area: dict, area_name: str):
         previous_source = None
         for round_index in range(1, max_rounds + 1):
-            raise_if_stopped()
+            ctx.raise_if_stopped()
             moved = platform.scroll_once(driver, area, "down")
             if moved is False:
                 print(f"    [XPath+捲動] {area_name} 已經捲不動了，停止")
@@ -148,14 +147,14 @@ def locate_by_anchor(platform, driver, el: dict):
     return closest
 
 
-def locate_generated_element(platform, driver, el: dict):
+def locate_generated_element(ctx, platform, driver, el: dict):
     """無 native id 元件的定位，順序見模組說明。找不到回傳 None，呼叫端改用座標"""
     label = el.get("label", "")
     if not label:
         print("    [定位] label 為空，直接改用座標")
         return None
 
-    matched = locate_with_scroll(platform, driver, el)
+    matched = locate_with_scroll(ctx, platform, driver, el)
     source = "XPath（含捲動）"
     if matched is None:
         matched = locate_by_anchor(platform, driver, el)

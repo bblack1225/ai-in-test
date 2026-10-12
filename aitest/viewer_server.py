@@ -48,6 +48,7 @@ Handler._request_allowed），其他網站沒辦法借你的瀏覽器操作手�
 import argparse
 import base64
 import binascii
+import copy
 import json
 import mimetypes
 import signal
@@ -72,9 +73,6 @@ from aitest.core.run_test_case import (
     run_assert_visible,
     run_step_in_case,
     run_tap,
-    set_dismiss_dialogs,
-    set_run_vars,
-    set_stop_checker,
     should_wait_after,
     try_dismiss_dialogs,
     wait_after_action,
@@ -82,6 +80,7 @@ from aitest.core.run_test_case import (
 )
 from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
 from aitest.platforms import PLATFORMS, get_platform
+from aitest.run_context import LLMUsage, RunContext
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8767
@@ -111,14 +110,38 @@ driver = None
 _device_lock = threading.Lock()
 _test_running = threading.Event()
 _stop_requested = threading.Event()
-# 測案執行的即時進度：/run_test_script 是同步請求，要跑完才回傳，所以另外開
-# GET /test_progress 讓 viewer 執行中輪詢，看到目前跑到第幾步、已完成步驟的結果。
-# results 跟 run_test_script 共用同一個 list，_run_steps 每做完一步就會 append。
-_progress = {"running": False, "current": None, "total": 0, "results": [], "precheck": None}
-# 批次執行（/run_batch）的即時進度，GET /batch_progress 輪詢用；結構見 run_batch()
-_batch_progress = {"running": False, "groups": [], "current": None}
-# 讓捲動搜尋這類長迴圈也能被停止中斷（見 run_test_case.raise_if_stopped）
-set_stop_checker(_stop_requested.is_set)
+# 測案（/run_test_script）、批次（/run_batch）的即時進度：這兩個是同步請求，要跑完才回傳，
+# 所以另外開 GET /test_progress、/batch_progress 讓 viewer 執行中輪詢。進度存在每次執行自己的
+# RunContext.progress 裡（讀寫都經過 ctx.lock），這裡只記「最近一次」是哪個 ctx，跑完也留著，
+# 讓最後一次輪詢看得到 running=False 和完整結果
+_IDLE_PROGRESS = {
+    "test": {"running": False, "current": None, "total": 0, "results": [], "precheck": None},
+    "batch": {"running": False, "groups": [], "current": None},
+}
+_latest_runs: dict = {"test": None, "batch": None}
+_latest_runs_lock = threading.Lock()
+
+
+def _new_ctx(**values) -> RunContext:
+    """這支伺服器每個操作手機的請求都建一份新的 RunContext；按「⏹ 停止」會讓它的 raise_if_stopped() 丟出例外"""
+    return RunContext(stop_checker=_stop_requested.is_set, **values)
+
+
+def _register_run(kind: str, ctx: RunContext) -> None:
+    with _latest_runs_lock:
+        _latest_runs[kind] = ctx
+
+
+def _progress_snapshot(kind: str) -> dict:
+    with _latest_runs_lock:
+        ctx = _latest_runs[kind]
+    return ctx.progress_snapshot() if ctx is not None else copy.deepcopy(_IDLE_PROGRESS[kind])
+
+
+def _locked_update(ctx: RunContext, target: dict, **values) -> None:
+    """改批次進度裡某一份測案的欄位（網頁輪詢的執行緒同時在讀）"""
+    with ctx.lock:
+        target.update(values)
 
 
 def get_driver(force_reconnect: bool = False):
@@ -160,7 +183,7 @@ def ensure_session_alive():
         get_driver(force_reconnect=True)
 
 
-def _locate_best_effort(driver, el: dict):
+def _locate_best_effort(ctx, driver, el: dict):
     """沿用現成的定位鏈，盡力找出這個元件目前對應的畫面元素，找不到就回傳 None。"""
     if el.get("custom_xpath"):
         try:
@@ -176,7 +199,7 @@ def _locate_best_effort(driver, el: dict):
             return driver.find_element(PLATFORM.native_by, el["native_id"])
         except NoSuchElementException:
             return None
-    return PLATFORM.locate_generated_element(driver, el)
+    return PLATFORM.locate_generated_element(ctx, driver, el)
 
 
 def inspect_element(el: dict, max_levels: int = 8) -> dict:
@@ -187,7 +210,7 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
     找不到起點時回傳 found=False，前端會提示使用者確認手機畫面是否正確。
     """
     d = get_driver()
-    matched = _locate_best_effort(d, el)
+    matched = _locate_best_effort(_new_ctx(), d, el)
     if matched is None:
         return {"found": False, "ancestors": []}
 
@@ -297,11 +320,12 @@ def agent_generate_xpath(el: dict) -> dict:
     跟人工「重新定義」流程最後都要先「測試查詢」才能存檔是同一個精神。
     """
     d = get_driver()
+    ctx = _new_ctx()
 
     # 有現成定位邏輯找得到的話，拿它的即時座標當作驗證 LLM 答案對不對的基準；
     # 找不到也沒關係（這正是需要 AI 救援的情境），只是少了位置校驗這一層防呆
     ground_truth_bounds = None
-    matched = _locate_best_effort(d, el)
+    matched = _locate_best_effort(ctx, d, el)
     if matched is not None:
         ground_truth_bounds = {"x": matched.location["x"], "y": matched.location["y"]}
 
@@ -322,6 +346,7 @@ def agent_generate_xpath(el: dict) -> dict:
         prompt = _build_agent_xpath_prompt(target_info, page_source, feedback)
         try:
             response = generate_content_with_retry(
+                usage=ctx.usage,
                 model=LLM_MODEL,
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json"),
@@ -373,9 +398,10 @@ def agent_generate_xpath(el: dict) -> dict:
                 continue
 
         log.append(f"第{attempt}次：「{candidate}」驗證通過")
-        return {"success": True, "xpath": candidate, "attempts": attempt, "log": log}
+        return {"success": True, "xpath": candidate, "attempts": attempt, "log": log, "usage": ctx.usage.as_dict()}
 
-    return {"success": False, "xpath": last_xpath, "attempts": AGENT_XPATH_MAX_ATTEMPTS, "log": log}
+    return {"success": False, "xpath": last_xpath, "attempts": AGENT_XPATH_MAX_ATTEMPTS, "log": log,
+            "usage": ctx.usage.as_dict()}
 
 
 # ---------------------------------------------------------------------------
@@ -494,17 +520,6 @@ unique_id/id_source/class/label/description 這幾個欄位）：
 """
 
 
-def _usage_info(response) -> dict | None:
-    usage = getattr(response, "usage_metadata", None)
-    if not usage:
-        return None
-    return {
-        "prompt_tokens": usage.prompt_token_count,
-        "output_tokens": usage.candidates_token_count,
-        "total_tokens": usage.total_token_count,
-    }
-
-
 # /llm_chat 的附件：Gemini 能直接讀的圖片、PDF 原封不動交給它；純文字類解碼後當文字送
 # （比當成檔案送穩定，CSV/JSON/Markdown 都適用）。Word/Excel 這類 Gemini 讀不了，前端就擋掉
 LLM_ATTACHMENT_BINARY_TYPES = {"image/png", "image/jpeg", "image/webp", "application/pdf"}
@@ -557,8 +572,10 @@ def run_llm_chat(payload: dict) -> dict:
         return {"error": f"附件讀取失敗：{e}"}
     attachment_count = sum(len(m.get("attachments") or []) for m in messages)
 
+    usage = LLMUsage()  # 這一輪對話自己的用量，跟同時在跑的掃描、其他對話分開算
     try:
         response = generate_content_with_retry(
+            usage=usage,
             model=LLM_MODEL,
             contents=contents,
             config=types.GenerateContentConfig(temperature=0.3, system_instruction=system_prompt),
@@ -566,13 +583,9 @@ def run_llm_chat(payload: dict) -> dict:
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
-    usage_info = _usage_info(response)
-    if usage_info:
-        print(f"[llm_chat token用量] prompt={usage_info['prompt_tokens']} "
-              f"output={usage_info['output_tokens']} total={usage_info['total_tokens']}"
-              f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料、{attachment_count} 個附件）")
-
-    return {"reply": (response.text or "").strip(), "usage": usage_info}
+    print(f"[llm_chat token用量] {usage.summary()}"
+          f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料、{attachment_count} 個附件）")
+    return {"reply": (response.text or "").strip(), "usage": usage.as_dict()}
 
 
 # ---------------------------------------------------------------------------
@@ -634,8 +647,10 @@ def llm_generate_scenarios(payload: dict) -> dict:
     except ValueError as e:
         return {"error": str(e)}
 
+    usage = LLMUsage()
     try:
         response = generate_content_with_retry(
+            usage=usage,
             model=LLM_MODEL_PRO,
             contents=prompt,
             config=types.GenerateContentConfig(temperature=0.4, response_mime_type="application/json"),
@@ -643,11 +658,8 @@ def llm_generate_scenarios(payload: dict) -> dict:
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
-    usage_info = _usage_info(response)
-    if usage_info:
-        print(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] prompt={usage_info['prompt_tokens']} "
-              f"output={usage_info['output_tokens']} total={usage_info['total_tokens']}"
-              f"（{len(screens_context)} 個畫面的精簡資料）")
+    usage_info = usage.as_dict()
+    print(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] {usage.summary()}（{len(screens_context)} 個畫面的精簡資料）")
 
     try:
         parsed = json.loads((response.text or "").strip())
@@ -681,42 +693,42 @@ def run_test_script(payload: dict) -> dict:
         return {"error": f"變數檔讀不到：{e}"}
 
     d = get_driver()
-    results = []
-    _stop_requested.clear()
-    _progress.update(running=True, current=0, total=len(steps), results=results, precheck=None)
-    _test_running.set()
-    set_dismiss_dialogs(payload.get("dismiss_dialogs", False))
     merged = {}
     for name in var_names:  # 後面選的蓋前面的
         merged.update(var_files[name])
-    set_run_vars(merged, var_names)
+    ctx = _new_ctx(dismiss_dialogs=bool(payload.get("dismiss_dialogs", False)))
+    ctx.set_vars(merged, var_names)
+    results = []
+    ctx.progress = {"running": True, "current": 0, "total": len(steps), "results": results, "precheck": None}
+    _stop_requested.clear()
+    _register_run("test", ctx)
+    _test_running.set()
     try:
         with PLATFORM.page_source_context(d):
             # 開始前先關掉擋在前面的彈窗（例如一進 App 就跳的 Root／USB 偵錯警告）：彈窗是 App 裡的一層
             # 覆蓋時，底下的元件還找得到，第一步的 tap 會「成功」點在遮罩上，等不到步驟失敗再處理
-            dismissed = try_dismiss_dialogs(PLATFORM, d)
+            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d)
             if payload.get("check_screen", True):
-                precheck = _precheck_screen(d, steps, screens_by_name)
+                precheck = _precheck_screen(ctx, d, steps, screens_by_name)
             else:
                 precheck = {"status": "skipped", "screen_name": None, "message": "已略過執行前的畫面檢查"}
             if dismissed:
                 precheck["message"] = with_dismiss_note(precheck["message"], dismissed)
-            _progress["precheck"] = precheck
+            ctx.update_progress(precheck=precheck)
             print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
             if precheck["status"] == "fail":
                 results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
                            for i, step in enumerate(steps, 1)]
+                ctx.update_progress(results=results)
             else:
-                _run_steps(d, steps, screens_by_name, results)
+                _run_steps(ctx, d, steps, screens_by_name, results, track_current=True)
     finally:
-        set_dismiss_dialogs(False)
-        set_run_vars(None)
         _test_running.clear()
-        _progress.update(running=False, current=None)
-    return {"results": results, "stopped": _stop_requested.is_set(), "precheck": precheck}
+        ctx.update_progress(running=False, current=None)
+    return {"results": results, "stopped": ctx.stopped(), "precheck": precheck}
 
 
-def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
+def _precheck_screen(ctx, d, steps: list, screens_by_name: dict) -> dict:
     """
     第0步：確認手機目前停在第一步要操作的畫面上。忘了先把手機導回起始畫面時，
     每一步都會找不到元件、把畫面上的容器一個一個捲過一輪（很久），最後還會退回
@@ -735,7 +747,7 @@ def _precheck_screen(d, steps: list, screens_by_name: dict) -> dict:
     if status == "fail":
         # 畫面對不上可能只是被非預期彈窗蓋住（例如一打開 App 就跳的公告）：
         # 勾選了自動關閉彈窗時，關掉再檢查一次，不然整份測案會直接 SKIP，輪不到步驟失敗時的處理
-        dismissed = try_dismiss_dialogs(PLATFORM, d)
+        dismissed = try_dismiss_dialogs(ctx, PLATFORM, d)
         if dismissed:
             status, message = check_current_screen(PLATFORM, d, screen_name, screen.get("elements", []))
             message = with_dismiss_note(message, dismissed)
@@ -750,26 +762,34 @@ def _step_result(i: int, step: dict, outcome: str) -> dict:
     }
 
 
-def _run_steps(d, steps: list, screens_by_name: dict, results: list):
+def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_current: bool = False):
+    """
+    逐步執行，每做完一步就把結果 append 到 results（results 是 ctx.progress 裡的 list，網頁輪詢看得到）。
+    track_current：單份測案執行時把「目前第幾步」寫進 ctx.progress["current"]；批次執行的 current
+    是「第幾組第幾份」，不能被蓋掉
+    """
     banner_outcomes = {}
     for i, step in enumerate(steps, 1):
-        if _stop_requested.is_set():
-            results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
+        if ctx.stopped():
+            with ctx.lock:
+                results.append(_step_result(i, step, "SKIP（使用者已停止測試）"))
             continue
 
-        _progress["current"] = i
+        if track_current:
+            ctx.update_progress(current=i)
         print(f"[測案執行] 第{i}/{len(steps)}步：{step.get('action')} {step.get('target')}")
         screen = screens_by_name.get(step.get("screen_name"))
         el = None
         if screen is not None:
             el = next((e for e in screen.get("elements", []) if e.get("unique_id") == step.get("target")), None)
         try:
-            outcome = run_step_in_case(PLATFORM, d, steps, i, el, banner_outcomes)
+            outcome = run_step_in_case(ctx, PLATFORM, d, steps, i, el, banner_outcomes)
         except StopRequested:
             outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
-        results.append(_step_result(i, step, outcome))
+        with ctx.lock:
+            results.append(_step_result(i, step, outcome))
 
-        if should_wait_after(PLATFORM, steps, i) and not _stop_requested.is_set():
+        if should_wait_after(PLATFORM, steps, i) and not ctx.stopped():
             wait_after_action(PLATFORM, d)
 
 
@@ -826,24 +846,24 @@ def run_batch(payload: dict) -> dict:
                   for c in g.get("cases") or []],
     } for g in groups_in]
 
+    # 整批共用一份 ctx：關彈窗開關整批一樣；變數每份測案開始前依它選的檔重新設定（_apply_case_vars）
+    ctx = _new_ctx(dismiss_dialogs=bool(options.get("dismiss_dialogs", False)))
+    ctx.progress = {"running": True, "groups": groups, "current": None, "app_id": app_id}
     _stop_requested.clear()
-    _batch_progress.update(running=True, groups=groups, current=None, app_id=app_id)
+    _register_run("batch", ctx)
     _test_running.set()
-    set_dismiss_dialogs(options.get("dismiss_dialogs", False))
-    set_run_vars(None)
     # 整批共用：換組不會登出，同一個登入檔不用重登；values 是目前登入那個檔的值
     login = {"name": None, "values": {}, "files": var_files}
     print(f"[批次執行] 開始：{len(groups)} 組地圖、{sum(len(g['cases']) for g in groups)} 份測案，App：{app_id}")
     try:
         with PLATFORM.page_source_context(d):
             for gi, (g_in, g_out) in enumerate(zip(groups_in, groups)):
-                _run_batch_group(d, gi, g_in, g_out, app_id, auto_navigate, options.get("allow_restart", True), login)
+                _run_batch_group(ctx, d, gi, g_in, g_out, app_id, auto_navigate,
+                                 options.get("allow_restart", True), login)
     finally:
-        set_dismiss_dialogs(False)
-        set_run_vars(None)
         _test_running.clear()
-        _batch_progress.update(running=False, current=None)
-    return {"groups": groups, "stopped": _stop_requested.is_set(), "app_id": app_id}
+        ctx.update_progress(running=False, current=None)
+    return {"groups": groups, "stopped": ctx.stopped(), "app_id": app_id}
 
 
 def _case_login(c: dict) -> str | None:
@@ -868,16 +888,16 @@ def _load_var_files(project_id: str | None, names: list[str]) -> dict | None:
     return files
 
 
-def _apply_case_vars(login: dict, var_names: list[str], extra_login: tuple | None = None) -> None:
+def _apply_case_vars(ctx, login: dict, var_names: list[str], extra_login: tuple | None = None) -> None:
     """依優先順序合併：登入檔 → vars（後面的蓋前面的）；extra_login 是正要切換的 (名稱, 值)"""
     login_name, login_values = extra_login or (login["name"], login["values"])
     merged = dict(login_values)
     for name in var_names:
         merged.update(login["files"][name])
-    set_run_vars(merged, ([login_name] if login_name else []) + var_names)
+    ctx.set_vars(merged, ([login_name] if login_name else []) + var_names)
 
 
-def _switch_login(navigator: Navigator, name: str, var_names: list[str], has_setup: bool,
+def _switch_login(ctx, navigator: Navigator, name: str, var_names: list[str], has_setup: bool,
                   login: dict, log: list) -> str | None:
     """重開 App、用這個登入檔跑登入測案；成功回傳 None，失敗回傳要顯示的原因"""
     if not has_setup:
@@ -885,14 +905,14 @@ def _switch_login(navigator: Navigator, name: str, var_names: list[str], has_set
     log.append(f"切換登入：{login['name'] or '目前狀態不明'} → {name}")
     values = login["files"][name]
     login.update(name=None, values={})  # 登入成功前都算不知道目前是誰
-    _apply_case_vars(login, var_names, (name, values))
+    _apply_case_vars(ctx, login, var_names, (name, values))
     if not navigator.restart_app(log):
         return f"用「{name}」登入失敗"
     login.update(name=name, values=values)
     return None
 
 
-def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate: bool, allow_restart: bool,
+def _run_batch_group(ctx, d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate: bool, allow_restart: bool,
                      login: dict):
     index = MapIndex(g_in.get("map") or {})
     screens_by_name = index.screens_for_execution()
@@ -903,65 +923,66 @@ def _run_batch_group(d, gi: int, g_in: dict, g_out: dict, app_id, auto_navigate:
     def run_setup():
         steps = (setup.get("case") or {}).get("steps", [])
         results = []
-        _run_steps(d, steps, setup_screens, results)
+        _run_steps(ctx, d, steps, setup_screens, results)
         failed = [r for r in results if r["outcome"].startswith("FAIL")]
         summary = f"{len(results) - len(failed)}/{len(results)} 步通過"
         if failed:
             summary += f"，第 {failed[0]['index']} 步失敗：{failed[0]['outcome']}"
         return not failed, summary
 
-    navigator = Navigator(PLATFORM, d, app_id, run_setup=run_setup if setup else None,
+    navigator = Navigator(ctx, PLATFORM, d, app_id, run_setup=run_setup if setup else None,
                           # 登入頁在另一張地圖時，導航用的這張地圖認不出登入頁，不做「停在登入頁先登入」
                           setup_start=_first_screen((setup or {}).get("case", {}).get("steps", [])) if setup and not setup_map else None,
                           allow_restart=allow_restart)
 
     for ci, (c_in, c_out) in enumerate(zip(g_in.get("cases") or [], g_out["cases"])):
         steps = (c_in.get("case") or {}).get("steps", [])
-        if _stop_requested.is_set():
-            c_out.update(status="skip", reason="使用者已停止")
+        if ctx.stopped():
+            _locked_update(ctx, c_out, status="skip", reason="使用者已停止")
             continue
-        _batch_progress["current"] = {"group": gi, "case": ci}
-        c_out["status"] = "running"
+        ctx.update_progress(current={"group": gi, "case": ci})
+        _locked_update(ctx, c_out, status="running")
         started = time.time()
         print(f"[批次執行] 第 {gi + 1} 組第 {ci + 1} 份：{c_out['name']}")
 
         start_screen = _first_screen(steps)
         try:
-            dismissed = try_dismiss_dialogs(PLATFORM, d)  # 同 run_test_script：開始前先關掉擋在前面的彈窗
+            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d)  # 同 run_test_script：開始前先關掉擋在前面的彈窗
             if dismissed:
                 c_out["navigation"].append(f"畫面上有彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
             login_name, var_names = _case_login(c_in), c_in.get("vars") or []
             unreadable = [n for n in [login_name, *var_names] if n and login["files"].get(n) is None]
             if unreadable:
-                c_out.update(status="skip", reason=f"變數檔讀不到（可能已改名或刪除）：{'、'.join(unreadable)}",
-                             duration=round(time.time() - started, 1))
+                _locked_update(ctx, c_out, status="skip",
+                               reason=f"變數檔讀不到（可能已改名或刪除）：{'、'.join(unreadable)}",
+                               duration=round(time.time() - started, 1))
                 continue
             if login_name and login_name != login["name"]:
-                failed = _switch_login(navigator, login_name, var_names, bool(setup), login, c_out["navigation"])
+                failed = _switch_login(ctx, navigator, login_name, var_names, bool(setup), login, c_out["navigation"])
                 if failed:
-                    c_out.update(status="skip", reason=failed, duration=round(time.time() - started, 1))
+                    _locked_update(ctx, c_out, status="skip", reason=failed, duration=round(time.time() - started, 1))
                     continue
-            _apply_case_vars(login, var_names)
+            _apply_case_vars(ctx, login, var_names)
             if auto_navigate and start_screen:
                 if not navigator.navigate_to(index, start_screen, c_out["navigation"]):
-                    c_out.update(status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」",
-                                 duration=round(time.time() - started, 1))
+                    _locked_update(ctx, c_out, status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」",
+                                   duration=round(time.time() - started, 1))
                     continue
             else:
-                c_out["precheck"] = _precheck_screen(d, steps, screens_by_name)
+                _locked_update(ctx, c_out, precheck=_precheck_screen(ctx, d, steps, screens_by_name))
                 if c_out["precheck"]["status"] == "fail":
-                    c_out.update(status="skip", reason="第0步畫面檢查沒通過",
-                                 duration=round(time.time() - started, 1))
+                    _locked_update(ctx, c_out, status="skip", reason="第0步畫面檢查沒通過",
+                                   duration=round(time.time() - started, 1))
                     continue
-            _run_steps(d, steps, screens_by_name, c_out["results"])
+            _run_steps(ctx, d, steps, screens_by_name, c_out["results"])
         except StopRequested:
-            c_out["reason"] = "使用者已停止"
+            _locked_update(ctx, c_out, reason="使用者已停止")
         except Exception as e:
             # 導航途中 Appium 出錯之類的：只影響這一份，記下原因接著跑下一份
-            c_out["reason"] = f"執行時發生錯誤：{type(e).__name__}：{e}"
+            _locked_update(ctx, c_out, reason=f"執行時發生錯誤：{type(e).__name__}：{e}")
         crashed = (c_out["reason"] or "").startswith("執行時發生錯誤")
-        c_out["status"] = "fail" if crashed else _case_status(c_out["results"], _stop_requested.is_set())
-        c_out["duration"] = round(time.time() - started, 1)
+        _locked_update(ctx, c_out, status="fail" if crashed else _case_status(c_out["results"], ctx.stopped()),
+                       duration=round(time.time() - started, 1))
 
 
 def stop_test_script() -> dict:
@@ -994,11 +1015,12 @@ def do_scan_screen(payload: dict) -> dict:
         project = WORKSPACE.get_project(project_id)
         if project["platform"] != PLATFORM.name:
             return {"error": f"專案「{project_id}」是 {project['platform']}，但伺服器目前接的是 {PLATFORM.name}"}
-    screen_data = scan_screen(PLATFORM, get_driver(), screen_name,
+    ctx = _new_ctx()
+    screen_data = scan_screen(ctx, PLATFORM, get_driver(), screen_name,
                               describe=bool(payload.get("describe", False)),
                               scroll=bool(payload.get("scroll", True)),
                               wait_stable=True, out_dir=out_dir)
-    return {"screen_data": screen_data}
+    return {"screen_data": screen_data, "usage": ctx.usage.as_dict()}
 
 
 # ---------------------------------------------------------------------------
@@ -1027,11 +1049,12 @@ def describe_saved_screen(payload: dict) -> dict:
 
     native = [e for e in elements if e.get("id_source") == "native" and e.get("native_id")]
     generated = [e for e in elements if e not in native]
-    native_desc = describe_native_elements(platform, screen_name, [
+    ctx = RunContext()  # 不碰手機，只用來累計這次補描述的 LLM 用量
+    native_desc = describe_native_elements(ctx, platform, screen_name, [
         {"native_id": e["native_id"], "class": e.get("class"), "label": e.get("label"), "value": e.get("value")}
         for e in native])
     temp_ids = [f"e{i}" for i in range(len(generated))]
-    generated_desc = describe_generated_elements(platform, screen_name, screenshot_png, available, [
+    generated_desc = describe_generated_elements(ctx, platform, screen_name, screenshot_png, available, [
         {"class": e.get("class"), "label": e.get("label"), "bounds": e.get("bounds"),
          "position_bucket": (e.get("fingerprint") or {}).get("position_bucket"),
          "nearby_text": (e.get("fingerprint") or {}).get("nearby_text")}
@@ -1045,7 +1068,8 @@ def describe_saved_screen(payload: dict) -> dict:
     for tid, e in zip(temp_ids, generated):
         if generated_desc.get(tid):
             descriptions[e["unique_id"]] = generated_desc[tid]
-    return {"descriptions": descriptions}
+    print(f"[補描述] {screen_name} 的 LLM 用量：{ctx.usage.summary()}")
+    return {"descriptions": descriptions, "usage": ctx.usage.as_dict()}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1124,10 +1148,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok", "platform": PLATFORM.name})
             return
         if path == "/test_progress":
-            self._send_json(200, {**_progress, "results": list(_progress["results"])})
+            self._send_json(200, _progress_snapshot("test"))
             return
         if path == "/batch_progress":
-            self._send_json(200, json.loads(json.dumps(_batch_progress, ensure_ascii=False, default=str)))
+            self._send_json(200, json.loads(json.dumps(_progress_snapshot("batch"), ensure_ascii=False, default=str)))
             return
         if path == "/llm_scenarios_prompt":
             self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
@@ -1311,9 +1335,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, path: str, payload: dict) -> dict:
         if path == "/tap":
-            return {"result": run_tap(PLATFORM, get_driver(), payload)}
+            return {"result": run_tap(_new_ctx(), PLATFORM, get_driver(), payload)}
         if path == "/assert_visible":
-            return {"result": run_assert_visible(PLATFORM, get_driver(), payload)}
+            return {"result": run_assert_visible(_new_ctx(), PLATFORM, get_driver(), payload)}
         if path == "/inspect":
             return inspect_element(payload)
         if path == "/test_xpath":

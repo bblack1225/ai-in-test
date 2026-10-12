@@ -36,3 +36,6 @@ transient_captures/
 
 # 範例專案 zip：含 App 截圖，不放進公開的 repo，需要的團隊另外提供
 demo/
+
+# Claude Code 本機預覽伺服器設定（各人電腦不同）
+.claude/launch.json

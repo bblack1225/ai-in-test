@@ -39,7 +39,7 @@ from selenium.common.exceptions import (
     WebDriverException,
 )
 
-from aitest.common import raise_if_stopped, xpath_literal
+from aitest.common import xpath_literal
 from aitest.config import android_capabilities
 from aitest.platforms import locate
 from aitest.platforms.base import (
@@ -359,11 +359,12 @@ def _near_miss_selector(texts: list[str]) -> str | None:
     return f'new UiSelector().textMatches("(?s).*({"|".join(grams)}).*")'
 
 
-# prepare_banner_watch() 提早打開 enableMultiWindows 前的原始設定，watch_banner 結束時用它還原
-_pre_watch_settings = None
+# prepare_banner_watch() 提早打開 enableMultiWindows 前的原始設定存在 ctx.platform_state 的這個 key，
+# watch_banner 結束時用它還原（平台物件是共用的，同一次執行的狀態要放在 ctx）
+_PRE_WATCH_SETTINGS = "android_pre_watch_settings"
 
 
-def prepare_banner_watch(driver) -> None:
+def prepare_banner_watch(ctx, driver) -> None:
     """
     觸發跑馬燈的那一步（送出委託）之前先打開 enableMultiWindows。
 
@@ -372,11 +373,10 @@ def prepare_banner_watch(driver) -> None:
     推測是監看開始那一刻才打開 enableMultiWindows，無障礙服務重新設定還沒好、跑馬燈的視窗
     剛好在這段時間建立就沒被追蹤到；所以提早在點擊前打開，讓它有時間準備
     """
-    global _pre_watch_settings
     try:
         current = driver.get_settings()
-        if _pre_watch_settings is None:
-            _pre_watch_settings = {k: current[k] for k in ("enableMultiWindows",) if k in current}
+        ctx.platform_state.setdefault(_PRE_WATCH_SETTINGS,
+                                      {k: current[k] for k in ("enableMultiWindows",) if k in current})
         driver.update_settings({"enableMultiWindows": True})
     except InvalidSessionIdException:
         raise
@@ -384,7 +384,7 @@ def prepare_banner_watch(driver) -> None:
         print(f"    [跑馬燈] 提早打開 enableMultiWindows 失敗：{type(e).__name__}")
 
 
-def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval: float = 0.1,
+def watch_banner(ctx, driver, texts: list[str], timeout: float = 10.0, poll_interval: float = 0.1,
                  slow_source: float = 0.3) -> tuple[dict, dict, str]:
     """
     盯著畫面等跑馬燈/通知橫幅，比照 iOS 版（platforms/ios.watch_banner），回傳
@@ -446,11 +446,10 @@ def watch_banner(driver, texts: list[str], timeout: float = 10.0, poll_interval:
                     found[t] = label
                     seen_at[t] = when
 
-    global _pre_watch_settings
     original = driver.get_settings()
-    if _pre_watch_settings is not None:  # 點擊前就打開了，還原成打開之前的值
-        original.update(_pre_watch_settings)
-        _pre_watch_settings = None
+    pre_watch = ctx.platform_state.pop(_PRE_WATCH_SETTINGS, None)
+    if pre_watch is not None:  # 點擊前就打開了，還原成打開之前的值
+        original.update(pre_watch)
     driver.update_settings({"waitForIdleTimeout": 0, "enableMultiWindows": True})
     window_refreshes, next_refresh_at = 0, None
     last_source = None
@@ -579,7 +578,7 @@ def _find_edit_text(element):
     return inner[0] if inner else element
 
 
-def focus_input(driver, element, timeout: float = 3.0):
+def focus_input(ctx, driver, element, timeout: float = 3.0):
     """
     回傳 (真正能打字的輸入框, 是不是點開後才出現的)。元件本身是（或包著）EditText 就直接用；
     不是的話（例如顯示股數的 TextView，點了才從底部跳出輸入列）先點一下，再等取得焦點的
@@ -591,7 +590,7 @@ def focus_input(driver, element, timeout: float = 3.0):
     element.click()
     deadline = time.time() + timeout
     while True:
-        raise_if_stopped()
+        ctx.raise_if_stopped()
         focused = driver.find_elements(AppiumBy.XPATH, "//android.widget.EditText[@focused='true']")
         if focused:
             print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
@@ -620,11 +619,11 @@ _SLOW_KEY_INTERVAL = 0.25
 _MASK_CHARS = set("*•●·")
 
 
-def _type_by_keycodes(driver, target, value: str, interval: float) -> None:
+def _type_by_keycodes(ctx, driver, target, value: str, interval: float) -> None:
     target.click()
     time.sleep(0.3)  # 等輸入框取得焦點、鍵盤出現
     for c in value:
-        raise_if_stopped()
+        ctx.raise_if_stopped()
         code = _KEYCODES[c]
         keycode, meta = code if isinstance(code, tuple) else (code, 0)
         driver.press_keycode(keycode, metastate=meta or None)
@@ -663,7 +662,7 @@ def _clear_text(driver, target) -> None:
         driver.press_keycode(67)  # KEYCODE_DEL
 
 
-def input_text(driver, element, value: str, submit: bool = False) -> str:
+def input_text(ctx, driver, element, value: str, submit: bool = False) -> str:
     """
     輸入文字。帳號密碼欄位常常擋掉 UiAutomator2 預設的「直接設定文字」（ACTION_SET_TEXT，
     錯誤是 InvalidElementStateException: Cannot set the element to ...），但還是接受
@@ -682,7 +681,7 @@ def input_text(driver, element, value: str, submit: bool = False) -> str:
         by_keys = True
         if unsupported:
             return f"FAIL（輸入框不接受直接設定文字，改用模擬按鍵也打不出這些字元：{''.join(unsupported)}）"
-        _type_by_keycodes(driver, target, value, _KEY_INTERVAL)
+        _type_by_keycodes(ctx, driver, target, value, _KEY_INTERVAL)
         outcome = "PASS（輸入框不接受直接設定文字，改用模擬按鍵逐字輸入）"
 
     actual = _typed_mismatch(target, value)
@@ -691,7 +690,7 @@ def input_text(driver, element, value: str, submit: bool = False) -> str:
             return f"FAIL（輸入後欄位內容是「{actual}」跟要輸入的不一樣，有特殊字元沒辦法改用按鍵重打）"
         print(f"    [輸入] 輸入後內容跟預期不一樣（長度 {len(actual)} / {len(value)}），清掉放慢重打一次")
         _clear_text(driver, target)
-        _type_by_keycodes(driver, target, value, _SLOW_KEY_INTERVAL)
+        _type_by_keycodes(ctx, driver, target, value, _SLOW_KEY_INTERVAL)
         by_keys = True
         actual = _typed_mismatch(target, value)
         if actual is not None:
@@ -1039,8 +1038,8 @@ class AndroidPlatform:
     def locate_fallback(self, driver, el: dict):
         return locate_by_scroll_into_view(driver, el)
 
-    def locate_generated_element(self, driver, el: dict):
-        return locate.locate_generated_element(self, driver, el)
+    def locate_generated_element(self, ctx, driver, el: dict):
+        return locate.locate_generated_element(ctx, self, driver, el)
 
     def ensure_visible(self, driver, element):
         # 定位時已經用「邊捲邊找」把元件捲進畫面，找到的就是可互動的（見模組說明）
@@ -1052,17 +1051,17 @@ class AndroidPlatform:
         print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: clickGesture", {"x": center_x, "y": center_y})
 
-    def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
-        return watch_banner(driver, texts, timeout)
+    def watch_banner(self, ctx, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
+        return watch_banner(ctx, driver, texts, timeout)
 
-    def prepare_banner_watch(self, driver) -> None:
-        prepare_banner_watch(driver)
+    def prepare_banner_watch(self, ctx, driver) -> None:
+        prepare_banner_watch(ctx, driver)
 
-    def focus_input(self, driver, element):
-        return focus_input(driver, element)
+    def focus_input(self, ctx, driver, element):
+        return focus_input(ctx, driver, element)
 
-    def input_text(self, driver, element, value: str, submit: bool = False) -> str:
-        return input_text(driver, element, value, submit)
+    def input_text(self, ctx, driver, element, value: str, submit: bool = False) -> str:
+        return input_text(ctx, driver, element, value, submit)
 
     # --- 跑馬燈監看的錄影（除錯用，見 run_test_case.run_banner_group）---
     def start_capture(self, driver) -> bool:
