@@ -329,9 +329,9 @@ def check_python(r: Report) -> None:
     if v >= (3, 12):
         r.ok(f"Python {v.major}.{v.minor}.{v.micro}")
     else:
-        r.fail(f"Python {v.major}.{v.minor}，需要 3.12 以上", "用 uv run python ... 執行（README 2.2）")
+        r.fail(f"Python {v.major}.{v.minor}，需要 3.12 以上", "用 uv run ... 執行（README 2.2）")
     missing = []
-    for mod in ("appium", "selenium", "PIL", "google.genai"):
+    for mod in ("appium", "selenium", "PIL", "google.genai", "questionary"):
         try:
             __import__(mod)
         except ImportError:
@@ -339,7 +339,7 @@ def check_python(r: Report) -> None:
     if missing:
         r.fail(f"缺少套件：{', '.join(missing)}", "uv sync")
     else:
-        r.ok("套件都裝好了（appium、selenium、pillow、google-genai）")
+        r.ok("套件都裝好了（appium、selenium、pillow、google-genai、questionary）")
 
 
 def check_config(r: Report, platforms: list[str]) -> None:
