@@ -33,3 +33,6 @@ test_cases/
 
 # capture_transient.py 抓到的截圖 / page source（同樣含 App 畫面資料）
 transient_captures/
+
+# 範例專案 zip：含 App 截圖，不放進公開的 repo，需要的團隊另外提供
+demo/

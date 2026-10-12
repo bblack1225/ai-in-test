@@ -34,7 +34,7 @@
 - [x] 步驟 1 漏掉的：`run_test_case.py` 的 `main()` 裡藏的 `platforms` import 移回檔頭
 - [x] README 補上 `common.py`、`scan_core.py`、開發工具（ruff、pytest）
 - [x] 驗證（不用手機）：所有模組可 import、ruff 的 B012／B904／F401 通過、429／503 重試用假的 client 模擬、`aitest.py doctor` 與各 CLI 的 `--help` 正常
-- [ ] 驗證（實機）：`uv run python aitest.py start` 掃描一個畫面、跑一個測案、爬蟲跑一小段
+- [x] 驗證（實機，2026-10-12）：`uv run python aitest.py start` 掃描一個畫面、跑一個測案、爬蟲跑一小段（`--safe_keywords --max_depth 1 --max_screens 3`）
 
 ### 步驟 3：純函式測試（報告 #2） `refactor/add-tests`
 - [x] 補一份 Android 的 page_source 樣本：`tests/fixtures/android_watchlist.xml`，照真實結構手寫的假資料
@@ -89,7 +89,8 @@
 - [ ] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`（獨立一個分支做，不跟搬家混在一起）
 - [x] 驗證（不用手機）：pytest 72 個全過；所有模組 import、7 個指令和 2 個 tools 的 `--help`、`aitest doctor`；
   `aitest-server` 啟動後用瀏覽器開網頁、開專案，地圖與截圖正常、console 沒錯誤；`aitest start` 能啟動伺服器
-- [ ] 驗證（實機）：`uv run aitest start` 掃描、跑測案、爬蟲跑一小段
+- [x] 驗證（實機，2026-10-12）：`uv run aitest start` 掃描、跑測案、爬蟲跑一小段
+- [x] 額外（`feat/start-project-picker`）：`aitest start` 沒帶專案時用方向鍵選專案（questionary），實機驗證過
 
 ### 步驟 7：拆 viewer_server（報告 #8） `refactor/split-server`
 - [ ] `llm/prompts.py`：三個 `build_*_prompt` 和常數字串（CHANGELOG「提示詞優化」有獨立的地方可改）

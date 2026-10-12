@@ -50,6 +50,7 @@
   - 用 uv：直接執行 `uv run aitest start`，uv 會自動裝好新的套件和指令（要手動的話是 `uv sync`）
   - 用 venv + pip：先啟用 `.venv`，再執行 `pip install -e .`（**一定要做**，不然找不到 `aitest` 指令），之後指令前面不加 `uv run`
 - `workspace/`、`config.toml` 不受影響，原本的專案、地圖、測案照常可以用
+- repo 不再附 `demo/` 範例專案 zip（含 App 截圖）；需要範例專案的話請跟維護窗口拿
 
 ### 新功能
 
