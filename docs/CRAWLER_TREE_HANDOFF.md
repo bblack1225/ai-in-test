@@ -35,7 +35,7 @@
 | 項目 | 值 |
 |---|---|
 | 實體手機 | `測試手機 i14`，UDID `00008110-0019098C34A8201E`，iOS 17.5.1 |
-| WDA 簽章 | 2026-09-10 重簽過，**效期到 2026-09-15**（免費帳號 7 天，過期要在 Xcode 重簽，見 `TROUBLESHOOTING.md` 問題 7；重簽帳號是 `kay22223838@gmail.com` / Team `5J7FAZXLYX`） |
+| WDA 簽章 | 2026-09-10 重簽過，**效期到 2026-09-15**（免費帳號 7 天，過期要在 Xcode 重簽，見 `TROUBLESHOOTING.md` 問題 7；用自己的 Apple ID 與 Team ID 重簽） |
 | WDA 專案 | `~/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj`，target `WebDriverAgentRunner`，bundle `com.cfhtest001.WebDriverAgentRunner`，已配置好 signing |
 | Appium | 3.6.0 + xcuitest driver 12.3.2，本 session 起在 :4723（log `/tmp/appium_ios_scan.log`），砍掉重開一個乾淨的即可 |
 | Python | Appium-Python-Client **6.0.0**，`GEMINI_API_KEY` 只在互動式 shell（先 `source ~/.zshrc`） |
