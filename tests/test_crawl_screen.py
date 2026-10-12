@@ -3,6 +3,7 @@
 import pytest
 
 from aitest.core import crawl_app_tree
+from aitest.run_context import RunContext
 
 
 class FakeAnalysis:
@@ -52,7 +53,7 @@ def test_abort_in_child_screen_propagates(monkeypatch):
     platform = FakePlatform()
     recovered = []
 
-    def fake_scan(platform_, driver, name, **kwargs):
+    def fake_scan(ctx, platform_, driver, name, **kwargs):
         if platform.tapped:
             raise crawl_app_tree.CrawlAborted("子畫面偵測到登出")
         return _screen_data(name)
@@ -77,6 +78,6 @@ def test_abort_in_child_screen_propagates(monkeypatch):
     state = {"screens": {}, "edges": [], "skipped": [], "visit_order": []}
 
     with pytest.raises(crawl_app_tree.CrawlAborted):
-        crawl_app_tree.crawl_screen(platform, FakeDriver(), "root", None, None, [], 0, cfg, state)
+        crawl_app_tree.crawl_screen(RunContext(), platform, FakeDriver(), "root", None, None, [], 0, cfg, state)
     assert recovered == ["root"]  # 往上丟之前還是有試著回到原畫面
     assert list(state["screens"]) == ["root"]

@@ -23,7 +23,6 @@ from appium.options.ios import XCUITestOptions
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
-from aitest.common import raise_if_stopped
 from aitest.config import CONFIG, ios_capabilities
 from aitest.platforms import locate
 from aitest.platforms.base import (
@@ -374,7 +373,7 @@ _INPUT_TYPES = ("XCUIElementTypeTextField", "XCUIElementTypeSecureTextField",
                 "XCUIElementTypeTextView", "XCUIElementTypeSearchField")
 
 
-def focus_input(driver, element, timeout: float = 3.0):
+def focus_input(ctx, driver, element, timeout: float = 3.0):
     """
     回傳 (真正能打字的輸入框, 是不是點開後才出現的)。元件本身是（或包著）輸入框就直接用；
     不是的話先點一下，再等鍵盤焦點落在某個輸入框上。點了也等不到就回傳 (None, True)
@@ -387,7 +386,7 @@ def focus_input(driver, element, timeout: float = 3.0):
     element.click()
     deadline = time.time() + timeout
     while True:
-        raise_if_stopped()
+        ctx.raise_if_stopped()
         try:
             active = driver.switch_to.active_element
             if active is not None and active.get_attribute("type") in _INPUT_TYPES:
@@ -818,8 +817,8 @@ class IOSPlatform:
     def locate_fallback(self, driver, el: dict):
         return None
 
-    def locate_generated_element(self, driver, el: dict):
-        return locate.locate_generated_element(self, driver, el)
+    def locate_generated_element(self, ctx, driver, el: dict):
+        return locate.locate_generated_element(ctx, self, driver, el)
 
     def ensure_visible(self, driver, element):
         return ensure_visible(driver, element)
@@ -830,13 +829,13 @@ class IOSPlatform:
         print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: tap", {"x": center_x, "y": center_y})
 
-    def watch_banner(self, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
+    def watch_banner(self, ctx, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
         return watch_banner(driver, texts, timeout)
 
-    def focus_input(self, driver, element):
-        return focus_input(driver, element)
+    def focus_input(self, ctx, driver, element):
+        return focus_input(ctx, driver, element)
 
-    def input_text(self, driver, element, value: str, submit: bool = False) -> str:
+    def input_text(self, ctx, driver, element, value: str, submit: bool = False) -> str:
         element.send_keys(value)
         if submit:
             try:
@@ -847,7 +846,7 @@ class IOSPlatform:
                 print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
         return "PASS"
 
-    def prepare_banner_watch(self, driver) -> None:
+    def prepare_banner_watch(self, ctx, driver) -> None:
         pass  # iOS 的 predicate 查詢看得到所有視窗，不用事先準備
 
     def start_capture(self, driver) -> bool:

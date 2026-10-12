@@ -80,14 +80,28 @@
 - [x] 驗證（實機，2026-10-12）：使用者實機測試沒問題
 
 ### 步驟 5：RunContext 與 LLM 用量（報告 #4、CHANGELOG「token 使用量」後端部分） `refactor/run-context`
-- [ ] `RunContext`：vars、var_sources、dismiss_dialogs、stop_checker、progress、usage
-- [ ] `run_test_case`、`navigator`、`platforms/` 改成用參數傳 `ctx`，刪掉全域變數和 `set_xxx()`（不留過渡期）
-- [ ] `common.py` 的全域 `_stop_checker` 刪掉
-- [ ] `platforms/android.py` 的 `_pre_watch_settings` 全域狀態一併處理
-- [ ] `generate_content_with_retry` 把用量累加到傳進來的物件，5 個 LLM 呼叫點都接上
-- [ ] 一次掃描、爬蟲、測案、LLM 對話的用量各自加總，不會互相覆蓋
-- [ ] `_progress`／`_batch_progress` 改成每次執行一份，讀寫加鎖
-- [ ] 驗證：同時跑掃描與 LLM 對話，兩邊用量各自正確
+- [x] `RunContext`：vars、var_sources、dismiss_dialogs、stop_checker、progress、usage
+  - 放在獨立的 `aitest/run_context.py`（連同 `LLMUsage`、`StopRequested`），`common.py` 只留 `xpath_literal`（2026-10-12 決定）
+  - 另外加了兩個原本也是全域的執行狀態：`platform_state`（見下面 Android 那項）、`banner_capture_started`（`run_test_case` 的 `_banner_capture`，跑馬燈錄影開始時間）
+- [x] `run_test_case`、`navigator`、`platforms/` 改成用參數傳 `ctx`（一律放第一個參數，平台方法放在 self 後面），刪掉全域變數和 `set_run_vars`／`set_dismiss_dialogs`（不留過渡期）
+  - `Navigator` 建立時傳一次，存在 `self.ctx`
+  - 爬蟲只有 `crawl`／`crawl_screen` 要 `ctx`（累計 `--describe` 的 LLM 用量），點擊、返回不用
+- [x] `common.py` 的全域 `_stop_checker`、`set_stop_checker`、`raise_if_stopped` 刪掉，改成 `ctx.raise_if_stopped()`
+  - server 的停止旗標 `_stop_requested` 還是一個（同一台手機一次只跑一個測案），每個 ctx 的 stop_checker 指向它
+- [x] `platforms/android.py` 的 `_pre_watch_settings` 全域狀態改存 `ctx.platform_state`（平台物件是整個 server 共用的，不能存在物件上）
+- [x] `generate_content_with_retry(usage=…)` 把用量累加到傳進來的 `LLMUsage`（只算成功的呼叫），5 個 LLM 呼叫點都接上：native 描述、無 id 描述、AI 定位、LLM 對話、情境產生
+- [x] 一次掃描、爬蟲、測案、LLM 對話的用量各自加總，不會互相覆蓋
+  - 回給網頁的 JSON：`/scan_screen`、`/describe_screen`、`/agent_xpath` 新增 `usage`；`/llm_chat`、`/llm_scenarios` 原本就有，多一個 `calls`；`/test_progress`、`/batch_progress` 也帶 `usage`（測案執行目前不會呼叫 LLM，都是 0）
+  - 命令列：`aitest-scan` 結束時印總用量；`aitest-crawl --describe` 結束時印總用量
+- [x] 網頁顯示每次操作的 LLM 用量（2026-10-12 決定只顯示每次的，不做累計）：LLM 對話每則回覆下面、情境產生結果上面、掃描（有勾描述時）、補描述、在根節點上面加一層、AI 定位的結果訊息裡；這次沒呼叫 LLM 就不顯示
+- [x] `_progress`／`_batch_progress` 改成每次執行一份（存在 `ctx.progress`），server 只記最近一次是哪個 ctx；讀（輪詢）時在鎖裡複製一份，寫（步驟結果、批次每份測案的狀態）也在鎖裡
+  - 順便修掉的既有問題：批次執行跑步驟時會把 `/test_progress` 的 current 改成步驟編號（兩種進度共用全域）
+  - 導航過程的 log（`navigation`）append 沒有加鎖：list 的 append 本身不會讓讀的那邊出錯，頂多這次輪詢少看到一行
+- [x] 驗證（不用手機）：網頁用假回應確認情境產生、LLM 對話的用量顯示正常、console 沒錯誤；pytest 107 個全過（新增 `test_run_context.py`：兩個執行緒同時跑「掃描」和「LLM 對話」用量各自正確、同一個用量多執行緒加總、只算成功的呼叫；`test_server_runs.py`：測案進度、執行中輪詢、批次 current 不被蓋掉）；server 實際啟動後 `/ping`、`/test_progress`、`/batch_progress`、`/describe_screen` 正常
+- [x] 驗證（實機，2026-10-12）：使用者實機測試沒問題
+- [x] 實機測試時發現、一起修掉的：
+  - 登入後的「利用生物辨識登入」視窗：關閉非預期彈窗的按鈕清單加上「暫時不用」（Android 比對完整按鈕文字，原本只有「暫時不要」「暫不」），補 `tests/test_dismiss_modal.py`
+  - AI 定位成功後面板重畫、結果訊息（含用量）被清掉：重畫後打開編輯區、把結果放回去
 
 ### 步驟 6：套件化（CHANGELOG「python code 專案結構調整」） `refactor/src-package`
 2026-10-11 決定用根目錄的 `aitest/` 套件，不多包一層 `src/`（分層、避免撞名、console scripts 的好處都拿得到，結構比較簡單）。
@@ -138,7 +152,7 @@
 | 測案編輯與刪除：產出就直接儲存，之後可再編輯、刪除 | 不用新 API。現有的 `/api/projects/<專案>/cases/<名稱>`：GET 讀取、PUT 新增（`?overwrite=1` 覆蓋＝編輯）、DELETE 刪除。寫進 API 文件。注意：`POST …/rename` 目前只開放變數檔，測案不能改名 | [ ] |
 | 可以在網頁上新增專案 | 新增 `POST /api/projects`（建立）、修改專案設定的 API（2026-10-11 決定：網頁也可以建專案，CLI 保留） | [ ] |
 | 新增地圖的方式更直覺 | 地圖的新增、複製、改名、匯入、匯出、刪除 API 已經有，主要是前端操作。寫進 API 文件 | [ ] |
-| token 使用量顯示在網頁上 | 步驟 5 的用量累計＋步驟 8 的進度 API 回傳用量；顯示由前端做 | [ ] |
+| token 使用量顯示在網頁上 | 步驟 5：後端用量累計＋網頁顯示每次操作的用量 | [x] |
 | 自動產生的元件 ID（`gen::…`）容易定位不到 | 這次不做，之後另外處理 | [-] 之後再做 |
 | python code 專案結構調整 | 步驟 6 | [ ] |
 | 地圖節點新增更方便，不一定都要手動建 | 這次不做，之後另外處理 | [-] 之後再做 |
@@ -155,7 +169,7 @@
 | 1 | 爬蟲在應該中止時繼續跑（`finally` 裡的 `break`） | 步驟 2 | [x] |
 | 2 | 沒有自動化測試 | 步驟 3 | [x] |
 | 3 | Gemini 429 不重試 | 步驟 2 | [x] |
-| 4 | 執行期設定放在全域變數 | 步驟 1（部分）、步驟 5 | [ ] |
+| 4 | 執行期設定放在全域變數 | 步驟 1（部分）、步驟 5 | [x] |
 | 5 | 等畫面穩定有三種寫法 | 步驟 4 | [x] |
 | 6 | 爬蟲自己又做了一套平台切換 | 步驟 4 | [x] |
 | 7 | iOS／Android 定位程式複製貼上 | 步驟 4 | [x] |

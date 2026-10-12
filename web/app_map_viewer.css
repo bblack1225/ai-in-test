@@ -194,6 +194,8 @@ svg#tree { display: block; margin: 0 auto; }
 .tap-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
 .tap-result.fail { background: var(--danger-soft); color: var(--danger); }
 .tap-result.pending { background: var(--grey-soft); color: var(--ink-soft); }
+/* 這次操作的 LLM 用量（掃描、補描述、情境產生…）：不搶眼，看得到就好 */
+.usage-line { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; padding: 4px 2px; }
 
 .modal-list-row {
   padding: 7px 9px; border-radius: 8px; background: var(--grey-soft); font-size: calc(11.5px * var(--font-scale)); cursor: pointer; border: 1.5px solid transparent;
@@ -398,6 +400,7 @@ select.plain-select {
 pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
 textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }
 .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: calc(11px * var(--font-scale)); }
+.chat-msg.usage-note { align-self: flex-start; background: transparent; color: var(--ink-soft); padding: 0 4px; font-size: calc(10.5px * var(--font-scale)); font-family: "IBM Plex Mono", monospace; }
 .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: calc(11px * var(--font-scale)); }
 
 .seg-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--paper); }

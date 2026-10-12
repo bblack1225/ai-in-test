@@ -154,8 +154,11 @@ def _retry_after_seconds(error) -> float | None:
     return None
 
 
-def generate_content_with_retry(max_retries=4, base_delay_sec=5, **kwargs):
+def generate_content_with_retry(usage=None, max_retries=4, base_delay_sec=5, **kwargs):
     """
+    usage：這次操作的 LLMUsage（aitest.run_context），呼叫成功就把這次的用量加進去；
+    同一次操作的每個呼叫都傳同一個物件，最後就是這次操作的總用量。
+
     包一層重試邏輯，減少手動重跑的次數：
       - 5xx（ServerError）：Gemini 伺服器端暫時性過載，等幾秒重試
       - 429 每分鐘請求數超過上限：連續掃描很多畫面時常見，等一下就能繼續。
@@ -168,7 +171,7 @@ def generate_content_with_retry(max_retries=4, base_delay_sec=5, **kwargs):
     client = get_llm_client()
     for attempt in range(1, max_retries + 1):
         try:
-            return client.models.generate_content(**kwargs)
+            response = client.models.generate_content(**kwargs)
         except ServerError as e:
             if attempt == max_retries:
                 raise
@@ -179,5 +182,9 @@ def generate_content_with_retry(max_retries=4, base_delay_sec=5, **kwargs):
                 raise
             wait_sec = _retry_after_seconds(e) or base_delay_sec * attempt * 2
             reason = "請求太頻繁（429）"
+        else:
+            if usage is not None:
+                usage.add(response)
+            return response
         print(f"  [警告] Gemini API {reason}（第{attempt}次），{wait_sec:g}秒後重試...")
         time.sleep(wait_sec)

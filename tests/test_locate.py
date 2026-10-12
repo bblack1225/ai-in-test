@@ -4,6 +4,7 @@ import pytest
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
 from aitest.platforms import locate
+from aitest.run_context import RunContext, StopRequested
 
 
 class FakeElement:
@@ -77,7 +78,7 @@ def test_unique_match_without_scrolling():
     target = FakeElement("target")
     platform = FakePlatform()
     driver = FakeDriver([[target]])
-    assert locate.locate_generated_element(platform, driver, EL) is target
+    assert locate.locate_generated_element(RunContext(), platform, driver, EL) is target
     assert platform.scrolled == []
     assert driver.queries == [("fake-by", "Button=刪除")]
 
@@ -86,7 +87,7 @@ def test_scrolls_until_found():
     target = FakeElement("target")
     platform = FakePlatform(moves=[True, True])
     driver = FakeDriver([[], [], [target]])
-    assert locate.locate_generated_element(platform, driver, EL) is target
+    assert locate.locate_generated_element(RunContext(), platform, driver, EL) is target
     # 先捲畫面主要區域（不縮邊界）
     assert platform.scrolled == [{"x": 100, "y": 300, "width": 800, "height": 1400}] * 2
 
@@ -96,7 +97,7 @@ def test_scrollable_regions_are_shrunk_before_scrolling():
     platform = FakePlatform(moves=[False, False],
                             regions=[{"class": "List", "bounds": {"x": 0, "y": 0, "width": 100, "height": 100}}])
     driver = FakeDriver([[]])
-    assert locate.locate_with_scroll(platform, driver, EL) is None
+    assert locate.locate_with_scroll(RunContext(), platform, driver, EL) is None
     assert platform.scrolled[1] == {"x": 5, "y": 20, "width": 90, "height": 60}
 
 
@@ -104,7 +105,7 @@ def test_platform_without_scroll_feedback_compares_page_source():
     """scroll_once 回傳 None（iOS）：捲動前後 page_source 沒變就判定捲不動"""
     platform = FakePlatform(moves=[None] * 10)
     driver = FakeDriver([[]], page_sources=["p1", "p2", "p2"])
-    assert locate.locate_with_scroll(platform, driver, EL) is None
+    assert locate.locate_with_scroll(RunContext(), platform, driver, EL) is None
     assert len(platform.scrolled) == 3
 
 
@@ -112,14 +113,14 @@ def test_ambiguous_match_uses_closest_to_anchor():
     rows = [FakeElement("row1", y=100), FakeElement("row3", y=300), FakeElement("row5", y=500)]
     platform = FakePlatform(anchor=FakeElement("anchor", y=310))
     driver = FakeDriver([rows])
-    assert locate.locate_generated_element(platform, driver, EL).name == "row3"
+    assert locate.locate_generated_element(RunContext(), platform, driver, EL).name == "row3"
     assert platform.scrolled == []  # 查到多個是真的有歧義，不用捲
 
 
 def test_fallback_when_nothing_else_works():
     fallback = FakeElement("fallback")
     platform = FakePlatform(fallback=fallback)
-    assert locate.locate_generated_element(platform, FakeDriver([[]]), EL) is fallback
+    assert locate.locate_generated_element(RunContext(), platform, FakeDriver([[]]), EL) is fallback
 
 
 def test_query_error_counts_as_not_found():
@@ -127,7 +128,7 @@ def test_query_error_counts_as_not_found():
     fallback = FakeElement("fallback")
     platform = FakePlatform(fallback=fallback)
     driver = FakeDriver([WebDriverException("bad selector")])
-    assert locate.locate_generated_element(platform, driver, EL) is fallback
+    assert locate.locate_generated_element(RunContext(), platform, driver, EL) is fallback
 
 
 def test_session_lost_is_not_treated_as_not_found():
@@ -135,9 +136,18 @@ def test_session_lost_is_not_treated_as_not_found():
     platform = FakePlatform(fallback=FakeElement("fallback"))
     driver = FakeDriver([InvalidSessionIdException("gone")])
     with pytest.raises(InvalidSessionIdException):
-        locate.locate_generated_element(platform, driver, EL)
+        locate.locate_generated_element(RunContext(), platform, driver, EL)
 
 
 def test_empty_label_goes_straight_to_coordinates():
     platform = FakePlatform(fallback=FakeElement("fallback"))
-    assert locate.locate_generated_element(platform, FakeDriver([[]]), {**EL, "label": ""}) is None
+    assert locate.locate_generated_element(RunContext(), platform, FakeDriver([[]]), {**EL, "label": ""}) is None
+
+
+def test_stop_interrupts_scrolling():
+    """使用者按停止：捲動搜尋中途丟出 StopRequested，不會繼續捲、也不會退回座標"""
+    platform = FakePlatform(moves=[True] * 10)
+    ctx = RunContext(stop_checker=lambda: len(platform.scrolled) >= 2)
+    with pytest.raises(StopRequested):
+        locate.locate_generated_element(ctx, platform, FakeDriver([[]]), EL)
+    assert len(platform.scrolled) == 2

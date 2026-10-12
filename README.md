@@ -48,7 +48,8 @@ uv run aitest start foo-ios
 aitest/
   cli.py              指令 aitest（start／doctor）
   config.py           讀 config.toml，組出 Appium 連線設定、提供 Gemini 呼叫
-  common.py           共用小工具（停止旗標、XPath 字串），不 import 專案內其他模組
+  common.py           共用小工具（XPath 字串），不 import 專案內其他模組
+  run_context.py      RunContext：每次執行一份的設定與狀態（變數、停止旗標、進度、LLM 用量）
   viewer_server.py    本機橋接伺服器：提供網頁、API，讓瀏覽器工具能操作手機
   platforms/          iOS／Android 的平台差異（定位、點擊、畫面解析、爬蟲判斷），其他程式只透過這裡取用
     ios.py、android.py  各平台的平台物件（IOSPlatform／AndroidPlatform）
@@ -493,7 +494,8 @@ workspace/projects/foo-demo-ios/
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
 | `config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503、每分鐘上限的 429 自動等待重試；整天額度用完直接報錯）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
-| `common.py` | `StopRequested`／`set_stop_checker()`／`raise_if_stopped()`（網頁按「停止」時讓長迴圈中斷）、`xpath_literal()`。不 import 專案內其他模組，`platforms/` 可以放心用 |
+| `run_context.py` | `RunContext`：一次執行（測案、批次、掃描、爬蟲、LLM 對話…）的設定與狀態——變數、要不要關彈窗、停止旗標（`raise_if_stopped()`，停止時丟 `StopRequested`）、給網頁輪詢的進度、LLM 用量（`LLMUsage`）；每次執行建一份，從呼叫端一路用參數傳下去，同時進行的操作不會互相蓋掉。不 import 專案內其他模組，`platforms/`、`config.py` 可以放心用 |
+| `common.py` | `xpath_literal()`。不 import 專案內其他模組 |
 | `platforms/scan_core.py` | 掃描的共用邏輯：九宮格分區、候選元件的身分 key、讀一輪畫面並合併（`read_and_merge_round()`，垂直捲動和橫向容器收集共用） |
 | `platforms/locate.py` | 無 native id 元件的定位流程（class＋文字查詢 → 自己捲動重查 → 鄰近文字錨點 → 平台的最後備援），iOS／Android 共用；平台只提供查詢方式、捲一次、找錨點、最後備援 |
 | `platforms/base.py` | `wait_until_stable()`（掃描前、跑測案每步之後、爬蟲點擊後共用的等畫面穩定，用真實經過時間計時）、捲動範圍、爬蟲共用規則（對話框按鈕清單、常駐框架範圍、「像不像資料」）。`platforms/` 不 import `core/` |

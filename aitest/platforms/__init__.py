@@ -7,7 +7,7 @@ iOS／Android 平台差異集中在這個套件：掃描（capture_screen_map.py
   base.py             等畫面穩定、捲動範圍、爬蟲共用的規則（對話框按鈕清單、常駐框架範圍…）
   scan_core.py        掃描的合併邏輯（候選元件身分 key、讀一輪畫面並合併）
 
-這個套件只 import aitest.common、aitest.config 和第三方套件，不 import core/。
+這個套件只 import aitest.common、aitest.run_context、aitest.config 和第三方套件，不 import core/。
 """
 
 from aitest.platforms.android import AndroidPlatform
