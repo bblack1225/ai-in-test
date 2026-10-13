@@ -777,6 +777,7 @@
     html += "</div>";
 
     html += '<div class="btn-row"><button class="btn" id="addNodeBtn" title="開啟視窗：在這個畫面選一個元件點擊，把點出來的畫面建成子節點（手動建樹）">🌱 從這裡點出新畫面…</button>' +
+      (currentProject ? '<button class="btn" id="recordStartBtn" title="手機停在這個畫面時，在網頁上一路點下去，換頁就記一步；停止後確認名稱，一次建好所有節點">⏺ 從這裡開始錄製</button>' : "") +
       (s.parent ? "" : '<button class="btn" id="addParentRootBtn" title="這個根節點上面還有一頁（例如 App 一打開的首頁）時，掃描那一頁當新的根節點，把現在這整棵樹接到它底下">⬆ 在上面加一層</button>') +
       '<button class="btn" id="describeScreenBtn" title="用存好的截圖和元件資料幫還沒有描述的元件產生用途描述，不需要接手機；元件 id、自訂 XPath 都不會變">🤖 補 LLM 描述</button>' +
       '<button class="btn danger" id="deleteNodeBtn">🗑 刪除節點（含所有子節點）</button></div>';
@@ -810,6 +811,8 @@
     var shotFrame = detailBody.querySelector(".shot-frame");
     if (shotFrame) shotFrame.addEventListener("click", function () { openModal(s); });
     document.getElementById("addNodeBtn").addEventListener("click", function () { openModal(s, { addNode: true }); });
+    var recordBtn = document.getElementById("recordStartBtn");
+    if (recordBtn) recordBtn.addEventListener("click", function () { openRecording(s); });
     document.getElementById("deleteNodeBtn").addEventListener("click", function () { deleteNode(s.uid); });
     document.getElementById("describeScreenBtn").addEventListener("click", function () { describeScreen(s, this); });
     var addParentBtn = document.getElementById("addParentRootBtn");
@@ -1445,6 +1448,396 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  // ---------------------------------------------------------------
+  // 錄製建樹：在網頁上點手機截圖上的元件框，由程式代點，換頁就記成一個新節點；
+  // 按「停止並確認」改好名稱後，才一次建好所有節點（伺服器端見 aitest/core/recorder.py）
+  // ---------------------------------------------------------------
+  var recordModal = document.getElementById("recordModal");
+  var recordState = null, recordPicked = null, recordBusy = false;
+  var recordReviewNames = {}, recordReviewDeleted = {};
+
+  async function recordPost(path, body) {
+    var res = await fetch(API_BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    var data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+    return data;
+  }
+
+  async function openRecording(s) {
+    if (!currentProject) { alert("錄製要先開啟專案（快照存在專案資料夾裡）"); return; }
+    try {
+      await assertPlatformMatches(API_BASE, mapPlatform());
+      var state = await (await fetch(API_BASE + "/record/state")).json();
+      if (state.active) {
+        var sameMap = state.project === currentProject.id && state.map === currentMapName;
+        var ask = sameMap
+          ? "有一份從「" + state.start.name + "」開始、還沒建立的錄製（" + state.steps.length + " 步）。\n按「確定」繼續那份；按「取消」放棄它，從「" + s.name + "」重新開始。"
+          : "地圖「" + state.project + "／" + state.map + "」有一份還沒建立的錄製（" + state.steps.length + " 步），要放棄它、從這裡重新開始嗎？";
+        if (sameMap && confirm(ask)) { showRecord(state); return; }
+        if (!sameMap && !confirm(ask)) return;
+        await recordPost("/record/cancel");
+      }
+      var btn = document.getElementById("recordStartBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "確認手機畫面中…"; }
+      showRecord(await recordPost("/record/start", {
+        project: currentProject.id, map: currentMapName, screen_uid: s.uid, screen_name: s.name,
+        elements: shortScreenToFull(s).elements
+      }));
+    } catch (err) {
+      alert(failText("無法開始錄製", err, "（viewer_server.py 有啟動嗎？手機是否停在這個畫面？）"));
+    } finally {
+      var b = document.getElementById("recordStartBtn");
+      if (b) { b.disabled = false; b.textContent = "⏺ 從這裡開始錄製"; }
+    }
+  }
+
+  function showRecord(state) {
+    recordState = state;
+    recordPicked = null;
+    document.getElementById("recordRecordView").hidden = false;
+    document.getElementById("recordReviewView").hidden = true;
+    document.getElementById("recordTitle").textContent = "錄製建樹：從「" + state.start.name + "」開始";
+    renderRecord();
+    recordModal.hidden = false;
+  }
+
+  function closeRecord() { recordModal.hidden = true; }
+  document.getElementById("recordCloseBtn").addEventListener("click", closeRecord);
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || recordModal.hidden) return;
+    if (!recordZoom.hidden) { recordZoom.hidden = true; return; }  // 先關放大圖，不要連錄製視窗一起關
+    if (!recordBusy) closeRecord();
+  });
+
+  // 確認清單的縮圖點了放大看
+  var recordZoom = document.getElementById("recordZoom");
+  function zoomRecordShot(src, caption) {
+    document.getElementById("recordZoomImg").src = src;
+    document.getElementById("recordZoomCaption").textContent = caption;
+    recordZoom.hidden = false;
+  }
+  recordZoom.addEventListener("click", function () { recordZoom.hidden = true; });
+
+  function recordStepLabel(n) {
+    if (n === 0) return recordState.start.name;
+    var st = recordState.steps.filter(function (x) { return x.n === n; })[0];
+    return st ? "第 " + n + " 步：" + st.entry_text : "第 " + n + " 步";
+  }
+
+  function renderRecord(messageClass) {
+    var st = recordState, live = st.live;
+    var msg = document.getElementById("recordMessage");
+    msg.textContent = st.message || "";
+    msg.className = "tap-result " + (messageClass || "pending");
+    msg.hidden = !st.message;
+
+    var img = document.getElementById("recordImg");
+    var empty = document.getElementById("recordEmptyStage");
+    document.getElementById("recordStageWrap").hidden = !live;
+    empty.hidden = !!live;
+    if (live) {
+      if (img.getAttribute("src") !== live.screenshot) {
+        img.onload = renderRecordBoxes;
+        img.src = live.screenshot;
+      } else renderRecordBoxes();
+    }
+    renderRecordPicked();
+
+    var host = document.getElementById("recordSteps");
+    host.innerHTML = st.steps.length ? "" : '<div class="empty-hint">還沒有錄到新畫面。點左邊截圖上的元件框，換頁就會記一步。</div>';
+    st.steps.forEach(function (step) {
+      var row = document.createElement("div");
+      row.className = "record-step" + (step.n === st.current ? " current" : "");
+      row.innerHTML = '<img src="' + escapeHtml(step.screenshot) + '" alt="第 ' + step.n + ' 步截圖" title="點圖放大">' +
+        "<div><div><b>" + step.n + ".</b> " + escapeHtml(step.entry_text || "（無文字）") + "</div>" +
+        '<div class="sub">上一層：' + escapeHtml(recordStepLabel(step.parent)) + (step.rounds > 1 ? "；捲動 " + (step.rounds - 1) + " 次" : "") + "</div></div>";
+      row.querySelector("img").addEventListener("click", function () {
+        zoomRecordShot(step.screenshot, "第 " + step.n + " 步：" + (step.entry_text || "（無文字）") + "（上一層：" + recordStepLabel(step.parent) + "）");
+      });
+      host.appendChild(row);
+    });
+    var onStart = st.current === 0 ? '<div class="record-step current"><div><b>手機目前在起點</b>「' + escapeHtml(st.start.name) + "」</div></div>" : "";
+    if (onStart) host.insertAdjacentHTML("afterbegin", onStart);
+    var hasSteps = st.steps.length > 0;
+    recordModal.querySelectorAll('[data-rec-act="merge_last"], [data-rec-act="undo"]').forEach(function (b) { b.disabled = recordBusy || !hasSteps; });
+    recordModal.querySelectorAll('[data-rec-act="swipe-up"], [data-rec-act="swipe-down"]').forEach(function (b) { b.disabled = recordBusy || st.current === null; });
+    recordModal.querySelectorAll('[data-rec-act="back"], [data-rec-act="refresh"]').forEach(function (b) { b.disabled = recordBusy; });
+    document.getElementById("recordStopBtn").disabled = recordBusy || !hasSteps;
+    document.getElementById("recordCancelBtn").disabled = recordBusy;
+  }
+
+  function renderRecordBoxes() {
+    var wrap = document.getElementById("recordStageWrap");
+    wrap.querySelectorAll(".el-box").forEach(function (b) { b.remove(); });
+    var live = recordState && recordState.live;
+    if (!live || !live.w || !live.h) return;
+    var clickableOnly = document.getElementById("recordClickableOnly").checked;
+    var screenArea = live.w * live.h;
+    live.candidates.forEach(function (c) {
+      if (!c.bounds) return;
+      if (clickableOnly && !c.a) return;
+      if ((c.bounds.width * c.bounds.height) / screenArea > 0.45) return; // 排除滿版容器，不然整片蓋住截圖
+      var box = document.createElement("div");
+      box.className = "el-box " + (c.native_id ? "native" : "generated") + (c.i === recordPicked ? " picked" : "") + (c.risky ? " risky" : "");
+      box.style.left = (c.bounds.x / live.w * 100) + "%";
+      box.style.top = (c.bounds.y / live.h * 100) + "%";
+      box.style.width = (c.bounds.width / live.w * 100) + "%";
+      box.style.height = (c.bounds.height / live.h * 100) + "%";
+      box.title = c.label || c.native_id || c.class;
+      box.addEventListener("click", function () {
+        if (recordBusy) return;
+        recordPicked = c.i;
+        renderRecordBoxes();
+        renderRecordPicked();
+      });
+      wrap.appendChild(box);
+    });
+  }
+  document.getElementById("recordClickableOnly").addEventListener("change", renderRecordBoxes);
+
+  function renderRecordPicked() {
+    var host = document.getElementById("recordPickedHost");
+    var live = recordState.live;
+    var c = live && recordPicked !== null ? live.candidates[recordPicked] : null;
+    if (!c) {
+      host.innerHTML = live ? '<div class="empty-hint">點截圖上的框選元件。要輸入資料的話，選輸入框後在這裡打字。</div>' : "";
+      return;
+    }
+    host.innerHTML =
+      '<div class="picked-panel">' +
+      '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml(shortClass(c.class)) + "</span></div>" +
+      '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(c.native_id || "—") + "</span></div>" +
+      '<div class="pk-row"><b>文字</b><span>' + escapeHtml(c.label || c.value || "—") + "</span></div>" +
+      (c.risky ? '<div class="pk-row" style="color:var(--danger);">⚠ 看起來是送出／確認這類按鈕，點擊前會再問一次</div>' : "") +
+      '<div class="btn-row"><button class="btn primary" id="recordTapBtn">👆 點擊</button>' +
+      '<label class="describe-option" style="font-size: calc(11.5px * var(--font-scale));"><input type="checkbox" id="recordForceNew"> 一定會進新畫面（換頁判斷沒抓到時勾）</label></div>' +
+      '<div class="btn-row"><input type="text" id="recordInputValue" class="record-review-name" style="flex:1 1 160px;" placeholder="要輸入的文字">' +
+      '<button class="btn" id="recordInputBtn">⌨ 輸入</button></div>' +
+      "</div>";
+    document.getElementById("recordTapBtn").addEventListener("click", function () {
+      if (c.risky && !confirm("「" + (c.label || c.native_id || c.class) + "」看起來會送出資料或做確認，真的要點嗎？")) return;
+      recordDo("tap", { index: c.i, force_new: document.getElementById("recordForceNew").checked });
+    });
+    document.getElementById("recordInputBtn").addEventListener("click", function () {
+      recordDo("input", { index: c.i, value: document.getElementById("recordInputValue").value });
+    });
+  }
+
+  async function recordDo(act, body) {
+    if (recordBusy) return;
+    recordBusy = true;
+    renderRecord();
+    var msg = document.getElementById("recordMessage");
+    msg.hidden = false;
+    msg.className = "tap-result pending";
+    msg.textContent = { tap: "點擊中，等畫面穩定後記錄…", input: "輸入中…", swipe: "捲動中…", back: "返回中…", refresh: "重新抓畫面中…" }[act] || "處理中…";
+    var failed = false;
+    try {
+      recordState = await recordPost("/record/" + act, body);
+      recordPicked = null;
+      failed = /^(點擊失敗|輸入失敗)/.test(recordState.message || "");
+    } catch (err) {
+      recordState.message = failText("操作失敗", err, "（viewer_server.py 有啟動嗎？）");
+      failed = true;
+    } finally {
+      recordBusy = false;
+      renderRecord(failed ? "fail" : "pass");
+    }
+  }
+
+  recordModal.querySelectorAll("[data-rec-act]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var act = btn.getAttribute("data-rec-act");
+      if (act === "swipe-up" || act === "swipe-down") recordDo("swipe", { direction: act === "swipe-up" ? "up" : "down" });
+      else if (act === "undo" && !confirm("刪掉最後一步的紀錄？（不會把手機帶回去，刪完請在手機上回到要繼續的畫面，再按「重新抓畫面」）")) return;
+      else recordDo(act, {});
+    });
+  });
+
+  document.getElementById("recordCancelBtn").addEventListener("click", async function () {
+    if (!confirm("放棄這次錄製？已錄到的 " + recordState.steps.length + " 步都會丟掉，地圖不會有任何改變。")) return;
+    try { await recordPost("/record/cancel"); } catch (err) { alert(failText("放棄錄製失敗", err, "")); return; }
+    recordState = null;
+    closeRecord();
+  });
+
+  // ---- 停止並確認：每一步一列，改名稱、勾掉不要的，確認後才一次建立 ----
+  function cleanNodeName(t) { return (t || "").replace(/[^\w一-鿿]+/g, "_").replace(/^_+|_+$/g, ""); }
+
+  function defaultRecordNames() {
+    var used = {}, names = {};
+    screens.forEach(function (s) { used[s.name] = true; });
+    var parentName = function (n) { return n === 0 ? recordState.start.name : names[n]; };
+    recordState.steps.forEach(function (st) {
+      var base = cleanNodeName(st.entry_text).slice(0, 40) || "screen";
+      // 跟地圖上已有的名稱重複時，前面加上一層的名稱（超過 40 字從上一層的名稱裁）
+      if (used[base]) base = cleanNodeName(parentName(st.parent)).slice(0, Math.max(0, 40 - base.length - 1)) + "_" + base;
+      var name = base;
+      for (var i = 2; used[name]; i++) name = base + "_" + i;
+      used[name] = true;
+      names[st.n] = name;
+    });
+    return names;
+  }
+
+  document.getElementById("recordStopBtn").addEventListener("click", function () {
+    recordReviewNames = defaultRecordNames();
+    recordReviewDeleted = {};
+    document.getElementById("recordRecordView").hidden = true;
+    document.getElementById("recordReviewView").hidden = false;
+    document.getElementById("recordTitle").textContent = "確認要建立的節點（從「" + recordState.start.name + "」開始）";
+    document.getElementById("recordReviewResult").hidden = true;
+    document.getElementById("recordCommitBtn").disabled = false;
+    renderRecordReview();
+  });
+  document.getElementById("recordBackToRecordBtn").addEventListener("click", function () { showRecord(recordState); });
+
+  function recordParentLabel(n) {
+    if (n === 0) return recordState.start.name + "（起點）";
+    return (recordReviewNames[n] || "") + (recordReviewDeleted[n] ? "（不建立）" : "");
+  }
+
+  function renderRecordReview() {
+    var tbody = document.getElementById("recordReviewRows");
+    tbody.innerHTML = "";
+    recordState.steps.forEach(function (st) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td class="num">' + st.n + "</td>" +
+        '<td><img class="record-thumb" src="' + escapeHtml(st.screenshot) + '" alt="第 ' + st.n + ' 步截圖" title="點圖放大"></td>' +
+        '<td data-parent-of="' + st.n + '">' + escapeHtml(recordParentLabel(st.parent)) + "</td>" +
+        "<td>" + escapeHtml(st.entry_text || "（無文字）") + '<div class="sub mono">' + escapeHtml(shortClass(st.entry_class)) + "</div></td>" +
+        '<td><input type="text" class="record-review-name" value="' + escapeHtml(recordReviewNames[st.n]) + '"></td>' +
+        '<td style="text-align:center;"><input type="checkbox"' + (recordReviewDeleted[st.n] ? " checked" : "") + "></td>";
+      tr.querySelector(".record-thumb").addEventListener("click", function () {
+        zoomRecordShot(st.screenshot, "第 " + st.n + " 步：" + (recordReviewNames[st.n] || st.entry_text) + "（入口：" + (st.entry_text || "無文字") + "）");
+      });
+      tr.querySelector('input[type="text"]').addEventListener("input", function () {
+        recordReviewNames[st.n] = this.value;
+        refreshRecordParentCells();
+      });
+      tr.querySelector('input[type="checkbox"]').addEventListener("change", function () {
+        recordReviewDeleted[st.n] = this.checked;
+        tr.classList.toggle("deleted", this.checked);
+        refreshRecordParentCells();
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function refreshRecordParentCells() {
+    recordState.steps.forEach(function (st) {
+      var cell = document.querySelector('#recordReviewRows [data-parent-of="' + st.n + '"]');
+      if (cell) cell.textContent = recordParentLabel(st.parent);
+    });
+  }
+
+  document.getElementById("recordCommitBtn").addEventListener("click", async function () {
+    var btn = this, resultEl = document.getElementById("recordReviewResult");
+    var kept = recordState.steps.filter(function (st) { return !recordReviewDeleted[st.n]; });
+    var showError = function (text) { resultEl.hidden = false; resultEl.className = "tap-result fail"; resultEl.textContent = text; };
+    if (!kept.length) { showError("全部都勾了不建立，沒有東西可以建"); return; }
+    var names = {}, seen = {};
+    for (var i = 0; i < kept.length; i++) {
+      var name = (recordReviewNames[kept[i].n] || "").trim();
+      if (!name) { showError("第 " + kept[i].n + " 步還沒有名稱"); return; }
+      if (seen[name]) { showError("「" + name + "」用了兩次，請改成不同名稱"); return; }
+      if (screens.some(function (s) { return s.name === name; })) { showError("「" + name + "」地圖上已經有節點在用了，換一個名稱"); return; }
+      seen[name] = true;
+      names[kept[i].n] = name;
+    }
+    var deleted = recordState.steps.filter(function (st) { return recordReviewDeleted[st.n]; }).map(function (st) { return st.n; });
+    var describe = document.getElementById("recordDescribe").checked;
+    btn.disabled = true;
+    resultEl.hidden = false;
+    resultEl.className = "tap-result pending";
+    resultEl.textContent = "建立中（" + kept.length + " 個畫面，每個約 1 秒）…";
+    try {
+      var data = await recordPost("/record/commit", { names: names, deleted: deleted, describe: describe });
+      var created = applyRecordCommit(data);
+      recordState = null;
+      closeRecord();
+      if (created.firstUid) selectScreen(created.firstUid);
+      if (data.describing) watchRecordDescribe(data, created.uidByN);
+      alert("已建立 " + data.screens.length + " 個節點" + (data.describing ? "，LLM 描述在背景產生中（右下角看進度）" : "") +
+        (created.warnings.length ? "\n\n注意：\n" + created.warnings.join("\n") : ""));
+    } catch (err) {
+      showError(failText("建立失敗", err, "（viewer_server.py 有啟動嗎？）"));
+      btn.disabled = false;
+    }
+  });
+
+  // 把伺服器建好的畫面加進地圖：節點、連線都跟「手動加節點＋掃描」建出來的一樣
+  function applyRecordCommit(data) {
+    var start = byUid[data.start.uid];
+    if (!start) throw new Error("地圖上找不到起點「" + data.start.name + "」（錄製中途被刪掉了？）");
+    var byN = { 0: start }, uidByN = {}, warnings = (data.warnings || []).slice(), firstUid = null;
+    data.screens.forEach(function (item) {
+      var parent = byN[item.parent];
+      var entry = item.entry_uid;
+      if (item.parent === 0 && !parent.els.some(function (el) { return el.u === entry; })) {
+        // 起點是地圖上原本的節點：錄的時候畫面跟當初掃描不完全一樣的話，id 會對不上，改用 native id／文字找
+        var hits = parent.els.filter(function (el) {
+          return el.c === item.entry.class && (item.entry.native_id ? el.n === item.entry.native_id : el.l === item.entry.label);
+        });
+        entry = hits.length === 1 ? hits[0].u : null;
+        if (!entry) warnings.push("「" + item.name + "」的入口「" + item.entry.text + "」在起點「" + parent.name + "」的元件裡找不到，請重新掃描起點後再手動接上");
+      }
+      var uid = "manual_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      var s = {
+        uid: uid, name: item.name, parent: parent.uid, entry: entry,
+        depth: (parent.depth || 0) + 1,
+        path: (parent.path || []).concat([{ screen_uid: parent.uid, element_uid: entry }]),
+        nav_title: null, selected_tab: null, screenshot: null, w: null, h: null, els: [], _blank: true
+      };
+      applyScanResultToBlankScreen(s, item.screen_data);
+      screens.push(s);
+      if (entry) edges.push({ from: parent.uid, via: entry, to: uid, kind: "tree" });
+      byN[item.n] = s;
+      uidByN[item.n] = uid;
+      if (!firstUid) firstUid = uid;
+    });
+    rebuildAll();
+    markMapDirty();
+    return { uidByN: uidByN, firstUid: firstUid, warnings: warnings };
+  }
+
+  // ---- 建立後在背景產生描述：輪詢進度，每完成一個畫面就把描述寫回地圖（只補還沒有描述的元件）----
+  function watchRecordDescribe(commit, uidByN) {
+    var status = document.getElementById("recordDescribeStatus");
+    var applied = {};
+    status.hidden = false;
+    status.textContent = "LLM 描述產生中…";
+    var timer = setInterval(async function () {
+      var job;
+      try { job = await (await fetch(API_BASE + "/record/describe_progress")).json(); }
+      catch (err) { status.textContent = "讀不到描述進度（viewer_server.py 還在跑嗎？）"; clearInterval(timer); return; }
+      var onMap = currentProject && currentProject.id === commit.project && currentMapName === commit.map;
+      var changed = false;
+      (job.results || []).forEach(function (r) {
+        if (applied[r.n] || !onMap) return;
+        applied[r.n] = true;
+        var s = byUid[uidByN[r.n]];
+        if (!s) return;
+        s.els.forEach(function (el) {
+          if (!el.d && r.descriptions[el.u]) { el.d = r.descriptions[el.u]; delete el.dm; changed = true; }
+        });
+        if (selectedUid === s.uid) selectScreen(s.uid);
+      });
+      if (changed) markMapDirty();
+      var usage = usageText(job.usage);
+      if (job.running) {
+        status.textContent = "LLM 描述產生中 " + job.done + " / " + job.total + (usage ? "。" + usage : "");
+        return;
+      }
+      clearInterval(timer);
+      var failed = (job.failed || []).map(function (f) { return f.name; });
+      status.textContent = (onMap ? "LLM 描述產生完成（" + Object.keys(applied).length + " 個畫面）" : "已經切換到其他地圖，描述沒有寫入，之後可以用「補 LLM 描述」") +
+        (failed.length ? "；失敗：" + failed.join("、") : "") + (usage ? "。" + usage : "");
+      setTimeout(function () { status.hidden = true; }, 15000);
+    }, 2000);
   }
 
   document.getElementById("modalServerCheckBtn").addEventListener("click", async function () {

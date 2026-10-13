@@ -487,3 +487,24 @@ textarea.case-json-editor { display: block; width: 100%; box-sizing: border-box;
 .script-step-outcome.fail { color: var(--danger); }
 .script-step-outcome.skip { color: var(--gold); }
 .file-protocol-warning { margin-bottom: 14px; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--gold); color: var(--gold); background: var(--grey-soft); font-size: calc(13px * var(--font-scale)); line-height: 1.6; }
+
+/* ---------- 錄製建樹 ---------- */
+.record-box { max-width: 1200px; }
+.record-steps { display: flex; flex-direction: column; gap: 6px; }
+.record-step { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: calc(12px * var(--font-scale)); }
+.record-step.current { border-color: var(--accent); background: var(--accent-soft); }
+.record-step img { width: 36px; height: auto; border-radius: 4px; border: 1px solid var(--line); flex: 0 0 auto; cursor: zoom-in; }
+.record-step img:hover { border-color: var(--accent); }
+.record-step .sub, .record-review .sub { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); }
+.record-finish { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.record-empty-stage { padding: 40px 20px; text-align: center; }
+.record-thumb { width: 44px; height: auto; border-radius: 4px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+.record-thumb:hover { border-color: var(--accent); }
+.record-zoom { cursor: zoom-out; }
+.record-zoom-box { display: flex; flex-direction: column; align-items: center; gap: 8px; max-height: 100%; }
+.record-zoom-caption { color: #fff; font-size: calc(13px * var(--font-scale)); font-weight: 600; text-align: center; }
+.record-zoom-box img { max-height: calc(92vh - 40px); max-width: 92vw; width: auto; border-radius: 10px; box-shadow: var(--shadow); background: var(--paper-raised); }
+.record-review tr.deleted td { opacity: 0.45; }
+.record-review-name { width: 100%; min-width: 140px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: calc(12px * var(--font-scale)); }
+.el-box.risky { border-style: dashed; }
+.record-describe-status { position: fixed; right: 16px; bottom: 16px; z-index: 900; max-width: 380px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); box-shadow: var(--shadow); font-size: calc(12px * var(--font-scale)); }

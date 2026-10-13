@@ -489,6 +489,8 @@ class Workspace:
             for p in sorted(d.rglob("*")):
                 if p.parent == d / "vars" and _is_sensitive_vars(p):
                     continue  # 帳密這類變數檔不跟著專案交給其他團隊
+                if p.is_relative_to(d / "recordings"):
+                    continue  # 錄製建樹中途的快照，建立完就會刪掉
                 if p.is_file() and not p.name.startswith("."):
                     zf.write(p, f"{project_id}/{p.relative_to(d).as_posix()}")
         return buf.getvalue()

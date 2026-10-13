@@ -460,7 +460,181 @@ def crop_element_screenshot(screenshot_png: bytes, bounds: dict, save_path: Path
 
 # ---------------------------------------------------------------------------
 # 9. 主流程：掃描一個畫面，產生完整元件地圖資料
+#
+# 拆成兩段：scan_screen 負責「在手機上抓」（等穩定、page_source、截圖、捲動收集），
+# build_screen_data 只吃抓好的候選元件＋截圖、不碰手機，產生 unique_id／描述／存截圖。
+# 錄製建樹（core/recorder.py）錄的時候只抓快照，按停止、改好名稱後才呼叫
+# build_screen_data——元件 id 開頭是畫面名稱，名稱確定後才能產生。
 # ---------------------------------------------------------------------------
+
+def generated_fingerprint(el: dict) -> dict:
+    """沒有 native id 的元件拿來算 unique_id 的指紋"""
+    return {
+        "class": el["class"],
+        "label_text": el["label"],
+        "position_bucket": el["position_bucket"],
+        "sibling_index": el["sibling_index"],
+        "nearby_text": el["nearby_text"],
+    }
+
+
+def _group_by_round(generated_elements: list[dict]) -> dict[int, list[dict]]:
+    # 依「哪一輪捲動收集到的」分組，各自用那一輪的截圖送LLM/裁切——不同輪次的
+    # 截圖畫面內容不一樣（捲到不同位置），混用會讓LLM看錯畫面、裁切裁到錯誤內容。
+    # 沒有捲動收集時，所有元件都屬於第0輪（唯一一輪）。
+    elements_by_round: dict[int, list[dict]] = {}
+    for el in generated_elements:
+        elements_by_round.setdefault(el.get("_round_index", 0), []).append(el)
+    return elements_by_round
+
+
+def assign_unique_ids(screen_name: str, candidates: list[dict]) -> None:
+    """
+    幫每個候選元件算 unique_id，寫在 el["_unique_id"]（內部欄位，不會寫進最終JSON）。
+    candidates 要是已經做過 downgrade_duplicate_native_ids 的完整清單。
+    """
+    seen_unique_ids: dict[str, int] = {}
+    for el in candidates:
+        if el["native_id"]:
+            el["_unique_id"] = make_native_unique_id(screen_name, el["class"], el["native_id"])
+    for round_elements in _group_by_round([el for el in candidates if not el["native_id"]]).values():
+        for el in round_elements:
+            unique_id = make_generated_unique_id(screen_name, generated_fingerprint(el))
+            # 指紋不夠精細時（例如同一排捲動清單裡多個佔位符文字），不同元件仍可能算出
+            # 一樣的 unique_id；偵測到碰撞就加上編號後綴，保證同一次掃描內絕對不重複
+            if unique_id in seen_unique_ids:
+                seen_unique_ids[unique_id] += 1
+                print(f"  [警告] unique_id 碰撞，加上編號後綴區隔: {unique_id}_{seen_unique_ids[unique_id]}")
+                unique_id = f"{unique_id}_{seen_unique_ids[unique_id]}"
+            else:
+                seen_unique_ids[unique_id] = 1
+            el["_unique_id"] = unique_id
+
+
+def describe_candidates(ctx, platform, screen_name: str, candidates: list[dict],
+                        round_screenshots: list[bytes], screenshot_blocked: bool) -> dict:
+    """
+    呼叫 LLM 幫候選元件產生用途描述，回傳 {unique_id: 描述}（要先 assign_unique_ids）。
+    沒有 native id 的元件用「抓到它的那一輪」的截圖。
+    """
+    native_elements = [el for el in candidates if el["native_id"]]
+    descriptions = {}
+    native_descriptions = describe_native_elements(ctx, platform, screen_name, native_elements)
+    for el in native_elements:
+        description = native_descriptions.get(f"{el['class']}::{el['native_id']}")
+        if description:
+            descriptions[el["_unique_id"]] = description
+    generated = [el for el in candidates if not el["native_id"]]
+    for round_index, round_elements in _group_by_round(generated).items():
+        temp_ids = [f"e{round_index}_{i}" for i in range(len(round_elements))]
+        generated_descriptions = describe_generated_elements(
+            ctx, platform, screen_name, round_screenshots[round_index], not screenshot_blocked, round_elements, temp_ids
+        )
+        for tid, el in zip(temp_ids, round_elements):
+            if generated_descriptions.get(tid):
+                descriptions[el["_unique_id"]] = generated_descriptions[tid]
+    return descriptions
+
+
+def build_screen_data(ctx, platform, screen_name: str, candidates: list[dict], round_screenshots: list[bytes],
+                      screenshot_png: bytes, screen_width: int, screen_height: int, describe: bool = False,
+                      save_crops: bool = False, out_dir: Path | None = None, is_stable: bool | None = None,
+                      scroll_collected: bool = False) -> dict:
+    """
+    不碰手機：用抓好的候選元件（已 downgrade）＋截圖產生一個畫面的完整元件地圖資料，
+    代表截圖存進 out_dir/screenshots。round_screenshots 是每一輪的截圖，候選元件的
+    "_round_index" 指向它；screenshot_png 是存檔用的代表截圖（捲動前、最頂部）。
+    參數意義見 scan_screen。
+    """
+    screenshot_blocked = is_screenshot_blocked(screenshot_png)
+    if screenshot_blocked:
+        print("  [警告] 截圖偵測為單一顏色（可能是 App 的截圖保護，Android 稱為 FLAG_SECURE），"
+              "改用純文字線索判斷用途、略過裁切")
+
+    screenshot_img = Image.open(io.BytesIO(screenshot_png))
+    scale_x = screenshot_img.size[0] / screen_width
+    scale_y = screenshot_img.size[1] / screen_height
+
+    # 這張存檔用的截圖固定用「捲動前、最頂部」的畫面，當作這個畫面在 viewer
+    # 裡的代表截圖（跟捲動收集過程中每一輪各自的截圖是分開的用途）
+    # 檔名加上掃描時間：每份 map 的根畫面都叫 root_screen，只用畫面名稱當檔名的話，
+    # 任何一次掃描都會蓋掉別份 map 的截圖，匯入舊 map 會看到最新那次掃描的圖
+    base_dir = out_dir or Path(".")
+    (base_dir / SCREENSHOTS_DIR).mkdir(parents=True, exist_ok=True)
+    scanned_at = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
+    screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
+    screenshot_img.save(base_dir / screenshot_path)
+
+    print(f"  找到候選元件數量: {len(candidates)}")
+
+    native_elements = [el for el in candidates if el["native_id"]]
+    generated_elements = [el for el in candidates if not el["native_id"]]
+    print(f"  有native id: {len(native_elements)} 個 / 無id: {len(generated_elements)} 個")
+
+    assign_unique_ids(screen_name, candidates)
+    descriptions = describe_candidates(ctx, platform, screen_name, candidates, round_screenshots,
+                                       screenshot_blocked) if describe else {}
+    description_source = "llm_generated" if describe else "skipped"
+
+    result_elements = []
+    for el in native_elements:
+        result_elements.append({
+            "unique_id": el["_unique_id"],
+            "id_source": "native",
+            "native_id": el["native_id"],
+            "class": el["class"],
+            "label": el["label"],
+            "value": el["value"],
+            "bounds": el["bounds"],
+            **platform.element_flags(el),
+            "description": descriptions.get(el["_unique_id"], ""),
+            "description_source": description_source,
+            "status": "active",
+        })
+
+    for round_index, round_elements in _group_by_round(generated_elements).items():
+        round_screenshot_png = round_screenshots[round_index]
+        for el in round_elements:
+            unique_id = el["_unique_id"]
+            crop_saved = False
+            crop_path = None
+            if save_crops and not screenshot_blocked:
+                crop_path = CROPS_DIR / f"{screen_name}_{unique_id.split('::')[-1]}.png"
+                crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], base_dir / crop_path, scale_x, scale_y)
+                if not crop_saved:
+                    print(f"  [警告] 元件超出截圖可視範圍，略過裁切: {unique_id}")
+
+            result_elements.append({
+                "unique_id": unique_id,
+                "id_source": "generated",
+                "native_id": None,
+                "class": el["class"],
+                "label": el["label"],
+                "value": el["value"],
+                "bounds": el["bounds"],
+                **platform.element_flags(el),
+                "fingerprint": generated_fingerprint(el),
+                "description": descriptions.get(unique_id, ""),
+                "description_source": description_source,
+                "screenshot_crop": str(crop_path) if crop_saved else None,
+                "status": "active",
+            })
+
+    return {
+        "screen_name": screen_name,
+        "screen_id_source": "manual",
+        "platform": platform.name,
+        "last_scanned": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "screen_width": screen_width,
+        "screen_height": screen_height,
+        "screenshot": str(screenshot_path),
+        "screenshot_blocked": screenshot_blocked,
+        "screen_stable_at_scan": is_stable,
+        "scroll_collected": scroll_collected,
+        "scroll_rounds": len(round_screenshots),
+        "elements": result_elements,
+    }
+
 
 def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, scroll: bool = True,
                 wait_stable: bool = True, page_source: str | None = None, save_crops: bool = False,
@@ -505,25 +679,6 @@ def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, 
     else:
         page_source, screenshot_png = capture_screen(driver)
 
-    screenshot_blocked = is_screenshot_blocked(screenshot_png)
-    if screenshot_blocked:
-        print("  [警告] 截圖偵測為單一顏色（可能是 App 的截圖保護，Android 稱為 FLAG_SECURE），"
-              "改用純文字線索判斷用途、略過裁切")
-
-    screenshot_img = Image.open(io.BytesIO(screenshot_png))
-    scale_x = screenshot_img.size[0] / screen_width
-    scale_y = screenshot_img.size[1] / screen_height
-
-    # 這張存檔用的截圖固定用「捲動前、最頂部」的畫面，當作這個畫面在 viewer
-    # 裡的代表截圖（跟捲動收集過程中每一輪各自的截圖是分開的用途）
-    # 檔名加上掃描時間：每份 map 的根畫面都叫 root_screen，只用畫面名稱當檔名的話，
-    # 任何一次掃描都會蓋掉別份 map 的截圖，匯入舊 map 會看到最新那次掃描的圖
-    base_dir = out_dir or Path(".")
-    (base_dir / SCREENSHOTS_DIR).mkdir(parents=True, exist_ok=True)
-    scanned_at = time.strftime("%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}"
-    screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
-    screenshot_img.save(base_dir / screenshot_path)
-
     scroll_collected = platform.has_scrollable_content(page_source) and scroll
     if scroll_collected:
         print("  [偵測到可捲動內容] 開始邊捲邊抓，收集完整清單...")
@@ -534,112 +689,11 @@ def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, 
         candidates = parse_candidate_elements(platform, page_source, screen_width, screen_height)
         round_screenshots = [screenshot_png]
 
-    print(f"  找到候選元件數量: {len(candidates)}")
+    screen_data = build_screen_data(ctx, platform, screen_name, candidates, round_screenshots, screenshot_png,
+                                    screen_width, screen_height, describe=describe, save_crops=save_crops,
+                                    out_dir=out_dir, is_stable=is_stable, scroll_collected=scroll_collected)
 
-    native_elements = [el for el in candidates if el["native_id"]]
-    generated_elements = [el for el in candidates if not el["native_id"]]
-    print(f"  有native id: {len(native_elements)} 個 / 無id: {len(generated_elements)} 個")
-
-    description_source = "llm_generated" if describe else "skipped"
-
-    # --- 處理有 native id 的元件 ---
-    native_descriptions = describe_native_elements(ctx, platform, screen_name, native_elements) if describe else {}
-
-    result_elements = []
-    for el in native_elements:
-        unique_id = make_native_unique_id(screen_name, el["class"], el["native_id"])
-        description_key = f"{el['class']}::{el['native_id']}"
-        result_elements.append({
-            "unique_id": unique_id,
-            "id_source": "native",
-            "native_id": el["native_id"],
-            "class": el["class"],
-            "label": el["label"],
-            "value": el["value"],
-            "bounds": el["bounds"],
-            **platform.element_flags(el),
-            "description": native_descriptions.get(description_key, ""),
-            "description_source": description_source,
-            "status": "active",
-        })
-
-    # --- 處理沒有 native id 的元件 ---
-    # 依「哪一輪捲動收集到的」分組，各自用那一輪的截圖送LLM/裁切——不同輪次的
-    # 截圖畫面內容不一樣（捲到不同位置），混用會讓LLM看錯畫面、裁切裁到錯誤內容。
-    # 沒有捲動收集時，所有元件都屬於第0輪（唯一一輪）。
-    elements_by_round: dict[int, list[dict]] = {}
-    for el in generated_elements:
-        elements_by_round.setdefault(el.get("_round_index", 0), []).append(el)
-
-    seen_unique_ids: dict[str, int] = {}
-    for round_index, round_elements in elements_by_round.items():
-        round_screenshot_png = round_screenshots[round_index]
-        temp_ids = [f"e{round_index}_{i}" for i in range(len(round_elements))]
-        generated_descriptions = describe_generated_elements(
-            ctx, platform, screen_name, round_screenshot_png, not screenshot_blocked, round_elements, temp_ids
-        ) if describe else {}
-
-        for tid, el in zip(temp_ids, round_elements):
-            description = generated_descriptions.get(tid, "")
-
-            fingerprint = {
-                "class": el["class"],
-                "label_text": el["label"],
-                "position_bucket": el["position_bucket"],
-                "sibling_index": el["sibling_index"],
-                "nearby_text": el["nearby_text"],
-            }
-            unique_id = make_generated_unique_id(screen_name, fingerprint)
-
-            # 指紋不夠精細時（例如同一排捲動清單裡多個佔位符文字），不同元件仍可能算出
-            # 一樣的 unique_id；偵測到碰撞就加上編號後綴，保證同一次掃描內絕對不重複
-            if unique_id in seen_unique_ids:
-                seen_unique_ids[unique_id] += 1
-                print(f"  [警告] unique_id 碰撞，加上編號後綴區隔: {unique_id}_{seen_unique_ids[unique_id]}")
-                unique_id = f"{unique_id}_{seen_unique_ids[unique_id]}"
-            else:
-                seen_unique_ids[unique_id] = 1
-
-            crop_saved = False
-            crop_path = None
-            if save_crops and not screenshot_blocked:
-                crop_path = CROPS_DIR / f"{screen_name}_{unique_id.split('::')[-1]}.png"
-                crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], base_dir / crop_path, scale_x, scale_y)
-                if not crop_saved:
-                    print(f"  [警告] 元件超出截圖可視範圍，略過裁切: {unique_id}")
-
-            result_elements.append({
-                "unique_id": unique_id,
-                "id_source": "generated",
-                "native_id": None,
-                "class": el["class"],
-                "label": el["label"],
-                "value": el["value"],
-                "bounds": el["bounds"],
-                **platform.element_flags(el),
-                "fingerprint": fingerprint,
-                "description": description,
-                "description_source": description_source,
-                "screenshot_crop": str(crop_path) if crop_saved else None,
-                "status": "active",
-            })
-
-    screen_data = {
-        "screen_name": screen_name,
-        "screen_id_source": "manual",
-        "platform": platform.name,
-        "last_scanned": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "screen_width": screen_width,
-        "screen_height": screen_height,
-        "screenshot": str(screenshot_path),
-        "screenshot_blocked": screenshot_blocked,
-        "screen_stable_at_scan": is_stable,
-        "scroll_collected": scroll_collected,
-        "scroll_rounds": len(round_screenshots),
-        "elements": result_elements,
-    }
-
-    print(f"  完成，共產出 {len(result_elements)} 筆元件資料"
+    print(f"  完成，共產出 {len(screen_data['elements'])} 筆元件資料"
           + ("" if is_stable else "（⚠️ 掃描當下畫面未確認穩定，建議人工複核）"))
     return screen_data
 
