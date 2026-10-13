@@ -95,7 +95,7 @@
   - 命令列：`aitest-scan` 結束時印總用量；`aitest-crawl --describe` 結束時印總用量
 - [x] 網頁顯示每次操作的 LLM 用量（2026-10-12 決定只顯示每次的，不做累計）：LLM 對話每則回覆下面、情境產生結果上面、掃描（有勾描述時）、補描述、在根節點上面加一層、AI 定位的結果訊息裡；這次沒呼叫 LLM 就不顯示
 - [x] `_progress`／`_batch_progress` 改成每次執行一份（存在 `ctx.progress`），server 只記最近一次是哪個 ctx；讀（輪詢）時在鎖裡複製一份，寫（步驟結果、批次每份測案的狀態）也在鎖裡
-  - 順便修掉的既有問題：批次執行跑步驟時會把 `/test_progress` 的 current 改成步驟編號（兩種進度共用全域）
+  - 原本批次執行跑步驟時會順便改到單份測案進度的 current（兩種進度共用 `_run_steps`），但批次執行時網頁不會讀單份測案的進度，使用者看不出來；現在 `_run_steps` 只在單份執行時更新步驟編號（`track_current`），避免蓋掉批次自己的「第幾組第幾份」
   - 導航過程的 log（`navigation`）append 沒有加鎖：list 的 append 本身不會讓讀的那邊出錯，頂多這次輪詢少看到一行
 - [x] 驗證（不用手機）：網頁用假回應確認情境產生、LLM 對話的用量顯示正常、console 沒錯誤；pytest 107 個全過（新增 `test_run_context.py`：兩個執行緒同時跑「掃描」和「LLM 對話」用量各自正確、同一個用量多執行緒加總、只算成功的呼叫；`test_server_runs.py`：測案進度、執行中輪詢、批次 current 不被蓋掉）；server 實際啟動後 `/ping`、`/test_progress`、`/batch_progress`、`/describe_screen` 正常
 - [x] 驗證（實機，2026-10-12）：使用者實機測試沒問題
