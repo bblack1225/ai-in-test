@@ -91,13 +91,18 @@ h1 { font-size: calc(22px * var(--font-scale)); font-weight: 700; letter-spacing
 .meta-line { font-size: calc(12.5px * var(--font-scale)); color: var(--ink-soft); }
 .meta-line .mono { color: var(--ink-soft); }
 
-.stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.stat-tile {
-  background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 8px 14px; min-width: 84px; box-shadow: var(--shadow);
+/* 淺色／深色切換：一顆膠囊開關，圓鈕在左＝淺色、在右＝深色，圓鈕上是目前主題的圖示 */
+.theme-switch {
+  position: relative; align-self: center; width: 52px; height: 28px; padding: 0; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--grey-soft); cursor: pointer;
 }
-.stat-tile .num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: calc(20px * var(--font-scale)); font-weight: 600; line-height: 1.1; }
-.stat-tile .lbl { font-size: calc(10.5px * var(--font-scale)); color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+.theme-switch:hover { border-color: var(--accent); }
+.theme-knob {
+  position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent); box-shadow: var(--shadow); transition: transform 0.2s;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
+}
+.theme-switch[aria-checked="true"] .theme-knob { transform: translateX(24px); }
 
 /* ---------- workspace ---------- */
 .workspace { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr); gap: 16px; align-items: start; }

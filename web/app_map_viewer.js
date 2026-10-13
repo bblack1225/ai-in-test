@@ -18,6 +18,27 @@
   // 各分頁的「目前使用」標示。kind 是來源類型（例如「目前地圖」「上傳檔案」），
   // name 是檔名或補充說明；kind 為 null 代表還沒有資料。
   // 有傳 onReset 代表目前不是用目前地圖，多一顆「改回目前地圖」
+  // ---- 淺色／深色切換：沒按過跟著系統，按過就記在 localStorage（套用在 HTML 開頭的小段 script）----
+  var themeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function currentTheme() {
+    return document.documentElement.dataset.theme || (themeQuery.matches ? "dark" : "light");
+  }
+  function renderThemeToggle() {
+    var dark = currentTheme() === "dark";
+    var sw = document.getElementById("themeSwitch");
+    sw.setAttribute("aria-checked", dark);
+    sw.title = "目前是" + (dark ? "深色" : "淺色") + "，點一下切換成" + (dark ? "淺色" : "深色");
+    document.getElementById("themeKnob").textContent = dark ? "🌙" : "☀️";
+  }
+  document.getElementById("themeSwitch").addEventListener("click", function () {
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("theme", next); } catch (e) { /* 存不了就只有這次有效 */ }
+    renderThemeToggle();
+  });
+  themeQuery.addEventListener("change", renderThemeToggle);  // 沒手動選過時，系統切換要跟著更新按鈕
+  renderThemeToggle();
+
   function setSourceLine(el, label, kind, name, onReset) {
     el.className = "source-line" + (kind ? "" : " empty");
     el.innerHTML = '<span>' + escapeHtml(label) + '：</span>' +
@@ -134,10 +155,6 @@
     document.getElementById("mapPlatform").textContent = platformName(mapPlatform());
     document.getElementById("maxDepth").textContent = app.max_depth;
     document.getElementById("statScreens").textContent = screens.length;
-    document.getElementById("statTree").textContent = edges.filter(function (e) { return e.kind === "tree"; }).length;
-    document.getElementById("statCross").textContent = edges.filter(function (e) { return e.kind === "cross-link"; }).length;
-    document.getElementById("statNoop").textContent = edges.filter(function (e) { return e.kind === "noop"; }).length;
-    document.getElementById("statSkip").textContent = skipped.length;
 
     // ---- classification lookup: screenUid::elementUid -> {kind, to, reason} ----
     elStatus = {};
