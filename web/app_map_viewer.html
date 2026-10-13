@@ -285,6 +285,24 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="describeModal" hidden>
+  <div class="modal-box map-manager-box" role="dialog" aria-labelledby="describeTitle">
+    <div class="modal-head">
+      <h3 id="describeTitle">產生 LLM 描述</h3>
+      <button class="modal-close" id="describeCloseBtn">✕ 取消</button>
+    </div>
+    <div class="map-manager-body">
+      <label class="field-row" style="gap:4px;"><input type="radio" name="describeMode" value="empty" id="describeModeEmpty"> <span id="describeModeEmptyLabel"></span></label>
+      <label class="field-row" style="gap:4px;"><input type="radio" name="describeMode" value="all" id="describeModeAll"> <span id="describeModeAllLabel"></span></label>
+      <label class="field-row" style="gap:4px;"><input type="checkbox" id="describeOverwriteManual"> <span id="describeOverwriteManualLabel"></span></label>
+      <div class="map-manager-hint">人工修改的描述被覆蓋後不會留存，沒辦法還原。會花費 API 額度。</div>
+      <div class="merge-actions">
+        <button class="btn primary" id="describeConfirmBtn">產生</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="mergeModal" hidden>
   <div class="modal-box map-manager-box" role="dialog" aria-labelledby="mergeTitle">
     <div class="modal-head">

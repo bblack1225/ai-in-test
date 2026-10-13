@@ -341,6 +341,20 @@ textarea.xpath-input {
   padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
   resize: vertical;
 }
+/* 元件描述：平常是虛線框＋鉛筆（看得出可以改），點下去才變成可編輯的輸入框 */
+.picked-panel .pk-row.desc-row { align-items: center; }
+.desc-field { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+input.desc-input {
+  flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: calc(11.5px * var(--font-scale));
+  padding: 4px 26px 4px 8px; border-radius: 6px; border: 1px dashed var(--ink-soft); background: transparent; color: var(--ink);
+  cursor: pointer;
+}
+input.desc-input[readonly]:hover { border-style: solid; border-color: var(--accent); }
+input.desc-input:not([readonly]) { border-style: solid; border-color: var(--accent); background: var(--paper); outline: none; cursor: text; }
+input.desc-input::placeholder { color: var(--ink-soft); font-style: italic; }
+.desc-pencil { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: calc(11px * var(--font-scale)); opacity: 0.7; }
+input.desc-input:not([readonly]) + .desc-pencil { display: none; }
+.desc-actions { justify-content: flex-end; margin-top: 4px; }
 select.plain-select {
   padding: 6px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--paper-raised);
   color: var(--ink); font-family: inherit; font-size: calc(11.5px * var(--font-scale)); max-width: 100%;
