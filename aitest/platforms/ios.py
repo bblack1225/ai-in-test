@@ -855,6 +855,16 @@ class IOSPlatform:
     def stop_capture(self, driver, save_path: str | None) -> str | None:
         return None
 
+    # --- 錄製建樹（core/recorder.py）：iOS 的 page source 本來就包含 App 所有視窗，不用特別處理 ---
+    def begin_recording(self, driver) -> None:
+        return None
+
+    def end_recording(self, driver, state) -> None:
+        return None
+
+    def recording_source(self, page_source: str, state) -> str:
+        return page_source
+
     # --- 批次執行的導航（navigator.py）、爬蟲 ---
     def go_back(self, driver) -> None:
         """iOS 沒有系統返回鍵，用猜的（導覽列返回鍵 → 左上角按鈕 → 原生 back → 左緣右滑）"""

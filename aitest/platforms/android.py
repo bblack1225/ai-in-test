@@ -359,6 +359,29 @@ def _near_miss_selector(texts: list[str]) -> str | None:
     return f'new UiSelector().textMatches("(?s).*({"|".join(grams)}).*")'
 
 
+def app_windows_only(page_source: str, package: str | None) -> str:
+    """
+    開了 enableMultiWindows 的 page source 最上層是好幾個視窗（狀態列、App、App 的浮動層、
+    鍵盤、導覽列…）。只留 package 是這支 App 的視窗：App 自己開的 PopupWindow（例如展開的
+    下拉選單）要留，系統的狀態列、鍵盤不要（時間、通知圖示一直變，會讓換頁判斷誤判）。
+    找不到任何屬於這支 App 的視窗（或不知道 package）就原封不動回傳。
+    """
+    if not package:
+        return page_source
+    try:
+        root = ET.fromstring(page_source)
+    except ET.ParseError:
+        return page_source
+    windows = list(root)
+    keep = [w for w in windows if w.attrib.get("package") == package]
+    if not keep or len(keep) == len(windows):
+        return page_source
+    for w in windows:
+        if w not in keep:
+            root.remove(w)
+    return ET.tostring(root, encoding="unicode")
+
+
 # prepare_banner_watch() 提早打開 enableMultiWindows 前的原始設定存在 ctx.platform_state 的這個 key，
 # watch_banner 結束時用它還原（平台物件是共用的，同一次執行的狀態要放在 ctx）
 _PRE_WATCH_SETTINGS = "android_pre_watch_settings"
@@ -1097,6 +1120,26 @@ class AndroidPlatform:
     def app_id(self, driver) -> str | None:
         """capabilities 沒指定 appPackage（接上已經開著的 App），用當下前景的 App"""
         return driver.current_package
+
+    # --- 錄製建樹（core/recorder.py）---
+    def begin_recording(self, driver) -> dict:
+        """
+        錄製期間打開 enableMultiWindows：App 自己開的浮動層（PopupWindow，例如分頁列右邊展開的
+        群組選單）是另一個視窗，預設的 page source 只有取得焦點的那個視窗，看不到也點不到。
+        回傳這次錄製的平台狀態：原始設定（end_recording 還原用，開著的話掃描會把狀態列也收進去）、
+        App 的 package（recording_source 過濾視窗用）
+        """
+        current = driver.get_settings()
+        driver.update_settings({"enableMultiWindows": True})
+        return {"settings": {"enableMultiWindows": bool(current.get("enableMultiWindows", False))},
+                "package": driver.current_package}
+
+    def end_recording(self, driver, state: dict | None) -> None:
+        if state:
+            driver.update_settings(state["settings"])
+
+    def recording_source(self, page_source: str, state: dict | None) -> str:
+        return app_windows_only(page_source, (state or {}).get("package"))
 
     def dismiss_dialogs(self, driver) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、

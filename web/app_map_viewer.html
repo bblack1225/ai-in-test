@@ -354,5 +354,61 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="recordModal" hidden>
+  <div class="modal-box record-box" role="dialog" aria-labelledby="recordTitle">
+    <div class="modal-head">
+      <h3 id="recordTitle">錄製建樹</h3>
+      <button class="modal-close" id="recordCloseBtn" title="錄製內容會保留，回到起點節點按「從這裡開始錄製」可以繼續">✕ 先關閉（保留錄製）</button>
+    </div>
+    <div class="modal-grid" id="recordRecordView">
+      <div class="modal-stage-col">
+        <div class="tap-result pending" id="recordMessage" style="width:100%;" hidden></div>
+        <div class="stage-wrap" id="recordStageWrap"><img id="recordImg" alt="手機目前畫面"></div>
+        <div class="empty-hint record-empty-stage" id="recordEmptyStage" hidden>手機現在不在這次錄過的畫面上。請在手機上回到錄過的畫面，再按「重新抓畫面」。</div>
+        <div class="btn-row">
+          <button class="btn" data-rec-act="swipe-up">⬆ 上滑</button>
+          <button class="btn" data-rec-act="swipe-down">⬇ 下滑</button>
+          <button class="btn" data-rec-act="back" title="Android 送返回鍵；iOS 會試著點左上角的返回">↩ 返回</button>
+          <button class="btn" data-rec-act="refresh" title="自己在手機上操作過（例如選日期、下拉選單）之後按，重新抓目前畫面">⟳ 重新抓畫面</button>
+          <label class="describe-option" style="font-size: calc(11.5px * var(--font-scale));"><input type="checkbox" id="recordClickableOnly" checked> 只顯示可點擊元件</label>
+        </div>
+        <div id="recordPickedHost" style="width:100%;"></div>
+      </div>
+      <div class="modal-list-col">
+        <div class="merge-subtitle">已錄到的新畫面</div>
+        <div id="recordSteps" class="record-steps"></div>
+        <div class="btn-row">
+          <button class="btn" data-rec-act="merge_last" title="最後一步其實沒有換頁（換頁判斷誤判）：把它併回上一頁，不建成節點">⤴ 最後一步不是新畫面</button>
+          <button class="btn" data-rec-act="undo" title="刪掉最後一步的紀錄，不會把手機帶回去">✕ 刪掉最後一步</button>
+        </div>
+        <div class="btn-row record-finish">
+          <button class="btn primary" id="recordStopBtn">■ 停止並確認</button>
+          <button class="btn danger" id="recordCancelBtn">放棄錄製</button>
+        </div>
+      </div>
+    </div>
+    <div class="map-manager-body" id="recordReviewView" hidden>
+      <div class="map-manager-hint">名稱現在改不會影響任何東西，按「確認建立」後才會產生元件 id。勾「不建立」的那步，底下的步驟會改接到它的上一層。</div>
+      <table class="map-table record-review">
+        <thead><tr><th>#</th><th>畫面</th><th>上一層</th><th>入口元件</th><th>節點名稱</th><th>不建立</th></tr></thead>
+        <tbody id="recordReviewRows"></tbody>
+      </table>
+      <label class="describe-option"><input type="checkbox" id="recordDescribe"> 建立後一起產生 LLM 描述（在背景執行，可以接著錄下一條；每個畫面約 US$0.02）</label>
+      <div class="tap-result pending" id="recordReviewResult" hidden></div>
+      <div class="merge-actions">
+        <button class="btn" id="recordBackToRecordBtn">回去繼續錄</button>
+        <button class="btn primary" id="recordCommitBtn">確認建立</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="record-describe-status" id="recordDescribeStatus" hidden></div>
+<div class="modal-overlay record-zoom" id="recordZoom" hidden title="點任意處或按 Esc 關閉">
+  <div class="record-zoom-box">
+    <div class="record-zoom-caption" id="recordZoomCaption"></div>
+    <img id="recordZoomImg" alt="">
+  </div>
+</div>
+
 <script id="map-data" type="application/json">{"app":{"bundle_id":"","crawled_at":"","root_name":"","max_depth":0,"max_screens":0,"describe":false,"safe_keywords":false,"include_nav":false,"sample_per_pattern":0},"screens":[],"edges":[],"skipped":[]}</script>
 <script src="app_map_viewer.js"></script>

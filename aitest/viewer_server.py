@@ -29,6 +29,7 @@ API：
   - /llm_scenarios（+ GET /llm_scenarios_prompt）：「測試情境產生」
   - /run_test_script、/stop_test_script：執行／停止一份可能橫跨多個畫面的測案
   - /scan_screen：「手動建樹」對目前畫面執行一次掃描（帶 project 的話截圖存進專案資料夾）
+  - /record/*（+ GET /record/state、/record/describe_progress）：錄製建樹，見 core/recorder.py
   - /api/projects/...：workspace 專案（地圖、測案、批次）的讀寫、匯出／匯入 zip，
     見 workspace.py；不需要手機
 
@@ -67,6 +68,7 @@ from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementE
 from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
 from aitest.core.capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
 from aitest.core.navigator import MapIndex, Navigator
+from aitest.core.recorder import RECORDINGS_DIR, Recording, RecordingError, recording_summary
 from aitest.core.run_test_case import (
     StopRequested,
     check_current_screen,
@@ -93,8 +95,8 @@ WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer
 # web/ 裡可以直接給網頁讀的檔案類型（只看 web/ 第一層，不會讀到子資料夾或外面）
 WEB_ASSET_SUFFIXES = (".css", ".js")
 DATA_DIRS = ("screenshots", "crops", "test_results")
-# 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png
-PROJECT_STATIC_DIRS = ("screenshots", "crops")
+# 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png（recordings 是錄製中的快照）
+PROJECT_STATIC_DIRS = ("screenshots", "crops", RECORDINGS_DIR)
 WORKSPACE = Workspace(DEFAULT_ROOT)  # main() 依 --workspace 設定
 
 
@@ -1072,6 +1074,165 @@ def describe_saved_screen(payload: dict) -> dict:
     return {"descriptions": descriptions, "usage": ctx.usage.as_dict()}
 
 
+# ---------------------------------------------------------------------------
+# /record/*：錄製建樹（core/recorder.py）。一次只有一份錄製；操作手機的請求照常排
+# _device_lock，錄製狀態另外用 _recording_lock 保護（不碰手機的 undo／建立也會改它）。
+# 建立時勾「一起產生描述」的話，建好節點後在背景執行緒依序補描述，網頁輪詢
+# GET /record/describe_progress 把結果寫回地圖；補描述期間可以開始下一次錄製。
+# ---------------------------------------------------------------------------
+
+_recording: Recording | None = None
+_recording_lock = threading.RLock()
+_describe_job: dict = {"running": False}
+_describe_lock = threading.Lock()
+
+
+def _require_recording() -> Recording:
+    if _recording is None:
+        raise RecordingError("目前沒有進行中的錄製（伺服器重新啟動過的話，錄到一半的內容不會保留）")
+    return _recording
+
+
+def record_start(payload: dict) -> dict:
+    global _recording
+    project_id = payload.get("project")
+    if not project_id:
+        return {"error": "錄製要先在網頁上開啟專案（快照存在專案資料夾裡）"}
+    project = WORKSPACE.get_project(project_id)
+    if project["platform"] != PLATFORM.name:
+        return {"error": f"專案「{project_id}」是 {project['platform']}，但伺服器目前接的是 {PLATFORM.name}"}
+    with _recording_lock:
+        if _recording is not None:
+            return {"error": "已經有一份錄製進行中，請先建立或放棄它"}
+        name = payload.get("screen_name") or ""
+        status, message = check_current_screen(PLATFORM, get_driver(), name, payload.get("elements") or [])
+        if status == "fail":
+            return {"error": f"手機目前不在起點「{name}」：{message}"}
+        recording = Recording(PLATFORM, WORKSPACE.project_dir(project_id), project_id,
+                              payload.get("map") or "", payload.get("screen_uid") or "", name)
+        try:
+            recording.start(get_driver())
+        except Exception:
+            _finish_recording(recording, locked=True)
+            recording.remove_files()
+            raise
+        if status == "unchecked":
+            recording.message += f"（{message}）"
+        _recording = recording
+        return recording.state()
+
+
+def record_action(path: str, payload: dict) -> dict:
+    """錄製中的各種操作，回傳最新狀態；RecordingError 轉成 {"error"} 給網頁顯示"""
+    try:
+        with _recording_lock:
+            rec = _require_recording()
+            if path == "/record/tap":
+                rec.tap(_new_ctx(), get_driver(), int(payload.get("index", -1)), bool(payload.get("force_new")))
+            elif path == "/record/input":
+                rec.input(_new_ctx(), get_driver(), int(payload.get("index", -1)), str(payload.get("value", "")))
+            elif path == "/record/swipe":
+                rec.swipe(get_driver(), "up" if payload.get("direction") == "up" else "down")
+            elif path == "/record/back":
+                rec.back(get_driver())
+            elif path == "/record/refresh":
+                rec.refresh(get_driver())
+            elif path == "/record/undo":
+                rec.undo()
+            elif path == "/record/merge_last":
+                rec.merge_last()
+            return rec.state()
+    except RecordingError as e:
+        return {"error": str(e)}
+
+
+def _finish_recording(rec: Recording, locked: bool = False) -> None:
+    """
+    還原錄製期間改過的裝置設定。建立／放棄不需要手機，沒有拿裝置鎖，這裡另外拿（locked=True
+    代表呼叫端已經拿著）；要在放掉 _recording_lock 之後呼叫，順序跟操作手機的請求一樣
+    （先裝置鎖、再錄製鎖），不會互相卡住。手機斷線就算了，只印警告。
+    """
+    try:
+        if locked:
+            rec.finish(get_driver())
+        else:
+            with _device_lock:
+                rec.finish(get_driver())
+    except Exception as e:
+        print(f"[錄製] 還原裝置設定失敗（{type(e).__name__}: {e}），重新啟動 viewer_server 就會恢復")
+
+
+def record_cancel() -> dict:
+    global _recording
+    with _recording_lock:
+        rec, _recording = _recording, None
+    if rec is not None:
+        _finish_recording(rec)
+        rec.remove_files()
+    return {"active": False}
+
+
+def record_commit(payload: dict) -> dict:
+    """
+    用確認清單的名稱一次建好所有新畫面的 screen_data（截圖存進專案），回傳給網頁加進地圖。
+    payload：{"names": {步驟編號: 名稱}, "deleted": [步驟編號], "describe": bool}
+    """
+    global _recording
+    with _recording_lock:
+        try:
+            rec = _require_recording()
+            names = {int(k): str(v) for k, v in (payload.get("names") or {}).items()}
+            deleted = {int(n) for n in payload.get("deleted") or []}
+            result = rec.build(RunContext(), WORKSPACE.project_dir(rec.project_id), names, deleted)
+        except RecordingError as e:
+            return {"error": str(e)}
+        _recording = None
+    _finish_recording(rec)
+    to_describe = [(s["n"], s["name"]) for s in result["screens"]]
+    if payload.get("describe") and to_describe:
+        _start_describe_job(rec, to_describe)
+    else:
+        rec.remove_files()
+    return {**result, "start": {"uid": rec.start_uid, "name": rec.start_name},
+            "project": rec.project_id, "map": rec.map_name, "describing": bool(payload.get("describe") and to_describe)}
+
+
+def _start_describe_job(rec: Recording, items: list[tuple[int, str]]) -> None:
+    global _describe_job
+    ctx = RunContext()
+    job = {"running": True, "id": rec.id, "project": rec.project_id, "map": rec.map_name,
+           "total": len(items), "done": 0, "results": [], "failed": [], "usage": None}
+    with _describe_lock:
+        _describe_job = job
+
+    def run():
+        try:
+            for n, name in items:
+                try:
+                    descriptions = rec.describe(ctx, n, name)
+                    with _describe_lock:
+                        job["results"].append({"n": n, "name": name, "descriptions": descriptions})
+                except Exception as e:
+                    print(f"[錄製補描述] {name} 失敗：{type(e).__name__}: {e}")
+                    with _describe_lock:
+                        job["failed"].append({"n": n, "name": name, "error": f"{type(e).__name__}: {e}"})
+                with _describe_lock:
+                    job["done"] += 1
+                    job["usage"] = ctx.usage.as_dict()
+        finally:
+            rec.remove_files()
+            with _describe_lock:
+                job["running"] = False
+            print(f"[錄製補描述] 完成，LLM 用量：{ctx.usage.summary()}")
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def describe_progress() -> dict:
+    with _describe_lock:
+        return copy.deepcopy(_describe_job)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1153,6 +1314,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/batch_progress":
             self._send_json(200, json.loads(json.dumps(_progress_snapshot("batch"), ensure_ascii=False, default=str)))
             return
+        if path == "/record/state":
+            with _recording_lock:
+                self._send_json(200, recording_summary(_recording))
+            return
+        if path == "/record/describe_progress":
+            self._send_json(200, describe_progress())
+            return
         if path == "/llm_scenarios_prompt":
             self._send_json(200, {"template": SCENARIO_PROMPT_TEMPLATE, "marker": SCENARIO_PROMPT_MARKER})
             return
@@ -1164,10 +1332,13 @@ class Handler(BaseHTTPRequestHandler):
         "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
         "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
         "/run_batch", "/check_screen", "/describe_screen",
+        "/record/start", "/record/tap", "/record/input", "/record/swipe", "/record/back", "/record/refresh",
+        "/record/undo", "/record/merge_last", "/record/commit", "/record/cancel",
     )
     # 純 LLM 的代理不操作裝置，不需要Appium session存活，讓使用者就算手機
     # 還沒接好也能先設計測試案例
-    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script", "/describe_screen")
+    PATHS_NOT_REQUIRING_DRIVER = ("/llm_chat", "/llm_scenarios", "/stop_test_script", "/describe_screen",
+                                  "/record/undo", "/record/merge_last", "/record/commit", "/record/cancel")
 
     def do_POST(self):
         if not self._request_allowed():
@@ -1363,6 +1534,14 @@ class Handler(BaseHTTPRequestHandler):
             return {"status": status, "message": message}
         if path == "/llm_scenarios":
             return llm_generate_scenarios(payload)
+        if path == "/record/start":
+            return record_start(payload)
+        if path == "/record/commit":
+            return record_commit(payload)
+        if path == "/record/cancel":
+            return record_cancel()
+        if path.startswith("/record/"):
+            return record_action(path, payload)
 
     def log_message(self, format, *args):
         print("[viewer_server]", format % args)

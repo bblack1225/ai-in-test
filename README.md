@@ -59,6 +59,7 @@ aitest/
   core/               核心邏輯（不碰 HTTP）
     capture_screen_map.py、crawl_app_tree.py、run_test_case.py
     navigator.py        批次執行用的畫面導航：把手機帶到測案的起始畫面
+    recorder.py         錄製建樹：網頁上一路點下去、換頁記一步，停止後一次建好節點
     workspace.py        專案資料夾：地圖／截圖／測案／批次放一起，可匯出成 zip 交給其他團隊
     compare_versions.py
 tools/                偶爾用的工具：cleanup_images.py（清沒用的截圖）、capture_transient.py（抓短暫出現的元素）
@@ -481,7 +482,7 @@ workspace/projects/foo-demo-ios/
 | `capture_screen_map.py` | 對「目前畫面」執行一次掃描：抓 Accessibility Tree、有捲動內容會邊捲邊抓、用 LLM 幫無 id 元件生成描述、存進 `element_map.json`。單頁 CLI 工具，也被 `viewer_server.py` 的 `/scan_screen` 直接呼叫（重用同一個 `scan_screen()` 函式，不是另外寫邏輯）。iOS/Android 共用，`--platform android` 切換；解析 XML、捲動手勢等平台差異在 `platforms/` |
 | `crawl_app_tree.py` | 自動爬蟲：從起始畫面開始自動點擊安全元件、遞迴探索整支 App，產出 `app_map_tree.json`（畫面樹狀地圖，含 parent/depth/path/skeleton 簽章）。核心設計：`skeleton_signature()`（判斷兩個畫面是不是同一個模板）、`go_back()`/`recover_to()`（導航失敗時的復原機制，**目前對「原地切換UI狀態、沒有真正返回鍵」的畫面仍有已知的復原失敗問題，見下方第六節**） |
 | `run_test_case.py` | 測試案例執行器：讀 `element_map.json` + 測試案例 JSON，照人工自訂 XPath → native id → XPath → 鄰近文字錨點 → 座標點擊的順序定位並執行 `tap`/`input_text`/`assert_visible`/`assert_text_contains`。iOS/Android 共用，`--platform android` 切換；平台差異在 `platforms/ios.py`／`platforms/android.py`。可選「自動關閉非預期彈窗並重試」（網頁勾選框／`--dismiss_dialogs`），沿用爬蟲 `dismiss_modal()` 的按鈕清單（永遠不點「關閉APP」「登出」）：從網頁執行時，測案開始前、批次重開 App 後會先檢查一次（例如一進 App 就跳的 Root／USB 偵錯警告），之後只在步驟失敗時才檢查，不會誤關測案本來要操作的對話框；系統權限視窗刻意不處理（偵測到就跳過）。Android 的 `input_text` 遇到不接受直接設定文字的欄位會逐字模擬按鍵（每字間隔 0.15 秒），打完讀回比對，不一樣就清掉放慢重打一次（密碼欄、有遮罩的欄位沒辦法比對） |
-| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案、登入地圖）」，要開專案才能用、批次設定存在專案裡，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面；登入與變數檔的規則見「3.3 專案」。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案，會帶專案變數檔的 KEY 名稱）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/run_batch`（批次執行）／`/scan_screen`（單畫面掃描）／`/check_screen`（手機目前是不是停在某個畫面，「在上面加一層」確認入口用）／`/describe_screen`（補 LLM 描述，不碰手機），以及專案讀寫的 `/api/projects/...`（含變數檔 `/api/projects/<id>/vars/<名稱>`） |
+| `viewer_server.py` | 本機 HTTP 橋接伺服器（預設 port 8767），讓 `app_map_viewer.html` 能透過一般 `fetch()` 間接操作手機。iOS/Android 共用，啟動時用 `--platform ios|android`（預設 ios）指定這次接哪種裝置，`/ping` 會回傳目前的平台；平台差異集中在檔案裡的 `IOSPlatform`／`AndroidPlatform`，`assert_banner`（跑馬燈驗證）iOS/Android 都有實作，Android 另外會查系統 Toast 和其他視窗；測案裡連續好幾個 `assert_banner` 會合併成一次監看（見 `run_test_case.run_banner_group`），結果還是每步各自一列，預設只要求都有出現，步驟加 `"in_order": true` 則要求比前一個跑馬燈晚出現，順序不對時前後兩步都是 FAIL；`/scan_screen` 會把目前平台傳給 `scan_screen()`，iOS/Android 都能用，但 Android 還沒實機驗證過，而且網頁掃描前會先比對「地圖的平台」和「server 的平台」，不一致會直接擋下來。「測案執行」分頁另有「批次執行」：好幾組「一張地圖 → 一份或多份測案（＋選填的登入測案、登入地圖）」，要開專案才能用、批次設定存在專案裡，走 `/run_batch`＋`GET /batch_progress`，每份開始前用 `navigator.py` 回到起始畫面；登入與變數檔的規則見「3.3 專案」。提供 `/tap`／`/assert_visible`／`/inspect`／`/test_xpath`／`/agent_xpath`（AI定位）／`/llm_chat`（對話產生測案，會帶專案變數檔的 KEY 名稱）／`/llm_scenarios`（情境產生，用 Pro 模型）／`/run_test_script`（執行測案）／`/run_batch`（批次執行）／`/scan_screen`（單畫面掃描）／`/check_screen`（手機目前是不是停在某個畫面，「在上面加一層」確認入口用）／`/describe_screen`（補 LLM 描述，不碰手機）／`/record/*`（錄製建樹，見 `recorder.py`；`GET /record/state`、`GET /record/describe_progress` 給網頁輪詢），以及專案讀寫的 `/api/projects/...`（含變數檔 `/api/projects/<id>/vars/<名稱>`） |
 
 ### 4.2 Android 核心程式
 
@@ -493,6 +494,7 @@ workspace/projects/foo-demo-ios/
 | 檔案 | 用途 |
 |---|---|
 | `navigator.py` | 批次執行（`viewer_server.py` 的 `/run_batch`）在每份測案開始前，把手機帶到它的起始畫面：`identify_screen()` 拿目前畫面跟地圖每個節點比對（native id 比對，同時看「這頁的元件有幾成出現」跟「畫面上地圖認得的 id 有幾成屬於這頁」）；`Navigator.navigate_to()` 依地圖的 parent／entry 算路線，在路徑上就往下點入口元件、不在就按返回，每走一步重新辨識；辨識不出來或退到底還回不去才重開 App，重開後先跑使用者指定的登入測案。已知限制：入口是清單某一列時照位置點、清單順序變了會點錯；同模板的兩個節點可能辨識錯 |
+| `recorder.py` | 錄製建樹（`viewer_server.py` 的 `/record/*`）：在網頁上點手機截圖的元件框，程式代點（`run_tap`），點完抓一次快照（page_source＋截圖，存在專案的 `recordings/`，不跟著專案匯出），用爬蟲的骨架簽章判斷換頁——跟目前畫面一樣就不建節點（輸入、勾選），跟錄過的畫面一樣就當成回到那頁（按返回走另一條分支），都不一樣就記成新節點。按停止、確認好名稱後才呼叫 `capture_screen_map.build_screen_data()` 離線產生元件 id 和截圖（id 開頭是畫面名稱，所以錄製中途改名沒有副作用），建出來的節點跟手動掃描的格式一樣。已知限制：同一個版型的不同畫面骨架簽章可能一樣（用「一定會進新畫面」修正）；iOS 捲動後簽章可能改變（錄製視窗的上滑／下滑一律當同一頁）；不做自動捲動收集，捲到下面的元件要在錄製時自己按下滑 |
 | `config.py` | 讀 `config.toml`（見 2.6）：`ios_capabilities()`／`android_capabilities()` 組 Appium 連線設定（缺欄位時說缺哪個）＋ Gemini 設定（`LLM_MODEL` 給高頻率/窄範圍任務用 Flash，`LLM_MODEL_PRO` 給情境產生這種低頻率/需要判斷力的任務用 Pro）＋ `get_llm_client()`（第一次用到才建立，沒設 API key 時不用 LLM 的功能照常能跑）＋ `generate_content_with_retry()`（503、每分鐘上限的 429 自動等待重試；整天額度用完直接報錯）。沒有 `config.toml` 也能 import，只看地圖、編輯測案不需要 |
 | `run_context.py` | `RunContext`：一次執行（測案、批次、掃描、爬蟲、LLM 對話…）的設定與狀態——變數、要不要關彈窗、停止旗標（`raise_if_stopped()`，停止時丟 `StopRequested`）、給網頁輪詢的進度、LLM 用量（`LLMUsage`）；每次執行建一份，從呼叫端一路用參數傳下去，同時進行的操作不會互相蓋掉。不 import 專案內其他模組，`platforms/`、`config.py` 可以放心用 |
 | `common.py` | `xpath_literal()`。不 import 專案內其他模組 |
@@ -511,7 +513,7 @@ workspace/projects/foo-demo-ios/
 
 | 檔案 | 用途 |
 |---|---|
-| `web/app_map_viewer.html`（樣式在 `app_map_viewer.css`、程式在 `app_map_viewer.js`） | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、在根節點上面加一層、補 LLM 描述、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行（單份／批次）、變數檔編輯。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
+| `web/app_map_viewer.html`（樣式在 `app_map_viewer.css`、程式在 `app_map_viewer.js`） | **目前主力工具**，讀 `crawl_app_tree.py` 產出的樹狀地圖（可以直接載入 `app_map_tree.json`，也支援載入這個工具自己匯出的精簡格式，兩種都會自動判斷轉換）。功能：畫面樹狀圖檢視、手動建樹（選節點→按「🌱 從這裡點出新畫面…」開視窗→送出點擊→建立新節點→對裝置重新掃描）、刪除節點（含子節點級聯）、錄製建樹（選節點→按「⏺ 從這裡開始錄製」→在網頁上的手機截圖一路點下去，換頁自動記一步→「停止並確認」改名稱→一次建好所有節點，可勾選建立後在背景補 LLM 描述；要開專案才能用）、在根節點上面加一層、補 LLM 描述、測試情境產生（LLM看資料推論可能情境）、LLM對話式產生跨畫面測案、測案執行（單份／批次）、變數檔編輯。iOS/Android 都能用：地圖會記錄自己是哪個平台（舊地圖沒有記錄的話看元件 class 判斷，標在頁首），定位方式／XPath 會依平台顯示；操作手機前會先比對 `viewer_server.py` 目前接的平台，不一致就擋下來不送出。開啟專案（頁首「專案」）時地圖自動存回專案、測案／批次可以存進專案，重新整理不會遺失；沒開專案時跟以前一樣靠「⬇️匯出／📂載入」JSON 檔案手動存檔。從全名格式載入的地圖，存檔時會保留爬蟲算的 `skeleton` 等精簡格式沒有的欄位 |
 
 > 原本還有一支 `app_map_editor.html`（離線手動地圖編輯器，上傳截圖手動框
 > 元件、手動加節點/邊，不用連裝置）——已從交接包移除，因為
