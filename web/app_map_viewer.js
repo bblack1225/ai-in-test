@@ -874,28 +874,29 @@
   }
   function askDescribeTargets(s, empty, manual) {
     var llm = s.els.filter(function (el) { return el.d && !el.dm; });
-    var modeEmpty = document.getElementById("describeModeEmpty");
-    var modeAll = document.getElementById("describeModeAll");
+    var redoLlm = document.getElementById("describeRedoLlm");
     var overwrite = document.getElementById("describeOverwriteManual");
     var confirmBtn = document.getElementById("describeConfirmBtn");
     document.getElementById("describeTitle").textContent = "幫「" + s.name + "」產生 LLM 描述";
-    document.getElementById("describeModeEmptyLabel").textContent = "只補空白的（" + empty.length + " 個）";
-    document.getElementById("describeModeAllLabel").textContent = "空白的＋重新產生 LLM 描述（" + (empty.length + llm.length) + " 個）";
-    document.getElementById("describeOverwriteManualLabel").textContent = "也覆蓋人工修改的描述（" + manual.length + " 個）";
-    modeEmpty.disabled = !empty.length;
-    modeEmpty.checked = !!empty.length;
-    modeAll.checked = !empty.length;
+    document.getElementById("describeEmptyCount").textContent = empty.length + " 個";
+    document.getElementById("describeLlmCount").textContent = llm.length + " 個";
+    document.getElementById("describeManualCount").textContent = manual.length + " 個";
+    // 沒有描述的一定會補；LLM 產生過的只有在沒有空白可補時才預設勾（等於原本的「全部重新產生」）；人工的永遠預設不勾
+    document.getElementById("describeEmpty").checked = !!empty.length;
+    redoLlm.disabled = !llm.length;
+    redoLlm.checked = !empty.length && !!llm.length;
     overwrite.checked = false;
     function pick() {
-      var base = modeEmpty.checked ? empty : empty.concat(llm);
-      return overwrite.checked ? base.concat(manual) : base;
+      var out = empty.slice();
+      if (redoLlm.checked) out = out.concat(llm);
+      return overwrite.checked ? out.concat(manual) : out;
     }
     function refresh() {
       var n = pick().length;
       confirmBtn.textContent = "產生（" + n + " 個）";
       confirmBtn.disabled = !n;
     }
-    [modeEmpty, modeAll, overwrite].forEach(function (input) { input.onchange = refresh; });
+    [redoLlm, overwrite].forEach(function (input) { input.onchange = refresh; });
     confirmBtn.onclick = function () { closeDescribe(pick()); };
     refresh();
     describeModal.hidden = false;
