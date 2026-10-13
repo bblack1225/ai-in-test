@@ -3,6 +3,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="app_map_viewer.css">
+<script>
+  // 使用者手動選過主題就套用，沒選過跟著系統；放在這裡是為了第一次畫面就用對的顏色，不會閃一下
+  try { var t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) { /* 照系統 */ }
+</script>
 
 <div class="wrap">
   <div class="file-protocol-warning" id="fileProtocolWarning" hidden>
@@ -16,16 +20,10 @@
       <div class="meta-line">
         <span class="mono" id="bundleId"></span> · 掃描時間 <span class="mono" id="crawledAt"></span> ·
         根畫面 <span class="mono" id="rootName"></span> · max_depth <span class="mono" id="maxDepth"></span> ·
-        平台 <span class="mono" id="mapPlatform"></span>
+        平台 <span class="mono" id="mapPlatform"></span> · <span class="mono" id="statScreens">–</span> 個畫面
       </div>
     </div>
-    <div class="stat-row">
-      <div class="stat-tile"><div class="num" id="statScreens">–</div><div class="lbl">畫面</div></div>
-      <div class="stat-tile"><div class="num" id="statTree">–</div><div class="lbl">tree edges</div></div>
-      <div class="stat-tile"><div class="num" id="statCross">–</div><div class="lbl">cross-link</div></div>
-      <div class="stat-tile"><div class="num" id="statNoop">–</div><div class="lbl">noop</div></div>
-      <div class="stat-tile"><div class="num" id="statSkip">–</div><div class="lbl">chrome 排除</div></div>
-    </div>
+    <button type="button" class="theme-switch" id="themeSwitch" role="switch"><span class="theme-knob" id="themeKnob"></span></button>
   </header>
 
   <div class="project-bar">
