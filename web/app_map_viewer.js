@@ -313,8 +313,10 @@
       enabled: orig.enabled !== undefined ? orig.enabled : true, accessible: !!el.a,
       fingerprint: el.fp || null,
       description: el.d || "",
-      description_source: el.d === (orig.description || "") && orig.description_source
-        ? orig.description_source : (el.d ? "llm_generated" : "skipped"),
+      // dm：人工改過的描述（元件視窗按「儲存描述」時標上，LLM 重新產生時拿掉）
+      description_source: el.dm ? "manual"
+        : el.d === (orig.description || "") && orig.description_source && orig.description_source !== "manual"
+          ? orig.description_source : (el.d ? "llm_generated" : "skipped"),
       status: orig.status || "active"
     });
     if (el._orig && !el.fp && !("fingerprint" in orig)) delete out.fingerprint;  // 原本沒有的欄位不要多長出來
@@ -667,6 +669,7 @@
   function toShortEl(el) {
     var out = { u: el.unique_id, n: el.native_id, c: el.class, l: el.label, v: el.value, a: el.accessible != null ? el.accessible : el.clickable, d: el.description || "", src: el.id_source, b: el.bounds, fp: el.fingerprint };
     if (el.custom_xpath) out.custom_xpath = el.custom_xpath;  // 匯出再載入時保留人工自訂的 XPath
+    if (el.description_source === "manual" && out.d) out.dm = true;
     return hideOrig(out, el);
   }
   // 掃描結果裡畫面層級的欄位（截圖保護、是否穩定、掃描時間）記到 _orig，存檔時才帶得出去
@@ -797,12 +800,19 @@
   }
 
   // ---- 補 LLM 描述：只送還沒有描述的元件（都有了才問要不要全部重新產生）----
+  // 畫面上有人工改過的描述時改用 describeModal 問，預設不覆蓋人工描述
   async function describeScreen(s, btn) {
-    var targets = s.els.filter(function (el) { return !el.d; });
-    if (!targets.length) {
+    var empty = s.els.filter(function (el) { return !el.d; });
+    var manual = s.els.filter(function (el) { return el.d && el.dm; });
+    var targets;
+    if (manual.length) {
+      targets = await askDescribeTargets(s, empty, manual);
+      if (!targets) return;
+    } else if (!empty.length) {
       if (!confirm("「" + s.name + "」的 " + s.els.length + " 個元件都已經有描述了，要全部重新產生嗎？（會覆蓋現有描述，花費 API 額度）")) return;
       targets = s.els.slice();
-    } else if (!confirm("幫「" + s.name + "」" + targets.length + " 個還沒有描述的元件產生 LLM 用途描述？（會花費 API 額度）")) return;
+    } else if (!confirm("幫「" + s.name + "」" + empty.length + " 個還沒有描述的元件產生 LLM 用途描述？（會花費 API 額度）")) return;
+    else targets = empty;
     btn.disabled = true;
     btn.textContent = "產生描述中…";
     try {
@@ -817,14 +827,19 @@
       });
       var data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
-      var filled = 0;
-      s.els.forEach(function (el) {
-        if (data.descriptions[el.u]) { el.d = data.descriptions[el.u]; filled++; }
+      var filled = 0, overwritten = 0;
+      targets.forEach(function (el) {
+        if (!data.descriptions[el.u]) return;
+        if (el.dm) overwritten++;
+        el.d = data.descriptions[el.u];
+        delete el.dm;
+        filled++;
       });
       if (filled) markMapDirty();
       selectScreen(s.uid);
       var usage = usageText(data.usage);
-      alert("已補上 " + filled + " / " + targets.length + " 個元件的描述" + (filled < targets.length ? "（沒補到的是 LLM 沒回傳，可以再按一次）" : "") +
+      alert("已補上 " + filled + " / " + targets.length + " 個元件的描述" + (overwritten ? "，其中覆蓋人工描述 " + overwritten + " 個" : "") +
+        (filled < targets.length ? "（沒補到的是 LLM 沒回傳，可以再按一次）" : "") +
         (usage ? "\n" + usage : ""));
     } catch (err) {
       alert(failText("產生描述失敗", err, "（viewer_server.py 有啟動嗎？）"));
@@ -832,6 +847,45 @@
       btn.textContent = "🤖 補 LLM 描述";
     }
   }
+
+  // 回傳要送給 LLM 的元件陣列，取消回傳 null
+  var describeModal = document.getElementById("describeModal");
+  var describeResolve = null;
+  function closeDescribe(result) {
+    describeModal.hidden = true;
+    if (describeResolve) { var r = describeResolve; describeResolve = null; r(result); }
+  }
+  function askDescribeTargets(s, empty, manual) {
+    var llm = s.els.filter(function (el) { return el.d && !el.dm; });
+    var modeEmpty = document.getElementById("describeModeEmpty");
+    var modeAll = document.getElementById("describeModeAll");
+    var overwrite = document.getElementById("describeOverwriteManual");
+    var confirmBtn = document.getElementById("describeConfirmBtn");
+    document.getElementById("describeTitle").textContent = "幫「" + s.name + "」產生 LLM 描述";
+    document.getElementById("describeModeEmptyLabel").textContent = "只補空白的（" + empty.length + " 個）";
+    document.getElementById("describeModeAllLabel").textContent = "空白的＋重新產生 LLM 描述（" + (empty.length + llm.length) + " 個）";
+    document.getElementById("describeOverwriteManualLabel").textContent = "也覆蓋人工修改的描述（" + manual.length + " 個）";
+    modeEmpty.disabled = !empty.length;
+    modeEmpty.checked = !!empty.length;
+    modeAll.checked = !empty.length;
+    overwrite.checked = false;
+    function pick() {
+      var base = modeEmpty.checked ? empty : empty.concat(llm);
+      return overwrite.checked ? base.concat(manual) : base;
+    }
+    function refresh() {
+      var n = pick().length;
+      confirmBtn.textContent = "產生（" + n + " 個）";
+      confirmBtn.disabled = !n;
+    }
+    [modeEmpty, modeAll, overwrite].forEach(function (input) { input.onchange = refresh; });
+    confirmBtn.onclick = function () { closeDescribe(pick()); };
+    refresh();
+    describeModal.hidden = false;
+    return new Promise(function (resolve) { describeResolve = resolve; });
+  }
+  document.getElementById("describeCloseBtn").addEventListener("click", function () { closeDescribe(null); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !describeModal.hidden) closeDescribe(null); });
 
   // ---- 在根節點上面加一層：掃描更上一層的畫面當新根，選它上面「點了進到原本根節點」的元件接起來 ----
   function renderAddParentRoot(oldRoot) {
@@ -1259,7 +1313,12 @@
       '<div class="picked-panel">' +
       '<div class="pk-row"><b>class</b><span class="mono">' + escapeHtml(shortClass(el.c)) + "</span></div>" +
       '<div class="pk-row"><b>native_id</b><span class="mono">' + escapeHtml(el.n || "—") + "</span></div>" +
-      '<div class="pk-row"><b>描述</b><span>' + escapeHtml(el.d || "—") + "</span></div>" +
+      // 用 readonly 不用 disabled：disabled 的 input 收不到 click，點了沒辦法進編輯
+      '<div class="pk-row desc-row"><b>描述</b><span class="desc-field"><input type="text" class="desc-input" id="modalDescInput" readonly title="點一下修改描述"' +
+      ' placeholder="沒有描述，點這裡新增" value="' + escapeHtml(el.d || "") + '"><span class="desc-pencil">✏️</span></span></div>' +
+      '<div class="btn-row desc-actions" id="modalDescActions" hidden>' +
+      '<button class="btn" id="modalCancelDescBtn">取消</button>' +
+      '<button class="btn primary" id="modalSaveDescBtn">儲存</button></div>' +
       '<div class="el-locator' + (locator.custom ? " custom" : "") + '"><span class="locator-type">' + locatorTypeLabel + "</span>" + escapeHtml(locator.text) + "</div>" +
       '<div class="btn-row"><button class="btn primary" id="modalTapBtn">📲 送出點擊到裝置</button></div>' +
       '<div class="tap-result pending" id="modalTapResult">還沒送出</div>' +
@@ -1278,6 +1337,39 @@
       "</div>" +
       "</div>";
     document.getElementById("modalTapBtn").addEventListener("click", function () { sendModalTap(el); });
+
+    var descInput = document.getElementById("modalDescInput");
+    var descActions = document.getElementById("modalDescActions");
+    descInput.addEventListener("click", function () {
+      if (!descInput.readOnly) return;
+      descInput.readOnly = false;
+      descActions.hidden = false;
+      descInput.focus();
+    });
+    function cancelDesc() {
+      descInput.value = el.d || "";
+      descInput.readOnly = true;
+      descActions.hidden = true;
+    }
+    function saveDesc() {
+      var value = descInput.value.trim();
+      if (value === (el.d || "")) { cancelDesc(); return; }
+      el.d = value;
+      if (value) el.dm = true; else delete el.dm;  // 清空就當成沒有描述，之後補 LLM 描述會補它
+      markMapDirty();
+      // 視窗右邊清單、背後畫面詳情的元件清單也要顯示新描述
+      renderModalList(document.getElementById("modalSearch").value, document.getElementById("modalClickableOnly").checked);
+      if (selectedUid) selectScreen(selectedUid);
+      renderModalPicked(el);
+    }
+    document.getElementById("modalSaveDescBtn").addEventListener("click", saveDesc);
+    document.getElementById("modalCancelDescBtn").addEventListener("click", cancelDesc);
+    descInput.addEventListener("keydown", function (e) {
+      if (descInput.readOnly || e.isComposing) return;  // 注音選字時的 Enter／Esc 不算
+      if (e.key === "Enter") { e.preventDefault(); saveDesc(); }
+      // 擋掉 document 上「Esc 關視窗」的處理，只取消編輯
+      else if (e.key === "Escape") { e.stopPropagation(); cancelDesc(); }
+    });
 
     var editorHost = document.getElementById("modalXpathEditor");
     document.getElementById("modalXpathToggle").addEventListener("click", function () { editorHost.hidden = !editorHost.hidden; });
