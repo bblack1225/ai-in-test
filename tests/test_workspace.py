@@ -84,6 +84,48 @@ def test_rename_map_updates_batch_refs(ws):
     ]
 
 
+def _case_batch():
+    return {"groups": [
+        {"map_ref": "main", "setup_case": {"ref": "登入"}, "cases": [{"ref": "登入", "login": "帳號A"}, {"ref": "下單"}]},
+        {"map_ref": "main", "setup_case": None, "cases": [{"name": "內嵌", "case": CASE}]},
+    ]}
+
+
+def test_rename_case_updates_test_name_and_batch_refs(ws):
+    ws.write_item("demo-ios", "cases", "登入", CASE, overwrite=False)
+    ws.write_item("demo-ios", "cases", "下單", CASE, overwrite=False)
+    ws.write_item("demo-ios", "batches", "回歸", _case_batch(), overwrite=False)
+
+    ws.rename_item("demo-ios", "cases", "登入", "登入_新版")
+
+    assert ws.read_item("demo-ios", "cases", "登入_新版") == {**CASE, "test_name": "登入_新版"}
+    with pytest.raises(WorkspaceError):
+        ws.read_item("demo-ios", "cases", "登入")
+    g0, g1 = ws.read_item("demo-ios", "batches", "回歸")["groups"]
+    assert g0["setup_case"] == {"ref": "登入_新版"}
+    assert g0["cases"] == [{"ref": "登入_新版", "login": "帳號A"}, {"ref": "下單"}]
+    assert g1 == _case_batch()["groups"][1]
+
+    with pytest.raises(WorkspaceError) as e:
+        ws.rename_item("demo-ios", "cases", "登入_新版", "下單")
+    assert e.value.status == 409
+
+
+def test_delete_case_removes_batch_refs(ws):
+    ws.write_item("demo-ios", "cases", "登入", CASE, overwrite=False)
+    ws.write_item("demo-ios", "batches", "回歸", _case_batch(), overwrite=False)
+    ws.write_item("demo-ios", "batches", "沒用到", {"groups": [{"map_ref": "main", "cases": [{"ref": "下單"}]}]}, overwrite=False)
+
+    assert ws.batches_using_case("demo-ios", "登入") == ["回歸"]
+    ws.delete_item("demo-ios", "cases", "登入")
+
+    g0, g1 = ws.read_item("demo-ios", "batches", "回歸")["groups"]
+    assert g0["setup_case"] is None
+    assert g0["cases"] == [{"ref": "下單"}]
+    assert g1 == _case_batch()["groups"][1]
+    assert ws.batches_using_case("demo-ios", "下單") == ["回歸", "沒用到"]
+
+
 # ---- 匯出 ----------------------------------------------------------------
 
 def test_export_skips_sensitive_vars(ws):

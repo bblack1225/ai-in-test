@@ -2058,6 +2058,8 @@
   var llmgenExportBtn = document.getElementById("llmgenExportBtn");
   var llmgenToRunBtn = document.getElementById("llmgenToRunBtn");
   var llmgenSaveToProjectBtn = document.getElementById("llmgenSaveToProjectBtn");
+  var llmgenCopyBtn = document.getElementById("llmgenCopyBtn");
+  var llmgenCaseCopyBtn = document.getElementById("llmgenCaseCopyBtn");
   var llmgenAttachTray = document.getElementById("llmgenAttachTray");
   var llmgenAttachBtn = document.getElementById("llmgenAttachBtn");
   var llmgenAttachInput = document.getElementById("llmgenAttachInput");
@@ -2187,11 +2189,13 @@
     llmgenEditSaveBtn.hidden = !llmgenEditing;
     llmgenEditCancelBtn.hidden = !llmgenEditing;
     llmgenEditBtn.disabled = !llmgenLatestCase;
+    llmgenCaseCopyBtn.disabled = !llmgenLatestCase && !llmgenEditing;
     llmgenCaseSyncBadge.hidden = !llmgenCaseUnsynced;
     llmgenSyncReviewBtn.disabled = !llmgenCaseUnsynced || llmgenEditing || llmgenSelectedScreens().length === 0;
     llmgenExportBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenSaveToProjectBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
+    llmgenCopyBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject || !llmgenProjectName;
     llmgenVarsCheckBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
     renderLlmgenCaseStatus();
   }
@@ -2216,9 +2220,11 @@
       (llmgenFileName ? "匯入的檔案 " + llmgenFileName + "：" : "新測案：") + (llmgenLatestCase.test_name || "（未命名）"));
   }
   // 開始一份新的測案：清掉對話和目前的測案。目前這份有修改還沒存會先問，回傳 false＝使用者取消
-  function startNewLlmgenCase() {
-    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消"); return false; }
-    if (llmgenHasUnsaved() && !confirm("目前的測案「" + (llmgenLatestCase.test_name || "（未命名）") + "」有修改還沒存，換一份會丟掉這些修改，確定嗎？")) return false;
+  // force＝不用問（例如開著的這份已經被刪掉了）
+  function startNewLlmgenCase(force) {
+    if (llmgenEditing && !force) { alert("測試案例還在編輯中，請先按「確定」或「取消」"); return false; }
+    llmgenEditing = false;
+    if (!force && llmgenHasUnsaved() && !confirm("目前的測案「" + (llmgenLatestCase.test_name || "（未命名）") + "」有修改還沒存，換一份會丟掉這些修改，確定嗎？")) return false;
     llmgenChatHistory = [];
     llmgenMessages.innerHTML = '<div class="empty-state">選好畫面後，用自然語言描述你想測試的流程。</div>';
     llmgenLatestCase = null;
@@ -2445,7 +2451,7 @@
     var attachments = llmgenPendingAttachments.slice();
     if (!text && !attachments.length) return;
     if (!text) text = "請依照附件內容產生測試案例";
-    if (llmgenEditing) { alert("測試案例還在編輯中，請先儲存或取消，再跟 LLM 對話"); return; }
+    if (llmgenEditing) { alert("測試案例還在編輯中，請先按「確定」或「取消」，再跟 LLM 對話"); return; }
     // 手動改過但還沒同步就直接講下一個指令：先自動同步，不然 LLM 會拿舊版來改，把手動的修改蓋掉
     if (llmgenCaseUnsynced) syncManualCaseToLlmgen();
     var emptyState = llmgenMessages.querySelector(".empty-state");
@@ -3627,6 +3633,8 @@
     llmgenCaseProjectSelect.value = llmgenProjectName || "";
     renderRunscriptCasePicker();
     llmgenSaveToProjectBtn.hidden = !on;
+    llmgenCopyBtn.hidden = !on;
+    document.getElementById("caseManageBtn").hidden = !on;
     batchSaveToProjectBtn.hidden = !on;
     document.getElementById("varsManageBtn").hidden = !on;
     llmgenVarsCheckBtn.hidden = !on;
@@ -3781,19 +3789,243 @@
     catch (err) { alert("讀取專案測案失敗：" + err.message); }
     renderLlmgenCaseStatus();
   });
+  // ③ 測案內容左上角的複製鈕：複製畫面上看到的內容（手動編輯中就是編輯框裡的）
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+    // 用 IP 連進來不是 secure context，沒有 clipboard API，退回舊做法
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (!ok) throw new Error("瀏覽器不允許複製");
+  }
+  var llmgenCaseCopyTimer = null;
+  llmgenCaseCopyBtn.addEventListener("click", async function () {
+    var text = llmgenEditing ? llmgenCaseEditor.value : JSON.stringify(llmgenLatestCase, null, 2);
+    if (!text) return;
+    try { await copyText(text); }
+    catch (err) { alert("複製失敗：" + err.message); return; }
+    clearTimeout(llmgenCaseCopyTimer);
+    llmgenCaseCopyBtn.textContent = "✓";
+    llmgenCaseCopyBtn.classList.add("done");
+    llmgenCaseCopyTimer = setTimeout(function () {
+      llmgenCaseCopyBtn.textContent = "⧉";
+      llmgenCaseCopyBtn.classList.remove("done");
+    }, 1500);
+  });
+
+  // 儲存：開著的是專案測案就直接存回去；新測案、匯入的才問名稱
   llmgenSaveToProjectBtn.addEventListener("click", async function () {
     if (!llmgenLatestCase || !currentProject) return;
-    var defaultName = llmgenProjectName || (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
-    var name = (prompt("存成專案測案，名稱（也是檔名；跟原本同名就是覆蓋）：", defaultName) || "").trim();
-    if (!name) return;
+    var name = llmgenProjectName;
+    if (!name) {
+      var defaultName = (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
+      name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
+      if (!name) return;
+    }
     try {
       if (!(await saveProjectItem("cases", name, llmgenLatestCase, name === llmgenProjectName))) return;
       llmgenProjectName = name;
       llmgenFileName = null;
       llmgenSavedText = JSON.stringify(llmgenLatestCase);
-      renderLlmgenCaseStatus();
+      updateLlmgenCaseControls();
       setProjectStatus("測案「" + name + "」已存進專案");
     } catch (err) { alert("存檔失敗：" + err.message); }
+  });
+  // 複製一份：目前這份（包含還沒存的修改）存成新的專案測案，test_name 跟著新名稱，之後改的是複本
+  llmgenCopyBtn.addEventListener("click", async function () {
+    if (!llmgenLatestCase || !currentProject || !llmgenProjectName || llmgenEditing) return;
+    var from = llmgenProjectName;
+    var note = llmgenHasUnsaved() ? "\n（還沒存的修改會存進複本，原本的「" + from + "」維持上次存的內容）" : "";
+    var name = (prompt("複製成新的專案測案，名稱：" + note, from + "_copy") || "").trim();
+    if (!name) return;
+    if (name === from) { alert("複本要取不一樣的名稱"); return; }
+    var copy = JSON.parse(JSON.stringify(llmgenLatestCase));
+    copy.test_name = name;
+    try {
+      if (!(await saveProjectItem("cases", name, copy, false))) return;
+      var nameChanged = llmgenLatestCase.test_name !== name;
+      llmgenProjectName = name;
+      llmgenFileName = null;
+      llmgenSavedText = JSON.stringify(copy);
+      renderLlmgenCase(copy, llmgenCaseUnsynced || nameChanged);
+      appendChatMessage("info-note", "📄 已複製「" + from + "」成「" + name + "」，接下來改的是複本");
+      setProjectStatus("已複製成測案「" + name + "」");
+    } catch (err) { alert("複製失敗：" + err.message); }
+  });
+
+  // ---- 管理測案視窗：列出專案所有測案，每一列直接開啟／改名／刪除（做法跟管理地圖一樣） ----
+  var caseManagerModal = document.getElementById("caseManagerModal");
+  var caseManagerRows = document.getElementById("caseManagerRows");
+  var caseManagerMsg = document.getElementById("caseManagerMsg");
+  // 正在編輯的那一列：{ name, mode: "rename" | "delete", usedBy?: [批次名稱] }
+  var caseRowEdit = null;
+  var caseManagerBusy = false;
+
+  function setCaseManagerMsg(text, isError) {
+    caseManagerMsg.textContent = text || "";
+    caseManagerMsg.className = "map-manager-msg" + (isError ? " error" : "");
+  }
+  function renderCaseManager() {
+    document.getElementById("caseManagerTitle").textContent = "管理測案：" + (currentProject ? currentProject.name : "");
+    if (!projectCases.length) {
+      caseManagerRows.innerHTML = '<tr><td colspan="4" class="empty-state">專案還沒有測案</td></tr>';
+      return;
+    }
+    caseManagerRows.innerHTML = projectCases.map(function (c) {
+      var name = escapeHtml(c.name), isOpen = c.name === llmgenProjectName;
+      var edit = caseRowEdit && caseRowEdit.name === c.name ? caseRowEdit.mode : null;
+      var first, actions;
+      if (edit === "rename") {
+        first = '<input type="text" data-row-input value="' + name + '" aria-label="新名稱">';
+        actions = '<button class="btn primary" data-act="save">✓ 改名</button><button class="btn" data-act="cancel">取消</button>';
+      } else if (edit === "delete") {
+        var usedBy = caseRowEdit.usedBy || [];
+        first = '<span class="map-row-confirm">確定刪除「' + name + "」？無法復原" +
+          (usedBy.length ? "。批次「" + escapeHtml(usedBy.join("」「")) + "」有用到，會從裡面拿掉" : "") +
+          (isOpen ? "。測案編輯開著這份，刪除後會清空回新測案" : "") + "</span>";
+        actions = '<button class="btn danger" data-act="confirm-delete">刪除</button><button class="btn" data-act="cancel">取消</button>';
+      } else {
+        first = name + (c.test_name && c.test_name !== c.name ? "（" + escapeHtml(c.test_name) + "）" : "") +
+          (isOpen ? '<span class="map-current-badge">編輯中</span>' : "");
+        actions = (isOpen ? "" : '<button class="btn" data-act="open">開啟</button>') +
+          '<button class="btn" data-act="rename">改名</button>' +
+          '<button class="btn danger" data-act="delete">刪除</button>';
+      }
+      return '<tr data-name="' + name + '"' + (isOpen ? ' class="current"' : "") + ">" +
+        "<td>" + first + '</td><td class="num">' + (c.steps != null ? c.steps : "?") + "</td>" +
+        '<td class="time">' + escapeHtml(shortTime(c.updated_at)) + '</td><td class="actions">' + actions + "</td></tr>";
+    }).join("");
+    var input = caseManagerRows.querySelector("[data-row-input]");
+    if (input) { input.focus(); input.select(); }
+  }
+  function setProjectCases(items) {
+    projectCases = items;
+    renderProjectPickers();
+    renderCaseManager();
+  }
+  async function openCaseManager() {
+    if (!currentProject) return;
+    caseRowEdit = null;
+    setCaseManagerMsg("");
+    caseManagerModal.hidden = false;
+    renderCaseManager();
+    // 重新抓一次清單：別的分頁可能新增或改過
+    try { setProjectCases((await apiJson("GET", projectApi())).cases); }
+    catch (err) { setCaseManagerMsg("更新測案清單失敗：" + err.message, true); }
+  }
+  function closeCaseManager() { caseManagerModal.hidden = true; caseRowEdit = null; }
+
+  // 改名／刪除之後，畫面上開著或引用到這份測案的地方跟著更新（newName 是 null＝刪掉了）
+  // items：伺服器回的最新測案清單，要先換掉，批次裡「從專案選」的選單才會是新的
+  function applyCaseRenameOrDelete(name, newName, items) {
+    projectCases = items;
+    if (llmgenProjectName === name) {
+      if (newName) {
+        llmgenProjectName = newName;
+        var nameChanged = llmgenLatestCase.test_name !== newName;
+        llmgenLatestCase.test_name = newName;
+        var saved = JSON.parse(llmgenSavedText);
+        saved.test_name = newName;
+        llmgenSavedText = JSON.stringify(saved);
+        renderLlmgenCase(llmgenLatestCase, llmgenCaseUnsynced || nameChanged);
+      } else {
+        startNewLlmgenCase(true);  // 已經刪掉了，測案編輯回到新測案的狀態
+      }
+    }
+    if (runscriptCaseRef === name) {
+      if (newName) {
+        runscriptCaseRef = newName;
+        if (runscriptTestCase) runscriptTestCase.test_name = newName;
+      } else {
+        runscriptCaseRef = null;
+        runscriptTestCase = null;
+        renderRunscriptPreview();
+      }
+    }
+    var batchChanged = false;
+    batchGroups.forEach(function (g) {
+      if (newName) {
+        g.cases.concat(g.setup ? [g.setup] : []).forEach(function (item) {
+          if (item.ref !== name) return;
+          item.ref = item.name = newName;
+          if (item.case) item.case.test_name = newName;
+          batchChanged = true;
+        });
+      } else {
+        if (g.setup && g.setup.ref === name) { g.setup = null; batchChanged = true; }
+        var kept = g.cases.filter(function (item) { return item.ref !== name; });
+        if (kept.length !== g.cases.length) { g.cases = kept; batchChanged = true; }
+      }
+    });
+    if (batchChanged) scheduleBatchAutosave();
+    renderBatchGroups();
+    renderProjectPickers();
+    renderCaseManager();
+  }
+
+  async function runCaseAction(name, act, input) {
+    if (act === "cancel") { caseRowEdit = null; setCaseManagerMsg(""); renderCaseManager(); return; }
+    // 測案編輯正在手動編輯 JSON 時，改名／刪除開著的那份會跟編輯框裡的內容對不起來
+    if ((act === "rename" || act === "delete") && name === llmgenProjectName && llmgenEditing) {
+      setCaseManagerMsg("測案編輯正在手動編輯這份測案，請先按「確定」或「取消」", true);
+      return;
+    }
+    if (act === "rename") { caseRowEdit = { name: name, mode: act }; setCaseManagerMsg(""); renderCaseManager(); return; }
+    if (caseManagerBusy) return;
+    caseManagerBusy = true;
+    try {
+      var caseApi = projectApi("/cases/" + encodeURIComponent(name));
+      if (act === "open") {
+        importLlmgenCase(await fetchProjectCase(name), "📁 開啟專案測案「" + name + "」", { projectName: name });
+        if (llmgenProjectName === name) closeCaseManager();
+      } else if (act === "delete") {
+        var usedBy = (await apiJson("GET", caseApi + "/used-by")).batches;
+        caseRowEdit = { name: name, mode: "delete", usedBy: usedBy };
+        setCaseManagerMsg("");
+        renderCaseManager();
+      } else if (act === "save" && caseRowEdit && caseRowEdit.mode === "rename") {
+        var newName = (input.value || "").trim();
+        if (!newName) { setCaseManagerMsg("請輸入名稱", true); return; }
+        if (newName === name) { caseRowEdit = null; renderCaseManager(); return; }
+        if (projectCases.some(function (c) { return c.name === newName; })) { setCaseManagerMsg("已經有測案叫「" + newName + "」了，換一個名稱", true); return; }
+        var res = await apiJson("POST", caseApi + "/rename", { new_name: newName });
+        caseRowEdit = null;
+        applyCaseRenameOrDelete(name, newName, res.items);
+        setCaseManagerMsg("已改名為「" + newName + "」（test_name、專案裡存的批次設定也一起改了）");
+      } else if (act === "confirm-delete") {
+        var del = await apiJson("DELETE", caseApi);
+        caseRowEdit = null;
+        applyCaseRenameOrDelete(name, null, del.items);
+        setCaseManagerMsg("已刪除「" + name + "」");
+      }
+    } catch (err) {
+      setCaseManagerMsg("失敗：" + err.message, true);
+    } finally {
+      caseManagerBusy = false;
+    }
+  }
+
+  document.getElementById("caseManageBtn").addEventListener("click", openCaseManager);
+  document.getElementById("caseManagerCloseBtn").addEventListener("click", closeCaseManager);
+  caseManagerModal.addEventListener("click", function (e) { if (e.target === caseManagerModal) closeCaseManager(); });
+  caseManagerRows.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    var row = btn.closest("tr");
+    runCaseAction(row.dataset.name, btn.dataset.act, row.querySelector("[data-row-input]"));
+  });
+  caseManagerRows.addEventListener("keydown", function (e) {
+    var input = e.target.closest("[data-row-input]");
+    if (!input) return;
+    if (e.key === "Enter") { e.preventDefault(); runCaseAction(input.closest("tr").dataset.name, "save", input); }
+    if (e.key === "Escape") { e.stopPropagation(); runCaseAction(null, "cancel"); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !caseManagerModal.hidden) closeCaseManager();
   });
   runscriptCaseProjectSelect.addEventListener("change", async function () {
     var name = runscriptCaseProjectSelect.value;
