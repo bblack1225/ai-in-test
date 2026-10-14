@@ -156,7 +156,7 @@ class Recording:
         screen = self.screens[screen_index]
         if snap["signature"] not in screen["signatures"]:
             screen["signatures"].append(snap["signature"])
-        screen["rounds"].append({k: snap[k] for k in ("xml", "png", "w", "h", "content")})
+        screen["rounds"].append({k: snap[k] for k in ("xml", "png", "w", "h", "content", "signature")})
         self._set_live(screen_index, len(screen["rounds"]) - 1, snap["_source"])
 
     def _set_live(self, screen_index: int, round_index: int, page_source: str | None = None) -> None:
@@ -288,8 +288,34 @@ class Recording:
         return self.message
 
     def refresh(self, driver) -> str:
-        self.message = self._arrive(self._snapshot(driver), None)
+        snap = self._snapshot(driver)
+        known = self._find_screen(snap["signature"])
+        if self.current is None or (known is not None and known != self.current):
+            self.message = self._arrive(snap, None)
+        else:
+            self.message = self._recapture(snap)
         return self.message
+
+    def _recapture(self, snap: dict) -> str:
+        """
+        重抓目前這一頁（例如點進來時還在載入就抓了快照）：用新快照取代畫面上顯示的那一輪，
+        骨架簽章也改成新的。這一輪已經點出過子步驟（入口位置指著它）的話不能換掉，改成多記一輪
+        """
+        screen_index, round_index = self.live
+        screen = self.screens[screen_index]
+        old = screen["rounds"][round_index]
+        if old["content"] == snap["content"]:
+            self._discard(snap)
+            return "畫面跟剛剛抓的一樣，沒有變化"
+        if any(s["parent"] == screen_index and s["entry"]["pos"][0] == round_index for s in self.screens[1:]):
+            self._add_round(screen_index, snap)
+            return f"已重抓「{self._label(screen_index)}」：這一輪已經點出過下一步，改成多記錄一輪畫面"
+        for name in (old["xml"], old["png"]):
+            (self.dir / name).unlink(missing_ok=True)
+        screen["rounds"][round_index] = {k: snap[k] for k in ("xml", "png", "w", "h", "content", "signature")}
+        screen["signatures"] = list(dict.fromkeys(r["signature"] for r in screen["rounds"]))
+        self._set_live(screen_index, round_index, snap["_source"])
+        return f"已重抓「{self._label(screen_index)}」，取代原本記錄的畫面"
 
     def merge_last(self) -> str:
         """最後一步其實不是新畫面：把它的快照併回上一頁，之後看到同樣的簽章也當成上一頁"""
