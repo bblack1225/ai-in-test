@@ -20,6 +20,7 @@
   - 兩個節點長得幾乎一樣（同一個頁面模板）時可能辨識錯，靠每一步重新辨識把關
 """
 
+import re
 import time
 import xml.etree.ElementTree as ET
 
@@ -29,6 +30,17 @@ from aitest.core.run_test_case import run_tap, try_dismiss_dialogs, wait_after_a
 
 # 一個畫面要有過半數的指紋元件出現在目前畫面上，才算「可能是這一頁」（跟第0步檢查同標準）
 MATCH_MIN_RECALL = 0.5
+
+# 結尾是流水號的 id（MBKMetroQuote_QuoteDataCell_0_0、_1_1…）是依資料產生的清單格子，
+# 有沒有出現、出現幾個看資料載入了沒，不能拿來判斷是哪一頁：剛登入時首頁報價還沒載入，
+# 首頁少了這些 id，反而輸給只剩底部導覽列 id 的「我的」頁
+_DATA_INDEX_ID = re.compile(r"[_-]\d+(?:[_-]\d+)*$")
+
+
+def _stable_ids(elements: list) -> set:
+    """畫面辨識用的 native id：去掉結尾是流水號的"""
+    return {e["native_id"] for e in elements if e.get("id_source") == "native" and e.get("native_id")
+            and not _DATA_INDEX_ID.search(e["native_id"])}
 
 
 def _short_el_to_full(el: dict) -> dict:
@@ -55,8 +67,7 @@ class MapIndex:
             self.screens.append(screen)
         self.by_uid = {s["uid"]: s for s in self.screens}
         self.by_name = {s["name"]: s for s in self.screens}
-        self.known_ids = {e["native_id"] for s in self.screens for e in s["elements"]
-                          if e.get("id_source") == "native" and e.get("native_id")}
+        self.known_ids = set().union(*(_stable_ids(s["elements"]) for s in self.screens))
 
     def screens_for_execution(self) -> dict:
         """執行測案步驟用的 {畫面名稱: {"elements": [...]}}，跟 /run_test_script 收到的格式一樣"""
@@ -111,7 +122,7 @@ def identify_screen(platform, page_source: str, index: MapIndex) -> tuple[dict |
 
     best, best_score = None, 0.0
     for screen in index.screens:
-        ids = {e["native_id"] for e in screen["elements"] if e.get("id_source") == "native" and e.get("native_id")}
+        ids = _stable_ids(screen["elements"])
         if ids:
             found = len(ids & present_ids)
             recall = found / len(ids)

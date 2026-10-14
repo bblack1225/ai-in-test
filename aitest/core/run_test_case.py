@@ -19,7 +19,8 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
   2. generated 元件（沒有 native id）：class + 文字查詢、捲動重查、鄰近文字
      錨點消歧義（見 TROUBLESHOOTING #36），各平台的細節見
      platforms/*.py 的 locate_generated_element()
-  3. 都找不到、或 label 本身是空的，才退回用 bounds 座標點擊——等到步驟的 timeout
+  2'. label 本身是空的（例如清單每列一個空輸入框）：用附近唯一的文字當錨點，挑同一列的同類元件
+  3. 都找不到，才退回用 bounds 座標點擊——等到步驟的 timeout
      （沒寫就用 config 的 default_step_timeout）用完都還找不到才退回，免得畫面還在
      loading 就盲點
   4. input_text 定位跟 tap 一樣走 0~2，但不退回座標（打字打錯地方比點錯更難收拾）。
@@ -678,14 +679,18 @@ def execute_step_dismissing_dialogs(ctx, platform, driver, step: dict, el: dict 
     執行一步；失敗時（而且開關有開）檢查是不是被非預期彈窗擋住，有的話關掉再重試一次。
     只在失敗時才檢查：正常情況不多花時間，也不會誤關測案本來就要操作的對話框。
     el 是 None（地圖裡找不到 target）是資料問題，關彈窗也沒用，不重試。
+    定位元件途中（捲動找之前）關掉的彈窗也一起註記（見 platforms/locate.py）。
     """
+    ctx.dismissed_while_locating.clear()
     outcome = _execute_step_safely(ctx, platform, driver, step, el)
-    if not outcome.startswith("FAIL") or el is None:
-        return outcome
-    dismissed = try_dismiss_dialogs(ctx, platform, driver)
-    if not dismissed:
-        return outcome
-    return with_dismiss_note(_execute_step_safely(ctx, platform, driver, step, el), dismissed)
+    if outcome.startswith("FAIL") and el is not None:
+        dismissed = try_dismiss_dialogs(ctx, platform, driver)
+        if dismissed:
+            outcome = with_dismiss_note(_execute_step_safely(ctx, platform, driver, step, el), dismissed)
+    if ctx.dismissed_while_locating:
+        outcome = with_dismiss_note(outcome, list(dict.fromkeys(ctx.dismissed_while_locating)))
+        ctx.dismissed_while_locating.clear()
+    return outcome
 
 
 def _execute_step_safely(ctx, platform, driver, step: dict, el: dict | None) -> str:

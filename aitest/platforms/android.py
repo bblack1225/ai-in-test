@@ -1059,6 +1059,10 @@ class AndroidPlatform:
     def find_anchor(self, driver, text: str):
         return find_anchor(driver, text)
 
+    def count_text(self, driver, text: str) -> int:
+        """畫面上文字是 text 的元件有幾個（無文字元件的錨點要唯一才能用；find_anchor 捲到第一個就回傳，不檢查唯一）"""
+        return len(_find_by_texts(driver, [text]))
+
     def locate_fallback(self, driver, el: dict):
         return locate_by_scroll_into_view(driver, el)
 
