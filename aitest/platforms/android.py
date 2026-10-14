@@ -28,7 +28,6 @@ import json
 import re
 import time
 import xml.etree.ElementTree as ET
-from contextlib import nullcontext
 
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
@@ -53,6 +52,7 @@ from aitest.platforms.base import (
     histogram_bucket,
     looks_like_data,
     main_scroll_area,
+    no_idle_wait,
     shrink_bounds,
     wait_until_stable,
 )
@@ -1036,7 +1036,8 @@ class AndroidPlatform:
         return {"clickable": el["clickable"], "checkable": el["checkable"], "enabled": el["enabled"]}
 
     def page_source_context(self, driver):
-        return nullcontext()
+        """跑測案期間（單份、批次、命令列）套用的設定，見 no_idle_wait"""
+        return no_idle_wait(driver)
 
     # --- 無 native id 元件的定位（流程在 platforms/locate.py）---
     class_text_by = AppiumBy.XPATH

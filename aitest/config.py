@@ -59,6 +59,15 @@ def _require(section: str, keys: list[str]) -> dict:
 
 APPIUM_SERVER_URL = _section("appium").get("server_url") or "http://127.0.0.1:4723"
 
+# ---------------------------------------------------------------------------
+# 跑測案
+# ---------------------------------------------------------------------------
+
+# 每個步驟預設的等待上限（秒）：找不到元件、驗證沒通過時在這段時間內反覆重試，一通過就
+# 繼續，不會等滿。擋住「畫面突然在 loading」這種沒預期到的延遲。步驟自己寫了 timeout 的
+# 以步驟為準；設 0 等於關掉（只試一次，跟以前一樣）
+DEFAULT_STEP_TIMEOUT = float(_section("run").get("default_step_timeout", 10))
+
 
 def ios_capabilities(app_id: str | None = None) -> dict:
     """

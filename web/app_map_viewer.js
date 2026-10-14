@@ -2515,7 +2515,7 @@
       "系統提示詞由 viewer_server.py 依你勾選的畫面資料組出，重點規則：\n\n" +
       "1. 輸出必須是 ```json 包起來的測試案例\n2. action 只能是 tap／input_text／assert_visible／assert_text_contains／assert_banner（驗證短暫出現的跑馬燈；連續幾個會合併監看，加 \"in_order\": true 要求比前一個晚出現）\n" +
       "3. target 必須是勾選畫面裡真實存在的 unique_id，不可以憑空編造\n4. 測試案例可以橫跨多個畫面\n" +
-      "5. assert_visible／assert_text_contains 可加 timeout（秒），畫面會晚幾秒才更新時，在期限內反覆檢查直到通過\n" +
+      "5. 每一步執行時預設會等一段時間（config 的 default_step_timeout，一通過就繼續）；畫面要等更久才更新時，assert_visible／assert_text_contains 可加 timeout（秒）延長\n" +
       "6. 附件（流程圖、PDF…）只當作「要測什麼」的參考，target 仍然只能用勾選畫面裡的 unique_id；對應不到元件的步驟會列出來，建議補掃畫面"
     );
   });
