@@ -114,12 +114,45 @@ def test_force_new_creates_node_even_if_signature_same(rec):
     assert len(rec.state()["steps"]) == 1
 
 
-def test_unknown_screen_after_refresh(rec, ios_policy):
-    rec.driver.page_source = ios_policy  # 使用者自己在手機上換了頁
-    rec.refresh(rec.driver)
+def test_unknown_screen_after_back_is_lost(rec, ios, ios_policy, monkeypatch):
+    def fake_back(d):
+        d.page_source = ios_policy  # 返回到一個沒錄過的畫面
+    monkeypatch.setattr(ios, "go_back", fake_back)
+    rec.back(rec.driver)
     assert rec.current is None and rec.state()["live"] is None
     with pytest.raises(RecordingError):
         rec.tap(RunContext(), rec.driver, 0)
+
+
+def test_refresh_unknown_screen_recaptures_loading_page(rec, ios_login, ios_policy):
+    # 點進來時還在載入：抓到的是跟起點一樣骨架以外的半成品，這裡用 force_new＋起點畫面模擬
+    rec.driver.next_source = None
+    rec.tap(RunContext(), rec.driver, _index_of(rec, _a_label(rec)), force_new=True)
+    old_png = rec.screens[1]["rounds"][0]["png"]
+    # 載入完成，骨架變了：重抓取代這一步原本的快照，不是迷路
+    rec.driver.page_source = ios_policy
+    message = rec.refresh(rec.driver)
+    assert "取代" in message and rec.current == 1
+    step = rec.screens[1]
+    assert len(step["rounds"]) == 1 and step["rounds"][0]["png"] != old_png
+    assert not (rec.dir / old_png).exists()
+    assert step["signatures"] == [step["rounds"][0]["signature"]]
+    assert rec.state()["live"]["candidates"]
+
+
+def test_refresh_keeps_round_that_already_has_child(rec, ios, ios_login, ios_policy, monkeypatch):
+    rec.driver.next_source = ios_policy
+    rec.tap(RunContext(), rec.driver, _index_of(rec, _a_label(rec)))
+    monkeypatch.setattr(ios, "go_back", lambda d: setattr(d, "page_source", ios_login))
+    rec.back(rec.driver)
+    assert rec.current == 0
+    first_png = rec.screens[0]["rounds"][0]["png"]
+    assert "沒有變化" in rec.refresh(rec.driver)
+    # 起點那一輪已經點出過第 1 步（入口位置指著它），重抓不能換掉，改成多記一輪
+    rec.driver.page_source = ios_login.replace("歡迎登入！", "歡迎回來！")  # 同骨架、內容變了
+    message = rec.refresh(rec.driver)
+    assert "多記錄一輪" in message and rec.current == 0
+    assert rec.screens[0]["rounds"][0]["png"] == first_png and len(rec.screens[0]["rounds"]) == 2
 
 
 def test_merge_last_folds_step_into_parent(rec, ios_policy):
