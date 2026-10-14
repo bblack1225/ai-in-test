@@ -456,6 +456,14 @@ textarea.case-json-editor { display: block; margin: 0 0 12px; width: 100%; box-s
 .batch-add-case { align-self: flex-start; padding: 5px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; background: transparent; color: var(--ink-soft); font: inherit; font-size: calc(12px * var(--font-scale)); cursor: pointer; }
 .batch-add-case:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
 .batch-case .warn { color: var(--gold); font-size: calc(11px * var(--font-scale)); }
+/* 名稱吃剩下的寬度，右邊登入、變數固定寬度，選了幾個變數每一列的欄位都對齊；變數多了在自己那欄裡換行 */
+.batch-case .name { flex: 1 1 0; min-width: 100px; }
+.batch-case .meta { flex: none; margin-right: 0; }
+.batch-case > select[data-act="case-login"] { flex: none; width: 220px; }
+.batch-case .vars-pick { flex: none; width: 300px; }
+.batch-case .vars-pick select { width: 110px; }
+.vars-chip { max-width: 100%; box-sizing: border-box; }
+.vars-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon-btn { border: 1px solid var(--line-strong); background: var(--paper-raised); color: var(--ink); border-radius: 6px; padding: 2px 7px; font-size: calc(11px * var(--font-scale)); cursor: pointer; }
 .icon-btn:hover { border-color: var(--accent); }
 .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
