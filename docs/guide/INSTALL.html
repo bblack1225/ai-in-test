@@ -259,21 +259,8 @@ source .venv/bin/activate</code></pre><button class="copy" type="button">複製<
 
 <details>
   <summary>Python 版本：建議 3.12，最低 3.11</summary>
-  <p>專案設定的、實際測過的都是 Python 3.12。程式本身最低需要 3.11（讀 <code>config.toml</code> 用的 <code>tomllib</code> 是 3.11 才有），3.10 以下跑不起來。</p>
-  <div class="callout warn">
-    <p><strong>3.11 還沒有實際驗證過</strong>，套件版本也是照 3.12 鎖定的。能用 3.12 就用 3.12；用 3.11 遇到問題的話請改回 3.12。</p>
-  </div>
-  <p>電腦只能用 3.11 的話，要改這些地方：</p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>檔案</th><th>要改的地方</th><th>改成</th><th>什麼時候要改</th></tr></thead>
-    <tbody>
-      <tr><td><code>aitest/cli.py</code></td><td><code>check_python()</code> 裡的 <code>if v &gt;= (3, 12):</code>，和同一個函式裡錯誤訊息的「需要 3.12 以上」</td><td><code>(3, 11)</code>、「需要 3.11 以上」</td><td>一定要改，不然 doctor 會判定 Python 版本不合格</td></tr>
-      <tr><td><code>pyproject.toml</code></td><td><code>requires-python = "&gt;=3.12"</code></td><td><code>"&gt;=3.11"</code></td><td>用 uv 時</td></tr>
-      <tr><td><code>.python-version</code></td><td><code>3.12</code></td><td><code>3.11</code></td><td>用 uv 時（<code>uv sync</code> 照這個下載 Python）</td></tr>
-      <tr><td><code>uv.lock</code></td><td>不用手改</td><td>改完上面兩個檔案後執行 <code>uv lock</code> 重新產生</td><td>用 uv 時</td></tr>
-    </tbody>
-  </table></div>
-  <p>用 venv + pip 的話只要改 <code>aitest/cli.py</code> 和 <code>pyproject.toml</code>；pip 裝套件時如果有哪個版本不支援 3.11，會直接報錯。改完照第 6 步跑 doctor，再實際跑一份測案確認。</p>
+  <p>開發和日常測試用的是 Python 3.12，3.11 也驗證過可以跑（venv + pip 安裝、doctor、單元測試都通過），<strong>不用改任何檔案</strong>。3.10 以下跑不起來（讀 <code>config.toml</code> 用的 <code>tomllib</code> 是 3.11 才有）。</p>
+  <p>用 uv 的話不用管這個，<code>uv sync</code> 會自己下載 3.12。</p>
 </details>
 
 <h2 id="s4"><span class="num">04</span>建立設定檔</h2>
