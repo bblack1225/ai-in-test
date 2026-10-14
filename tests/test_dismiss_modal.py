@@ -41,3 +41,47 @@ def test_biometric_prompt_declined():
 def test_never_taps_logout():
     driver = FakeDriver(["登出"])
     assert android.android_dismiss_modal(driver) == []
+
+
+class FakeIOSElement:
+    def __init__(self, driver, label):
+        self.driver, self.label = driver, label
+
+    def get_attribute(self, name):
+        return self.label if name == "label" else None
+
+    def click(self):
+        self.driver.clicked.append(self.label)
+        self.driver.dialog_open = False
+
+
+class FakeIOSDriver:
+    """App 自己畫的彈窗：「下次再說」是 StaticText，不是 Button"""
+
+    page_source = "<AppiumAUT />"
+
+    def __init__(self):
+        self.dialog_open = True
+        self.clicked = []
+
+    def find_elements(self, by, value):
+        if not self.dialog_open or "XCUIElementTypeButton" in value or "XCUIElementTypeAlert" in value:
+            return []
+        return [FakeIOSElement(self, "下次再說")] if "'下次再說'" in value else []
+
+
+def test_ios_run_taps_text_close_button():
+    """跑測案時關彈窗不限 Button 類型（跟 Android 一樣）"""
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeIOSDriver()
+    assert IOSPlatform().dismiss_dialogs(driver) == ["下次再說"]
+
+
+def test_ios_crawler_only_taps_buttons():
+    """爬蟲每一頁都會檢查，維持只找 Button"""
+    from aitest.platforms import ios
+
+    driver = FakeIOSDriver()
+    assert ios.dismiss_modal(driver) == []
+    assert driver.clicked == []

@@ -606,22 +606,25 @@ def persistent_chrome_keys(page_source: str, screen_height: float) -> set[tuple[
     return keys
 
 
-def _first_button_label(driver, labels: list[str]):
-    """畫面上第一個文字在 labels 裡的按鈕，回傳 (元件, 文字)；沒有回傳 (None, None)"""
-    predicate = "type == 'XCUIElementTypeButton' AND label IN {" + ", ".join(
-        predicate_literal(label) for label in labels) + "}"
-    try:
-        matches = driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
-        if matches:
-            return matches[0], (matches[0].get_attribute("label") or "").strip()
-    except InvalidSessionIdException:
-        raise
-    except WebDriverException:
-        pass
+def _first_button_label(driver, labels: list[str], any_type: bool = False):
+    """畫面上第一個文字在 labels 裡的按鈕，回傳 (元件, 文字)；沒有回傳 (None, None)。
+    any_type=True：Button 找不到再放寬到任何類型——App 自己畫的彈窗，「下次再說」常常
+    只是一段文字（StaticText／Other）不是 Button。Android 版本來就不分類型"""
+    label_in = "label IN {" + ", ".join(predicate_literal(label) for label in labels) + "}"
+    predicates = [f"type == 'XCUIElementTypeButton' AND {label_in}"] + ([label_in] if any_type else [])
+    for predicate in predicates:
+        try:
+            matches = driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
+            if matches:
+                return matches[0], (matches[0].get_attribute("label") or "").strip()
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            pass
     return None, None
 
 
-def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False) -> list[str]:
     """
     偵測並關掉擋在前面的提示對話框（報價連線中斷、root 偵測、行銷推播、
     「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
@@ -637,13 +640,16 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -
          （`type == 'XCUIElementTypeButton' AND label IN {X, Y, …}`），不是列舉畫面上
          所有 Button 再逐一 get_attribute("label")——元件數大的畫面後者可能要
          上百次 WDA 往返，前者固定 1-2 次
+
+    any_type：關閉按鈕不限 Button 類型（見 _first_button_label）。跑測案時用（步驟失敗才會
+    檢查）；爬蟲每一頁都會檢查，維持只找 Button，免得誤點一般畫面上剛好叫「取消」「關閉」的文字
     """
     if page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS):
         return []
 
     dismissed: list[str] = []
     for _ in range(max_rounds):
-        element, target = _first_button_label(driver, MODAL_DISMISS_LABELS)
+        element, target = _first_button_label(driver, MODAL_DISMISS_LABELS, any_type)
         if element is None:
             # 找不到「純關閉」類，只有真的出現 XCUIElementTypeAlert 時才進一步
             # 查「確定/OK」這類確認語意的——避免在一般畫面上把「確定」誤點掉
@@ -896,7 +902,7 @@ class IOSPlatform:
             raise
         except WebDriverException:
             return []
-        return dismiss_modal(driver)
+        return dismiss_modal(driver, any_type=True)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()
