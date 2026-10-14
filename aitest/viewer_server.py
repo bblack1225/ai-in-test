@@ -1450,12 +1450,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif len(parts) >= 3 and parts[1] == "maps":
+                # 地圖要排在下面的通用改名前面，不然 maps/<name>/rename 會被當成一般項目改名擋掉
+                self._handle_map_api(method, parts[0], parts[2], parts[3:], query)
             elif len(parts) == 4 and parts[3] == "rename" and method == "POST":
                 body = self._read_json_body() or {}
                 WORKSPACE.rename_item(parts[0], parts[1], parts[2], str(body.get("new_name", "")).strip())
                 self._send_json(200, {"items": WORKSPACE.list_items(parts[0], parts[1])})
-            elif len(parts) >= 3 and parts[1] == "maps":
-                self._handle_map_api(method, parts[0], parts[2], parts[3:], query)
             elif len(parts) == 3 and method == "GET":
                 self._send_json(200, {"data": WORKSPACE.read_item(*parts)})
             elif len(parts) == 3 and method == "PUT":
