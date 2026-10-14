@@ -2814,6 +2814,9 @@
   var batchAllowRestart = document.getElementById("batchAllowRestart");
   var batchDismissDialogs = document.getElementById("batchDismissDialogs");
   var batchRunning = false;
+  // 目前開的專案批次名稱：從專案開啟或存過之後，修改會自動存回這一份（跟地圖一樣）。
+  // null＝還沒取過名的新批次，不自動存，要先按「存到專案」。batchSavedJson 是上次存的內容，沒變就不存
+  var currentBatchName = null, batchSavedJson = null, batchAutosaveTimer = null;
   // 使用者手動展開／收合過的結果列（key = 組-份）；沒點過的照狀態決定：執行中、FAIL、SKIP 自動展開
   var batchUserOpen = {};
 
@@ -2903,6 +2906,49 @@
     var ready = !!currentProject && batchGroups.length > 0 && batchGroups.every(function (g) { return g.map && g.cases.length; });
     batchRunBtn.disabled = !ready || batchRunning;
     batchSaveToProjectBtn.disabled = !batchGroups.length || !currentProject || batchRunning;
+    batchSaveToProjectBtn.textContent = currentBatchName ? "💾 另存新批次" : "💾 存到專案";
+    scheduleBatchAutosave();
+  }
+  function batchConfigData() {
+    return { batch_version: 2, options: batchOptions(),
+      groups: batchGroups.map(function (g) {
+        var out = g.mapRef ? { map_ref: g.mapRef } : { map_name: g.mapName, map: g.map };
+        out.setup_case = batchItemToSaved(g.setup);
+        if (g.setupMapRef) out.setup_map_ref = g.setupMapRef;
+        out.cases = g.cases.map(function (c) {
+          var saved = batchItemToSaved(c);
+          if (c.login) saved.login = c.login;
+          if (c.vars && c.vars.length) saved.vars = c.vars.slice();
+          return saved;
+        });
+        return out;
+      }) };
+  }
+  function scheduleBatchAutosave() {
+    if (!currentBatchName || !currentProject) return;
+    clearTimeout(batchAutosaveTimer);
+    batchAutosaveTimer = setTimeout(autosaveBatch, 800);
+  }
+  async function autosaveBatch() {
+    clearTimeout(batchAutosaveTimer);
+    batchAutosaveTimer = null;
+    var name = currentBatchName, data = batchConfigData(), json = JSON.stringify(data);
+    if (!name || !currentProject || json === batchSavedJson) return;
+    data.saved_at = new Date().toISOString();
+    try {
+      await apiJson("PUT", projectApi("/batches/" + encodeURIComponent(name)) + "?overwrite=1", data);
+      if (name === currentBatchName) batchSavedJson = json;
+      setProjectStatus("批次「" + name + "」已自動儲存");
+    } catch (err) { setProjectStatus("⚠️ 批次「" + name + "」自動儲存失敗：" + err.message, true); }
+  }
+  // 換批次、換專案前把還在倒數的修改先存掉
+  async function flushBatchAutosave() {
+    if (batchAutosaveTimer) await autosaveBatch();
+  }
+  function setCurrentBatch(name) {
+    currentBatchName = name;
+    batchSavedJson = name ? JSON.stringify(batchConfigData()) : null;
+    renderBatchGroups();
   }
   function addBatchGroup(useCurrentMap) {
     batchGroups.push({ mapName: useCurrentMap ? currentMapName : null, map: useCurrentMap ? currentMapAsFull() : null,
@@ -2967,6 +3013,9 @@
       } catch (err) { alert("讀取專案測案失敗：" + err.message); }
       renderBatchGroups();
     }
+  });
+  [batchAutoNavigate, batchAllowRestart, batchDismissDialogs].forEach(function (box) {
+    box.addEventListener("change", scheduleBatchAutosave);
   });
   function batchOptions() {
     return { auto_navigate: batchAutoNavigate.checked, allow_restart: batchAllowRestart.checked, dismiss_dialogs: batchDismissDialogs.checked };
@@ -3266,7 +3315,7 @@
     return !mapDirty;
   }
   window.addEventListener("beforeunload", function (e) {
-    if (mapDirty || mapSaving) { e.preventDefault(); e.returnValue = ""; }
+    if (mapDirty || mapSaving || batchAutosaveTimer) { e.preventDefault(); e.returnValue = ""; }
   });
 
   async function loadProjectList() {
@@ -3279,6 +3328,7 @@
   }
 
   async function openProject(id) {
+    await flushBatchAutosave();
     if (currentProject && !(await flushMapSave()) &&
         !confirm("專案「" + currentProject.name + "」的地圖還有修改沒存進去，切換會丟掉這些修改，確定嗎？")) {
       projectSelect.value = currentProject.id;
@@ -3302,6 +3352,7 @@
     currentMapName = null; mapVersion = null;
     mapDirty = false; mapConflict = false;
     batchGroups = [];  // 批次設定引用的是上一個專案的地圖／測案，換專案就清掉
+    currentBatchName = null; batchSavedJson = null;
     batchResultsEl.innerHTML = "";
     try { localStorage.setItem("lastProject", id || ""); } catch (e) { /* 存不了就下次手動選 */ }
     projectSelect.value = id || "";
@@ -4080,34 +4131,38 @@
   }
   batchSaveToProjectBtn.addEventListener("click", async function () {
     if (!currentProject || !batchGroups.length) return;
-    var name = (prompt("存成專案批次，名稱（也是檔名）：", "batch_" + new Date().toISOString().slice(0, 10)) || "").trim();
+    // 開著的批次本來就會自動存，這顆是「新批次取名」或「另存一份新的」，存完之後自動存到新的這份
+    var name = (prompt(currentBatchName ? "另存成新的專案批次，名稱（也是檔名）：" : "存成專案批次，名稱（也是檔名）：",
+      "batch_" + new Date().toISOString().slice(0, 10)) || "").trim();
     if (!name) return;
-    var data = { batch_version: 2, saved_at: new Date().toISOString(), options: batchOptions(),
-      groups: batchGroups.map(function (g) {
-        var out = g.mapRef ? { map_ref: g.mapRef } : { map_name: g.mapName, map: g.map };
-        out.setup_case = batchItemToSaved(g.setup);
-        if (g.setupMapRef) out.setup_map_ref = g.setupMapRef;
-        out.cases = g.cases.map(function (c) {
-          var saved = batchItemToSaved(c);
-          if (c.login) saved.login = c.login;
-          if (c.vars && c.vars.length) saved.vars = c.vars.slice();
-          return saved;
-        });
-        return out;
-      }) };
+    await flushBatchAutosave();
+    var data = batchConfigData();
+    data.saved_at = new Date().toISOString();
     try {
-      if (await saveProjectItem("batches", name, data)) setProjectStatus("批次「" + name + "」已存進專案");
+      if (await saveProjectItem("batches", name, data)) {
+        setCurrentBatch(name);
+        setProjectStatus("批次「" + name + "」已存進專案，之後的修改會自動儲存");
+      }
     } catch (err) { alert("存檔失敗：" + err.message); }
   });
   batchProjectSelect.addEventListener("change", async function () {
     var name = batchProjectSelect.value;
     batchProjectSelect.value = "";
     if (!name || batchRunning) return;
-    if (batchGroups.length && !confirm("開啟會取代目前的批次設定，確定嗎？")) return;
+    // 開著的是存過的批次時修改都已經自動存了，不用再問；新的還沒取名的才會被丟掉
+    if (batchGroups.length && !currentBatchName && !confirm("開啟會取代目前的批次設定（還沒存進專案），確定嗎？")) return;
+    await flushBatchAutosave();
+    var previous = currentBatchName;
     try {
       var data = (await apiJson("GET", projectApi("/batches/" + encodeURIComponent(name)))).data;
+      currentBatchName = null;  // 載入途中不要把新內容存到舊名稱
       await loadBatchConfig(data);
-    } catch (err) { alert("開啟批次失敗：" + err.message); }
+      setCurrentBatch(name);
+      setProjectStatus("已開啟批次「" + name + "」，之後的修改會自動儲存");
+    } catch (err) {
+      currentBatchName = previous;  // 沒開成功，畫面上還是原本那份
+      alert("開啟批次失敗：" + err.message);
+    }
   });
 
   async function initProjects() {
