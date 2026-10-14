@@ -3519,7 +3519,10 @@
         if (name === currentMapName && !(await flushMapSave())) { setMapManagerMsg("目前地圖還有修改沒存進去，請先處理存檔問題再改名", true); return; }
         var res = await apiJson("POST", mapApi(name) + "/rename", { new_name: newName });
         projectMaps = res.maps;
-        batchGroups.forEach(function (g) { if (g.mapRef === name) { g.mapRef = newName; g.mapName = newName; } });
+        batchGroups.forEach(function (g) {
+          if (g.mapRef === name) { g.mapRef = newName; g.mapName = newName; }
+          if (g.setupMapRef === name) g.setupMapRef = newName;  // 登入地圖也要跟著改，不然自動存檔會把舊名寫回去
+        });
         if (name === currentMapName) {
           currentMapName = newName;
           try { localStorage.setItem("lastMap:" + currentProject.id, newName); } catch (e) { /* 無所謂 */ }

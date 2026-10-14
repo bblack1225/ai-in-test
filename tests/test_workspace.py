@@ -65,6 +65,25 @@ def test_item_validation(ws):
         ws.write_item("demo-ios", "vars", "帳號", {"values": {"1BAD": "x"}}, overwrite=False)
 
 
+def test_rename_map_updates_batch_refs(ws):
+    ws.create_map("demo-ios", "登入頁")
+    batch = {"groups": [
+        {"map_ref": "main", "setup_map_ref": "登入頁"},
+        {"map_ref": "登入頁", "setup_map_ref": None},
+        {"map_ref": "main", "setup_map_ref": "其他"},
+    ]}
+    ws.write_item("demo-ios", "batches", "回歸", batch, overwrite=False)
+
+    ws.rename_map("demo-ios", "登入頁", "登入")
+
+    groups = ws.read_item("demo-ios", "batches", "回歸")["groups"]
+    assert groups == [
+        {"map_ref": "main", "setup_map_ref": "登入"},
+        {"map_ref": "登入", "setup_map_ref": None},
+        {"map_ref": "main", "setup_map_ref": "其他"},
+    ]
+
+
 # ---- 匯出 ----------------------------------------------------------------
 
 def test_export_skips_sensitive_vars(ws):
@@ -150,6 +169,28 @@ def test_merge_keep_both_renames_theirs(ws, theirs_zip):
     assert result["renamed"] == [{"kind": "cases", "name": "共同", "as": "共同 (匯入)"}]
     assert ws.read_item("demo-ios", "cases", "共同")["test_name"] == "登入"
     assert ws.read_item("demo-ios", "cases", "共同 (匯入)")["test_name"] == "他們改的"
+
+
+def test_merge_keep_both_map_updates_imported_batch_refs(ws, tmp_path):
+    ws.create_map("demo-ios", "登入頁")
+    other = Workspace(tmp_path / "other")
+    other.import_zip(ws.export_zip("demo-ios"))
+    map_data, version = other.read_map("demo-ios", "登入頁")
+    other.write_map("demo-ios", "登入頁", {**map_data, "screens": [{"name": "他們加的"}]}, version)
+    other.write_item("demo-ios", "batches", "他們的", {"groups": [
+        {"map_ref": "main", "setup_map_ref": "登入頁"},
+        {"map_ref": "登入頁", "setup_map_ref": "登入頁"},
+        {"map_ref": "main", "setup_map_ref": None},
+    ]}, overwrite=False)
+
+    ws.merge_zip(other.export_zip("demo-ios"), {"maps/登入頁": "both"})
+
+    groups = ws.read_item("demo-ios", "batches", "他們的")["groups"]
+    assert groups == [
+        {"map_ref": "main", "setup_map_ref": "登入頁 (匯入)"},
+        {"map_ref": "登入頁 (匯入)", "setup_map_ref": "登入頁 (匯入)"},
+        {"map_ref": "main", "setup_map_ref": None},
+    ]
 
 
 def test_merge_refuses_other_platform(ws, tmp_path):
