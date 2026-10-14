@@ -1415,8 +1415,10 @@ class Handler(BaseHTTPRequestHandler):
           DELETE /api/projects/<id>/maps/<name>         刪地圖（最後一張不能刪）
           GET    /api/projects/<id>/<kind>/<name>       讀一份
           PUT    /api/projects/<id>/<kind>/<name>[?overwrite=1]  存一份（已存在又沒 overwrite 回 409）
-          DELETE /api/projects/<id>/<kind>/<name>       刪一份
+          DELETE /api/projects/<id>/<kind>/<name>       刪一份（刪測案時批次裡的引用一起拿掉）
           POST   /api/projects/<id>/vars/<name>/rename  變數檔改名 {new_name}（批次裡的引用一起改）
+          POST   /api/projects/<id>/cases/<name>/rename 測案改名 {new_name}（test_name、批次裡的引用一起改）
+          GET    /api/projects/<id>/cases/<name>/used-by  哪些批次引用這份測案 → {batches: [...]}
         不碰手機，所以不用排 _device_lock；檔案寫入是先寫暫存檔再改名，不會寫出半份。
         """
         url = urlsplit(self.path)
@@ -1457,6 +1459,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._read_json_body() or {}
                 WORKSPACE.rename_item(parts[0], parts[1], parts[2], str(body.get("new_name", "")).strip())
                 self._send_json(200, {"items": WORKSPACE.list_items(parts[0], parts[1])})
+            elif len(parts) == 4 and parts[1] == "cases" and parts[3] == "used-by" and method == "GET":
+                self._send_json(200, {"batches": WORKSPACE.batches_using_case(parts[0], parts[2])})
             elif len(parts) == 3 and method == "GET":
                 self._send_json(200, {"data": WORKSPACE.read_item(*parts)})
             elif len(parts) == 3 and method == "PUT":

@@ -96,6 +96,19 @@ def _check_vars(data) -> None:
             raise WorkspaceError(f"變數「{key}」的值要是文字")
 
 
+def _case_ref_items(batch, name: str) -> list[dict]:
+    """批次設定裡引用專案測案 name 的項目（登入測案 setup_case、一般測案 cases[]），只算用 ref 引用的"""
+    groups = batch.get("groups") if isinstance(batch, dict) else None
+    items = []
+    for g in groups if isinstance(groups, list) else []:
+        if not isinstance(g, dict):
+            continue
+        for item in [g.get("setup_case")] + (g.get("cases") if isinstance(g.get("cases"), list) else []):
+            if isinstance(item, dict) and item.get("ref") == name:
+                items.append(item)
+    return items
+
+
 def _is_sensitive_vars(path: Path) -> bool:
     """讀不出來的當成敏感，寧可不匯出"""
     try:
@@ -431,21 +444,71 @@ class Workspace:
         _write_json_atomic(path, data)
 
     def delete_item(self, project_id: str, kind: str, name: str) -> None:
+        """刪測案時，批次設定裡引用它的也一起拿掉，不然每次開批次都會跳「找不到，已略過」。"""
         path = self._item_path(project_id, kind, name)
         if not path.is_file():
             raise WorkspaceError(f"找不到「{name}」", 404)
         path.unlink()
+        if kind == "cases":
+            self._update_case_refs(project_id, name, None)
+
+    def batches_using_case(self, project_id: str, name: str) -> list[str]:
+        """哪些批次設定引用了這份測案（當一般測案或登入測案），刪除前提醒用"""
+        self._item_path(project_id, "cases", name)
+        using = []
+        for batch_path in sorted((self._existing_dir(project_id) / "batches").glob("*.json")):
+            try:
+                batch = _read_json(batch_path)
+            except (json.JSONDecodeError, OSError):
+                continue
+            if _case_ref_items(batch, name):
+                using.append(batch_path.stem)
+        return using
+
+    def _update_case_refs(self, project_id: str, name: str, new_name: str | None) -> None:
+        """批次設定裡引用 name 的測案改成 new_name；new_name 是 None 就是拿掉（登入測案變成沒有）"""
+        for batch_path in (self._existing_dir(project_id) / "batches").glob("*.json"):
+            try:
+                batch = _read_json(batch_path)
+            except (json.JSONDecodeError, OSError):
+                continue
+            refs = _case_ref_items(batch, name)
+            if not refs:
+                continue
+            if new_name is not None:
+                for item in refs:
+                    item["ref"] = new_name
+            else:
+                for g in batch["groups"]:
+                    if not isinstance(g, dict):
+                        continue
+                    if isinstance(g.get("setup_case"), dict) and g["setup_case"].get("ref") == name:
+                        g["setup_case"] = None
+                    if isinstance(g.get("cases"), list):
+                        g["cases"] = [c for c in g["cases"] if not (isinstance(c, dict) and c.get("ref") == name)]
+            _write_json_atomic(batch_path, batch)
 
     def rename_item(self, project_id: str, kind: str, name: str, new_name: str) -> None:
-        """目前只開放變數檔改名：批次設定裡引用到的（login／vars）一起改，不然下次執行會找不到。"""
-        if kind != "vars":
-            raise WorkspaceError("只有變數檔可以改名", 404)
+        """
+        開放測案、變數檔改名：批次設定裡引用到的一起改，不然下次執行會找不到。
+        測案裡的 test_name 也改成新名稱，清單、批次、執行結果看到的名字才會一致。
+        """
+        if kind not in ("cases", "vars"):
+            raise WorkspaceError("只有測案、變數檔可以改名", 404)
         src = self._item_path(project_id, kind, name)
         dst = self._item_path(project_id, kind, new_name)
         if not src.is_file():
             raise WorkspaceError(f"找不到「{name}」", 404)
         if dst.exists():
             raise WorkspaceError(f"「{new_name}」已經存在", 409)
+        if kind == "cases":
+            data = _read_json(src)
+            if isinstance(data, dict):
+                data["test_name"] = new_name
+            _write_json_atomic(dst, data)
+            src.unlink()
+            self._update_case_refs(project_id, name, new_name)
+            return
         os.replace(src, dst)
         for batch_path in (src.parent.parent / "batches").glob("*.json"):
             try:
