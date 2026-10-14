@@ -12,17 +12,22 @@
   - 最後備援：locate_fallback()（Android 的 UiScrollable.scrollIntoView；iOS 沒有）
 
 定位順序：
-  1. class + 文字精確查詢；查不到就自己捲動、每輪重查（先捲畫面主要區域，再逐一捲
+  1. class + 文字精確查詢；查不到先關非預期彈窗再查一次（開關有開時），還是查不到
+     才自己捲動、每輪重查（先捲畫面主要區域，再逐一捲
      畫面上其他可捲動容器）。查到唯一一個才用；查到多個是真的有歧義，捲再多也不會
      變唯一，直接進下一層
   2. 用 fingerprint 的 nearby_text 當錨點，在所有同 class + 文字的候選裡挑 Y 座標離錨點
      最近的一個（清單裡「每列都有一個文字相同的操作按鈕」，見 TROUBLESHOOTING #36）
   3. 平台的最後備援
   4. 都找不到回傳 None，呼叫端改用座標
+
+元件本身沒有文字（例如清單每列一個空的數量輸入框）時 1～3 都查不了，改走
+locate_empty_label_by_anchor：用附近唯一的文字當錨點，挑同一列、x 座標最接近的同類元件。
 """
 
 import xml.etree.ElementTree as ET
 
+from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
 from aitest.platforms.base import main_scroll_area, shrink_bounds
@@ -68,6 +73,16 @@ def locate_with_scroll(ctx, platform, driver, el: dict, max_rounds: int = 8):
         return matches[0]
     if len(matches) > 1:
         return None  # 真的有歧義，交給呼叫端的錨點消歧義處理
+
+    # 查不到常常是被彈窗蓋住（例如登入後跳「下次再說」）：先關掉再查，不要一開始就捲動——
+    # 捲十幾輪才輪到關彈窗很浪費時間，而且彈窗還在時捲的是底下的畫面，關掉後畫面已經不在頂端
+    if _dismiss_dialogs(ctx, platform, driver):
+        matches = _query()
+        print(f"    [XPath+捲動] 關掉彈窗後重查: {query} -> 查到 {len(matches)} 個")
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return None
 
     def _scroll_search(area: dict, area_name: str):
         previous_source = None
@@ -147,12 +162,80 @@ def locate_by_anchor(platform, driver, el: dict):
     return closest
 
 
+def _center(element) -> tuple[float, float]:
+    loc, size = element.location, element.size
+    return loc["x"] + size["width"] / 2, loc["y"] + size["height"] / 2
+
+
+def locate_empty_label_by_anchor(platform, driver, el: dict):
+    """
+    元件本身沒有文字（例如清單每列一個空的數量輸入框，三個一模一樣、只差在哪一列）時，
+    class + 文字查不了，改用 fingerprint 的 nearby_text 定位：
+      1. 依序找附近文字，用第一個在畫面上唯一的當錨點（「更改數量加號」這種每列都有的跳過，
+         用「元大台灣50」）
+      2. 同 class 的元件裡，只留跟錨點同一列的（中心 y 相差不到元件高度的 2 倍）——
+         差太多寧可找不到，也不要硬挑到別列（輸入到別支股票）
+      3. 同一列有好幾個（例如加號、減號）時，挑 x 座標最接近掃描時位置的
+    """
+    nearby_text_list = (el.get("fingerprint") or {}).get("nearby_text") or []
+    bounds = el.get("bounds") or {}
+    if not nearby_text_list or not bounds:
+        return None
+
+    anchor_text = anchor = None
+    for text in nearby_text_list:
+        candidate = platform.find_anchor(driver, text)
+        if candidate is not None and platform.count_text(driver, text) == 1:
+            anchor_text, anchor = text, candidate
+            break
+    if anchor is None:
+        print(f"    [錨點定位] 附近文字都不唯一或找不到：{nearby_text_list}")
+        return None
+    anchor_y = _center(anchor)[1]
+
+    try:
+        candidates = driver.find_elements(AppiumBy.CLASS_NAME, el["class"])
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        return None
+    max_dy = bounds["height"] * 2
+    same_row = [c for c in candidates if abs(_center(c)[1] - anchor_y) <= max_dy]
+    if not same_row:
+        print(f"    [錨點定位] 錨點「{anchor_text}」同一列沒有 {el['class']}（{len(candidates)} 個都離太遠）")
+        return None
+    target_x = bounds["x"] + bounds["width"] / 2
+    closest = min(same_row, key=lambda c: abs(_center(c)[0] - target_x))
+    print(f"    [錨點定位] 無文字元件：用唯一的鄰近文字「{anchor_text}」，"
+          f"從同一列 {len(same_row)} 個 {el['class']} 挑 x 最接近的")
+    return closest
+
+
+def _dismiss_dialogs(ctx, platform, driver) -> list[str]:
+    """開關有開才關非預期彈窗，關掉的記在 ctx.dismissed_while_locating（結果裡會註記）"""
+    if not ctx.dismiss_dialogs:
+        return []
+    try:
+        dismissed = platform.dismiss_dialogs(driver)
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
+        print(f"    [關閉非預期彈窗] 檢查失敗，照原本流程捲動找: {e}")
+        return []
+    if dismissed:
+        print(f"    [關閉非預期彈窗] 找元件前先關掉，按了：{'、'.join(dismissed)}")
+        ctx.dismissed_while_locating.extend(dismissed)
+    return dismissed
+
+
 def locate_generated_element(ctx, platform, driver, el: dict):
     """無 native id 元件的定位，順序見模組說明。找不到回傳 None，呼叫端改用座標"""
     label = el.get("label", "")
     if not label:
-        print("    [定位] label 為空，直接改用座標")
-        return None
+        matched = locate_empty_label_by_anchor(platform, driver, el)
+        if matched is None:
+            print("    [定位] label 為空，鄰近文字也定位不到")
+        return matched
 
     matched = locate_with_scroll(ctx, platform, driver, el)
     source = "XPath（含捲動）"

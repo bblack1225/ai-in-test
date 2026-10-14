@@ -151,3 +151,97 @@ def test_stop_interrupts_scrolling():
     with pytest.raises(StopRequested):
         locate.locate_generated_element(ctx, platform, FakeDriver([[]]), EL)
     assert len(platform.scrolled) == 2
+
+
+class DialogPlatform(FakePlatform):
+    """畫面上有一個彈窗，按「下次再說」關掉"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.dismiss_calls = 0
+
+    def dismiss_dialogs(self, driver):
+        self.dismiss_calls += 1
+        return ["下次再說"] if self.dismiss_calls == 1 else []
+
+
+def test_dismisses_dialog_before_scrolling():
+    """元件被彈窗蓋住：先關彈窗再查，查到就不用捲動（登入後跳「下次再說」的情況）"""
+    target = FakeElement("target")
+    platform = DialogPlatform(moves=[True])
+    driver = FakeDriver([[], [target]])
+    ctx = RunContext(dismiss_dialogs=True)
+    assert locate.locate_with_scroll(ctx, platform, driver, EL) is target
+    assert platform.scrolled == []
+    assert ctx.dismissed_while_locating == ["下次再說"]
+
+
+def test_no_dialog_check_when_switch_off():
+    platform = DialogPlatform(moves=[True])
+    driver = FakeDriver([[], [FakeElement("target")]])
+    locate.locate_with_scroll(RunContext(), platform, driver, EL)
+    assert platform.dismiss_calls == 0 and len(platform.scrolled) == 1
+
+
+class Box:
+    """有座標的假元件（無文字元件定位用）"""
+
+    def __init__(self, name, x, y, w=140, h=29):
+        self.name = name
+        self.location = {"x": x, "y": y}
+        self.size = {"width": w, "height": h}
+
+
+class RowsDriver:
+    """畫面上三列，每列一個空的數量輸入框"""
+
+    def __init__(self, fields):
+        self.fields = fields
+
+    def find_elements(self, by, value):
+        return list(self.fields)
+
+
+class AnchorPlatform:
+    """texts：{文字: (錨點元件, 畫面上出現幾次)}"""
+
+    def __init__(self, texts):
+        self.texts = texts
+
+    def find_anchor(self, driver, text):
+        return self.texts.get(text, (None, 0))[0]
+
+    def count_text(self, driver, text):
+        return self.texts.get(text, (None, 0))[1]
+
+
+QTY_FIELD = {"class": "XCUIElementTypeTextField", "label": "",
+             "bounds": {"x": 183, "y": 261, "width": 140, "height": 29},
+             "fingerprint": {"nearby_text": ["更改數量加號", "元大台灣50", "0050"]}}
+ROWS = [Box("row1", 183, 261), Box("row2", 183, 349), Box("row3", 183, 437)]
+
+
+def test_empty_label_uses_first_unique_nearby_text():
+    """「更改數量加號」每列都有，跳過；用唯一的「元大台灣50」挑同一列的輸入框（捲動過、位置變了也一樣）"""
+    rows = [Box("row1", 183, 361), Box("row2", 183, 449), Box("row3", 183, 537)]  # 整頁往下 100
+    platform = AnchorPlatform({"更改數量加號": (Box("plus", 330, 361), 3),
+                               "元大台灣50": (Box("name", 16, 455, w=100, h=20), 1)})
+    assert locate.locate_empty_label_by_anchor(platform, RowsDriver(rows), QTY_FIELD).name == "row2"
+
+
+def test_empty_label_picks_closest_x_in_same_row():
+    """同一列有好幾個同類元件時，挑 x 最接近掃描時位置的"""
+    fields = [Box("left", 20, 261), Box("target", 183, 261), Box("right", 330, 261)]
+    platform = AnchorPlatform({"元大台灣50": (Box("name", 16, 265, w=100, h=20), 1)})
+    assert locate.locate_empty_label_by_anchor(platform, RowsDriver(fields), QTY_FIELD).name == "target"
+
+
+def test_empty_label_gives_up_when_no_unique_anchor():
+    platform = AnchorPlatform({"更改數量加號": (Box("plus", 330, 261), 3)})
+    assert locate.locate_empty_label_by_anchor(platform, RowsDriver(ROWS), QTY_FIELD) is None
+
+
+def test_empty_label_gives_up_when_anchor_row_has_no_field():
+    """錨點附近沒有同類元件：寧可找不到，也不要挑到別列"""
+    platform = AnchorPlatform({"元大台灣50": (Box("name", 16, 700, w=100, h=20), 1)})
+    assert locate.locate_empty_label_by_anchor(platform, RowsDriver(ROWS), QTY_FIELD) is None

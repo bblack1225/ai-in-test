@@ -402,6 +402,53 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
         time.sleep(0.3)
 
 
+_KEYBOARD_DONE_LABELS = ["完成", "Done"]
+
+
+def dismiss_keyboard(driver) -> bool:
+    """
+    打完字收鍵盤，回傳鍵盤是不是收起來了。Android 打完會收，iOS 不收的話鍵盤會蓋住
+    下一步要點的按鈕（例如輸入數量後的「下一步」）。
+      1. 鍵盤上的「完成」鍵（文字鍵盤的 return 鍵常被改成完成）
+      2. 數字鍵盤沒有完成鍵，App 常在鍵盤正上方加一條工具列放「完成」按鈕——它不在鍵盤裡，
+         第 1 步找不到。只按緊貼鍵盤上緣的那顆，不會誤按頁面上別的「完成」（例如送出申請）
+    """
+    def shown() -> bool:
+        try:
+            return driver.is_keyboard_shown()
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            return False
+
+    if not shown():
+        return True
+    try:
+        driver.execute_script("mobile: hideKeyboard", {"keys": _KEYBOARD_DONE_LABELS})
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        pass  # 鍵盤上沒有這些鍵（數字鍵盤），換下一個方法
+    if not shown():
+        return True
+    try:
+        keyboards = driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeKeyboard")
+        if keyboards:
+            keyboard_top = keyboards[0].location["y"]
+            labels = ", ".join(predicate_literal(label) for label in _KEYBOARD_DONE_LABELS)
+            for button in driver.find_elements(
+                    AppiumBy.IOS_PREDICATE, f"type == 'XCUIElementTypeButton' AND label IN {{{labels}}}"):
+                bottom = button.location["y"] + button.size["height"]
+                if keyboard_top - 60 <= bottom <= keyboard_top + 5:
+                    button.click()
+                    break
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
+        print(f"    [輸入] 找鍵盤工具列的完成鈕失敗: {e}")
+    return not shown()
+
+
 def watch_banner(driver, texts: list[str], timeout: float = 10.0,
                  poll_interval: float = 0.1) -> tuple[dict, dict, str]:
     """
@@ -824,6 +871,10 @@ class IOSPlatform:
     def find_anchor(self, driver, text: str):
         return find_anchor(driver, text)
 
+    def count_text(self, driver, text: str) -> int:
+        """畫面上文字是 text 的元件有幾個（無文字元件的錨點要唯一才能用）"""
+        return len(driver.find_elements(AppiumBy.IOS_PREDICATE, f"label == {predicate_literal(text)}"))
+
     def locate_fallback(self, driver, el: dict):
         return None
 
@@ -847,13 +898,10 @@ class IOSPlatform:
 
     def input_text(self, ctx, driver, element, value: str, submit: bool = False) -> str:
         element.send_keys(value)
-        if submit:
-            try:
-                driver.hide_keyboard()
-            except InvalidSessionIdException:
-                raise
-            except WebDriverException as e:
-                print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
+        # 字已經打好了，鍵盤收不起來不讓整步 FAIL，但註記出來：下一步被鍵盤擋住時看得出原因
+        if not dismiss_keyboard(driver):
+            print("    [輸入] 鍵盤收不起來，照原本流程繼續")
+            return "PASS（鍵盤收不起來，可能會擋住下一步）"
         return "PASS"
 
     def prepare_banner_watch(self, ctx, driver) -> None:

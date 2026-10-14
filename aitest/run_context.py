@@ -64,6 +64,8 @@ class RunContext:
       platform_state     平台物件在一次執行裡要記住的東西（例如 Android 提早打開
                          enableMultiWindows 前的原始設定），平台物件本身是共用的，不能存在裡面
       banner_capture_started  跑馬燈監看前開始錄影的時間（Android），監看完決定要不要留檔
+      dismissed_while_locating  定位元件途中（捲動找之前）關掉的彈窗按鈕文字，
+                         步驟結束時註記在結果裡（run_test_case.execute_step_dismissing_dialogs）
     """
     vars: dict = field(default_factory=dict)
     var_sources: list = field(default_factory=list)
@@ -73,6 +75,7 @@ class RunContext:
     usage: LLMUsage = field(default_factory=LLMUsage)
     platform_state: dict = field(default_factory=dict)
     banner_capture_started: float | None = None
+    dismissed_while_locating: list = field(default_factory=list)
 
     def __post_init__(self):
         self.lock = threading.Lock()
