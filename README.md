@@ -20,7 +20,7 @@ uv run aitest start foo-ios
 
 - Mac + Xcode、Node.js + Appium 3（含 XCUITest driver）
 - **uv**（管理 Python 版本與套件）：`uv sync` 一個指令建好環境。系統內建的
-  Python 3.9 跑不起來，專案固定用 Python 3.12
+  Python 3.9 跑不起來，專案預設用 Python 3.12（最低 3.11）
 - Gemini API key：填在 `config.toml` 的 `[llm] api_key`，或環境變數 `GEMINI_API_KEY`
   （LLM 描述/定位/測案/情境產生都要用到，沒設定的話這些功能會失敗，但純粹的定位/點擊/爬蟲探索不需要）
 - iOS 實機：USB 接 Mac、開發者模式、Xcode 登入 Apple ID 並簽署過

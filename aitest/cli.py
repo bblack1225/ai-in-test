@@ -326,10 +326,10 @@ def run(cmd: list[str], timeout: float = 20) -> subprocess.CompletedProcess | No
 def check_python(r: Report) -> None:
     r.section("Python 環境")
     v = sys.version_info
-    if v >= (3, 12):
+    if v >= (3, 11):
         r.ok(f"Python {v.major}.{v.minor}.{v.micro}")
     else:
-        r.fail(f"Python {v.major}.{v.minor}，需要 3.12 以上", "用 uv run ... 執行（README 2.2）")
+        r.fail(f"Python {v.major}.{v.minor}，需要 3.11 以上", "用 uv run ... 執行（README 2.2）")
     missing = []
     for mod in ("appium", "selenium", "PIL", "google.genai", "questionary"):
         try:
