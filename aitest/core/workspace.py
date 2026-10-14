@@ -285,9 +285,13 @@ class Workspace:
             groups = batch.get("groups") if isinstance(batch, dict) else None
             changed = False
             for g in groups if isinstance(groups, list) else []:
-                if isinstance(g, dict) and g.get("map_ref") == name:
-                    g["map_ref"] = new_name
-                    changed = True
+                if not isinstance(g, dict):
+                    continue
+                # 這組用的地圖、登入測案用的地圖，兩個都可能指到它
+                for key in ("map_ref", "setup_map_ref"):
+                    if g.get(key) == name:
+                        g[key] = new_name
+                        changed = True
             if changed:
                 _write_json_atomic(batch_path, batch)
 
@@ -624,8 +628,11 @@ class Workspace:
             for i in items:
                 if i["kind"] == "batches":
                     for g in i["data"].get("groups") or []:
-                        if isinstance(g, dict) and ("maps", g.get("map_ref")) in renames:
-                            g["map_ref"] = renames[("maps", g["map_ref"])]
+                        if not isinstance(g, dict):
+                            continue
+                        for key in ("map_ref", "setup_map_ref"):
+                            if ("maps", g.get(key)) in renames:
+                                g[key] = renames[("maps", g[key])]
 
             added, replaced, renamed, backups = [], [], [], []
             for i in items:
