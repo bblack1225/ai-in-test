@@ -9,6 +9,11 @@
 [appium]
 server_url = "http://127.0.0.1:4723"
 
+[run]
+# 每個步驟預設最多等幾秒：找不到元件／驗證沒過時反覆重試，一通過就繼續（不會等滿）。
+# 測案步驟自己寫的 timeout 優先；設 0 關掉
+default_step_timeout = 10
+
 [ios]
 # 測試用 iPhone 的 UDID：xcrun xctrace list devices（README 2.4）
 udid = ""

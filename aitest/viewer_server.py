@@ -65,7 +65,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException, WebDriverException
 
-from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
+from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
 from aitest.core.capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
 from aitest.core.navigator import MapIndex, Navigator
 from aitest.core.recorder import RECORDINGS_DIR, Recording, RecordingError, recording_summary
@@ -496,8 +496,9 @@ unique_id/id_source/class/label/description 這幾個欄位）：
      才算 FAIL」。用在操作後畫面要隔一段時間才會自己更新的情境，例如
      「取消委託後 3~5 秒委託狀態才會變成委託取消」：在取消的 tap 後面接
      {{"action": "assert_text_contains", ..., "value": "委託取消", "timeout": 8}}。
-     timeout 抓使用者說的最長等待時間再多留幾秒緩衝；使用者沒提到要等、
-     畫面也是立刻更新的情境就不要加。不要另外編一個「等待」步驟，沒有這種 action
+     timeout 抓使用者說的最長等待時間再多留幾秒緩衝；每一步執行時本來就會
+     預設等 {DEFAULT_STEP_TIMEOUT:g} 秒（一通過就繼續），所以只有使用者說要等
+     超過這個時間的情境才加，其他情況都不要加。不要另外編一個「等待」步驟，沒有這種 action
 3. {target_scope}的值**只能是上面提供的畫面資料裡真的存在的 unique_id**，不可以
    自己編造，也不可以用畫面上的文字、猜測的id、或憑印象記得的id代替。
    如果找不到能達成使用者需求的元件，要在說明文字裡老實講清楚缺少什麼、

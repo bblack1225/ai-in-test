@@ -19,7 +19,9 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
   2. generated 元件（沒有 native id）：class + 文字查詢、捲動重查、鄰近文字
      錨點消歧義（見 TROUBLESHOOTING #36），各平台的細節見
      platforms/*.py 的 locate_generated_element()
-  3. 都找不到、或 label 本身是空的，才退回用 bounds 座標點擊
+  3. 都找不到、或 label 本身是空的，才退回用 bounds 座標點擊——等到步驟的 timeout
+     （沒寫就用 config 的 default_step_timeout）用完都還找不到才退回，免得畫面還在
+     loading 就盲點
   4. input_text 定位跟 tap 一樣走 0~2，但不退回座標（打字打錯地方比點錯更難收拾）。
      定位到的元件不是輸入框時（例如顯示數量的 TextView，點了才從底部跳出輸入列），
      先點它、再對取得焦點的輸入框打字，打完送出（見 platforms/*.py 的 focus_input）
@@ -56,7 +58,7 @@ from selenium.common.exceptions import (
     WebDriverException,
 )
 
-from aitest.config import APPIUM_SERVER_URL
+from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import wait_until_stable
 from aitest.run_context import RunContext, StopRequested
@@ -135,16 +137,22 @@ def idle_wait_disabled(driver):
                 pass
 
 
-def retry_assert(ctx, check, timeout=None, poll_interval: float = 0.5,
-                 on_fail=None, on_fail_interval: float = 3.0) -> str:
-    """
-    assert_visible / assert_text_contains 的步驟有寫 timeout（秒）時，在期限內反覆
-    執行 check()，一出現 PASS 就回報，時間到才回報最後一次的 FAIL。用在「操作後
-    畫面要隔幾秒才自己刷新」的情境，例如取消委託後 3~5 秒委託狀態才變成「委託取消」
-    ——wait_after_action() 只等畫面「不再變動」，刷新前畫面早就穩定了，擋不住這種延遲。
+def step_timeout(step: dict) -> float:
+    """步驟自己寫的 timeout 優先（寫 0 代表只試一次），沒寫用 config 的 default_step_timeout"""
+    timeout = step.get("timeout")
+    return DEFAULT_STEP_TIMEOUT if timeout is None else float(timeout)
 
-    沒寫 timeout 就只檢查一次，跟原本行為完全一樣。SKIP 代表這個元件本來就驗證
-    不了，重試也沒用，直接回傳。
+
+def retry_until_pass(ctx, check, timeout=None, poll_interval: float = 0.5,
+                     on_fail=None, on_fail_interval: float = 3.0) -> str:
+    """
+    在 timeout（秒）內反覆執行 check()，一出現 PASS 就回報，時間到才回報最後一次的 FAIL。
+    每個步驟預設都會套（見 step_timeout），擋住兩種延遲：
+    - 畫面突然 loading，元件晚幾秒才出現
+    - 操作後畫面要隔幾秒才自己刷新，例如取消委託後 3~5 秒委託狀態才變成「委託取消」
+      ——wait_after_action() 只等畫面「不再變動」，刷新前畫面早就穩定了，擋不住這種延遲
+
+    timeout 是 0 就只檢查一次。SKIP 代表這個元件本來就驗證不了，重試也沒用，直接回傳。
 
     on_fail：等待期間沒通過時呼叫（第一次沒通過馬上呼叫，之後每 on_fail_interval 秒一次），
     回傳這次處理掉的東西（清單）。給「自動關閉非預期彈窗」用：被彈窗擋住時不用等到
@@ -174,7 +182,7 @@ def retry_assert(ctx, check, timeout=None, poll_interval: float = 0.5,
         if not outcome.startswith("FAIL"):
             return finish(outcome if attempts == 1 else f"{outcome}（重試第 {attempts} 次才通過）")
         if time.time() >= deadline:
-            return finish(f"{outcome}（已等待 {float(timeout):g} 秒）")
+            return finish(with_note(outcome, f"已等待 {float(timeout):g} 秒"))
         if on_fail is not None and time.time() >= next_on_fail_at:
             handled.extend(on_fail() or [])
             next_on_fail_at = time.time() + on_fail_interval
@@ -249,20 +257,30 @@ def _locate_input_element(ctx, platform, driver, el: dict):
     return None, "無 native id 且自動定位查無唯一結果，不用座標盲點輸入"
 
 
-def run_input_text(ctx, platform, driver, el: dict, value: str) -> str:
+def run_input_text(ctx, platform, driver, el: dict, value: str, timeout: float = 0) -> str:
     resolved, missing = resolve_env_placeholders(ctx, value)
     if missing:
         return missing_vars_outcome(ctx, missing)
 
-    element, how = _locate_input_element(ctx, platform, driver, el)
+    # 只有「找輸入框」這段在 timeout 內重試；打過字之後的失敗不重打
+    found = {}
+
+    def locate():
+        found["element"], found["how"] = _locate_input_element(ctx, platform, driver, el)
+        return "PASS" if found["element"] is not None else f"FAIL（{found['how']}）"
+
     dismissed = []
+
+    def dismiss():
+        dismissed.extend(try_dismiss_dialogs(ctx, platform, driver))
+        return []  # 關掉的彈窗最後統一註記
+
+    located = retry_until_pass(ctx, locate, timeout, on_fail=dismiss)
+    element, how = found.get("element"), found.get("how")
     if element is None:
-        ctx.raise_if_stopped()
-        dismissed = try_dismiss_dialogs(ctx, platform, driver)
-        if dismissed:
-            element, how = _locate_input_element(ctx, platform, driver, el)
-    if element is None:
-        return with_dismiss_note(f"FAIL（{how}）", dismissed) if dismissed else f"FAIL（{how}）"
+        return with_dismiss_note(located, dismissed) if dismissed else located
+    if located != "PASS":  # 重試幾次才找到，結果裡註記
+        how = f"{how}；{located[len('PASS（'):-1]}"
 
     platform.ensure_visible(driver, element)
     target, opened = platform.focus_input(ctx, driver, element)
@@ -279,7 +297,8 @@ def run_input_text(ctx, platform, driver, el: dict, value: str) -> str:
     return with_dismiss_note(outcome, dismissed) if dismissed else outcome
 
 
-def run_tap(ctx, platform, driver, el: dict) -> str:
+def run_tap(ctx, platform, driver, el: dict, coordinate_fallback: bool = True) -> str:
+    """coordinate_fallback=False：自動定位找不到就回 FAIL，不關彈窗、不座標盲點（給等待期間重試用）"""
     custom = _locate_by_custom_xpath(driver, el)
     if custom is not None:
         platform.ensure_visible(driver, custom)
@@ -300,6 +319,8 @@ def run_tap(ctx, platform, driver, el: dict) -> str:
         platform.ensure_visible(driver, matched)
         matched.click()
         return f"PASS（{platform.generated_locate_label}）"
+    if not coordinate_fallback:
+        return "FAIL（無 native id 且自動定位查無唯一結果）"
 
     ctx.raise_if_stopped()  # 找元件途中被停止的話，不要再用舊座標盲點
     # 找不到元件可能是被彈窗擋住：這時用舊座標盲點會點在彈窗上、還回報 PASS，
@@ -532,21 +553,31 @@ def execute_step(ctx, platform, driver, step: dict, el: dict | None) -> str:
         where = f"畫面「{step['screen_name']}」的資料" if step.get("screen_name") else "element_map.json"
         return f"FAIL（{where}裡找不到 {step.get('target')}，畫面資料可能已過期，建議重新掃描）"
 
-    if action == "tap":
-        return run_tap(ctx, platform, driver, el)
-    if action == "input_text":
-        return run_input_text(ctx, platform, driver, el, step.get("value", ""))
-    # 有 timeout 的驗證：等待期間就順便關非預期彈窗（開關沒開時 try_dismiss_dialogs 直接回空清單）
+    # 每一步都在 timeout 內重試，一通過就往下（畫面突然 loading 不會直接失敗）；
+    # 等待期間順便關非預期彈窗（開關沒開時 try_dismiss_dialogs 直接回空清單）
+    timeout = step_timeout(step)
     dismiss = lambda: try_dismiss_dialogs(ctx, platform, driver)
+    on_fail = dismiss if ctx.dismiss_dialogs else None
+    if action == "tap":
+        if not timeout:
+            return run_tap(ctx, platform, driver, el)
+        outcome = retry_until_pass(ctx, lambda: run_tap(ctx, platform, driver, el, coordinate_fallback=False),
+                                   timeout, on_fail=on_fail)
+        if outcome.startswith("FAIL") and el["id_source"] != "native":
+            # 等滿了還是找不到，才照原本的方式最後試一次（含座標盲點）
+            return with_note(run_tap(ctx, platform, driver, el), f"等了 {timeout:g} 秒仍定位不到元件")
+        return outcome
+    if action == "input_text":
+        return run_input_text(ctx, platform, driver, el, step.get("value", ""), timeout)
     if action == "assert_visible":
-        return retry_assert(ctx, lambda: run_assert_visible(ctx, platform, driver, el), step.get("timeout"),
-                            on_fail=dismiss if ctx.dismiss_dialogs else None)
+        return retry_until_pass(ctx, lambda: run_assert_visible(ctx, platform, driver, el), timeout,
+                                on_fail=on_fail)
     if action == "assert_text_contains":
         expected, missing = resolve_env_placeholders(ctx, step.get("value", ""))
         if missing:
             return missing_vars_outcome(ctx, missing)
-        return retry_assert(ctx, lambda: run_assert_text_contains(ctx, platform, driver, el, expected),
-                            step.get("timeout"), on_fail=dismiss if ctx.dismiss_dialogs else None)
+        return retry_until_pass(ctx, lambda: run_assert_text_contains(ctx, platform, driver, el, expected),
+                                timeout, on_fail=on_fail)
     return f"FAIL（未知的 action: {action}）"
 
 

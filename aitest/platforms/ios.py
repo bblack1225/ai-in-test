@@ -34,6 +34,7 @@ from aitest.platforms.base import (
     candidate_pattern,
     histogram_bucket,
     looks_like_data,
+    no_idle_wait,
     wait_until_stable,
 )
 from aitest.platforms.scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
@@ -789,8 +790,11 @@ class IOSPlatform:
         """原始屬性照實寫進 element_map，留給 viewer 篩選用"""
         return {"enabled": el["enabled"], "accessible": el["accessible"]}
 
+    @contextmanager
     def page_source_context(self, driver):
-        return skip_visible_in_page_source(driver)
+        """跑測案期間（單份、批次、命令列）套用的設定，見 skip_visible_in_page_source、no_idle_wait"""
+        with skip_visible_in_page_source(driver), no_idle_wait(driver):
+            yield
 
     # --- 無 native id 元件的定位（流程在 platforms/locate.py）---
     class_text_by = AppiumBy.IOS_PREDICATE

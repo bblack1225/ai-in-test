@@ -13,6 +13,7 @@ InvalidSessionIdException 往上丟——它也是 WebDriverException 的子類�
 
 import re
 import time
+from contextlib import contextmanager
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
@@ -52,6 +53,35 @@ def wait_until_stable(driver, signature=None, max_wait: float = 3.0, poll_interv
             return False
         previous = current
         time.sleep(poll_interval)
+
+
+@contextmanager
+def no_idle_wait(driver):
+    """
+    跑測案期間把 waitForIdleTimeout 設 0（UiAutomator2、XCUITest 都有這個設定），結束後恢復原本設定。
+
+    預設每個指令（讀畫面、找元件、點擊、檢查可不可見）都會先等 App 靜止，最多 10 秒。
+    首頁報價這種一直在跳的畫面永遠等不到，每個指令都等滿 10 秒，一步就要幾十秒。
+    跑測案時「等畫面好了沒」由我們自己控制：每一步沒通過就在 timeout 內重試
+    （run_test_case.retry_until_pass），tap／輸入後等版面穩定（wait_after_action），
+    不需要 Appium 這層再等一次。
+    """
+    try:
+        original = driver.get_settings().get("waitForIdleTimeout")
+        driver.update_settings({"waitForIdleTimeout": 0})
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException as e:
+        print(f"    [waitForIdleTimeout] 設定失敗，照預設等待執行: {e}")
+        original = None
+    try:
+        yield
+    finally:
+        if original is not None:
+            try:
+                driver.update_settings({"waitForIdleTimeout": original})
+            except WebDriverException:
+                pass  # session 已經斷了之類的，沒有要恢復的對象
 
 
 # ---------------------------------------------------------------------------
