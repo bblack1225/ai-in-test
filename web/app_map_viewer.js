@@ -4066,7 +4066,7 @@
     selected = selected || [];
     return '<span class="vars-pick">' + selected.map(function (n, i) {
       var gone = names.indexOf(n) < 0;
-      return '<span class="vars-chip' + (gone ? " missing" : "") + '" title="' + (gone ? "變數檔裡沒有這個（可能已改名或刪除）" : "變數檔") + '">🧩 ' + escapeHtml(n) +
+      return '<span class="vars-chip' + (gone ? " missing" : "") + '" title="' + (gone ? "變數檔裡沒有這個（可能已改名或刪除）" : "變數檔：" + escapeHtml(n)) + '"><span class="vars-chip-name">🧩 ' + escapeHtml(n) + "</span>" +
         '<button type="button" data-act="' + act + '-remove" data-v="' + i + '" ' + attrs + ' title="移除">✕</button></span>';
     }).join("") +
       '<select class="project-pick" data-act="' + act + '-add" ' + attrs + ' title="另外要代入的變數檔（股票代號、張數…），同名的以後面的為準">' +
