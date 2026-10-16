@@ -72,6 +72,7 @@ from aitest.core.recorder import RECORDINGS_DIR, Recording, RecordingError, reco
 from aitest.core.run_test_case import (
     StopRequested,
     check_current_screen,
+    labels_if_on_screen,
     run_assert_visible,
     run_step_in_case,
     run_tap,
@@ -711,8 +712,9 @@ def run_test_script(payload: dict) -> dict:
     try:
         with PLATFORM.page_source_context(d):
             # 開始前先關掉擋在前面的彈窗（例如一進 App 就跳的 Root／USB 偵錯警告）：彈窗是 App 裡的一層
-            # 覆蓋時，底下的元件還找得到，第一步的 tap 會「成功」點在遮罩上，等不到步驟失敗再處理
-            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d)
+            # 覆蓋時，底下的元件還找得到，第一步的 tap 會「成功」點在遮罩上，等不到步驟失敗再處理。
+            # 第一步的畫面本來就是這個視窗（例如確認框）時不能點掉，見 _expected_labels
+            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d, _expected_labels(ctx, d, steps, screens_by_name))
             if payload.get("check_screen", True):
                 precheck = _precheck_screen(ctx, d, steps, screens_by_name)
             else:
@@ -757,6 +759,15 @@ def _precheck_screen(ctx, d, steps: list, screens_by_name: dict) -> dict:
             status, message = check_current_screen(PLATFORM, d, screen_name, screen.get("elements", []))
             message = with_dismiss_note(message, dismissed)
     return {"status": status, "screen_name": screen_name, "message": message}
+
+
+def _expected_labels(ctx, d, steps: list, screens_by_name: dict) -> set[str]:
+    """測案開始前關彈窗時不能按的按鈕文字：目前畫面就是第一步的畫面時，地圖上這個畫面的元件文字
+    （見 labels_if_on_screen）。開關沒開就不用多抓一次畫面"""
+    if not ctx.dismiss_dialogs:
+        return set()
+    screen_name = _first_screen(steps)
+    return labels_if_on_screen(PLATFORM, d, screen_name, screens_by_name.get(screen_name))
 
 
 def _step_result(i: int, step: dict, outcome: str) -> dict:
@@ -952,7 +963,8 @@ def _run_batch_group(ctx, d, gi: int, g_in: dict, g_out: dict, app_id, auto_navi
 
         start_screen = _first_screen(steps)
         try:
-            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d)  # 同 run_test_script：開始前先關掉擋在前面的彈窗
+            # 同 run_test_script：開始前先關掉擋在前面的彈窗，第一步畫面本來就是這個視窗時不關
+            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d, _expected_labels(ctx, d, steps, screens_by_name))
             if dismissed:
                 c_out["navigation"].append(f"畫面上有彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
             login_name, var_names = _case_login(c_in), c_in.get("vars") or []
