@@ -25,6 +25,7 @@ Android（UiAutomator2）平台：執行測案、橋接伺服器用到的 Androi
 import base64
 import hashlib
 import json
+import logging
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -57,6 +58,8 @@ from aitest.platforms.base import (
     wait_until_stable,
 )
 from aitest.platforms.scan_core import position_bucket, read_and_merge_round
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -220,19 +223,19 @@ def collect_horizontal_region(platform, driver, region: dict, screen_width: int,
     if not scroll_step(driver, area, "right", scroll_percent):
         return False  # 捲不動，這不是一個真的橫向清單
 
-    print(f"  [橫向捲動收集] 偵測到巢狀橫向容器（{region['class']}），開始邊捲邊抓...")
+    logger.info(f"  [橫向捲動收集] 偵測到巢狀橫向容器（{region['class']}），開始邊捲邊抓...")
     time.sleep(0.5)
     for round_index in range(1, max_rounds):
         new_count, *_ = read_and_merge_round(platform, driver, screen_width, screen_height, merged, round_screenshots)
-        print(f"  [橫向捲動收集] 第{round_index + 1}輪：新增{new_count}個，"
-              f"累積合併{len(merged)}個不重複元件")
+        logger.info(f"  [橫向捲動收集] 第{round_index + 1}輪：新增{new_count}個，"
+                    f"累積合併{len(merged)}個不重複元件")
         if not scroll_step(driver, area, "right", scroll_percent):
-            print(f"  [橫向捲動收集] 系統回報已經無法再往右捲，判定已捲到底，停止")
+            logger.info(f"  [橫向捲動收集] 系統回報已經無法再往右捲，判定已捲到底，停止")
             break
         time.sleep(0.5)
     else:
-        print(f"  [警告] 橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
-              f"這個容器可能還有內容沒收集完整，建議人工複核")
+        logger.warning(f"  橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
+                       f"這個容器可能還有內容沒收集完整，建議人工複核")
 
     # 捲回最左邊，避免影響後續的垂直捲動或其他操作
     for _ in range(max_rounds):
@@ -283,7 +286,7 @@ def _scroll_into_view(driver, text: str, log_tag: str):
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"    [{log_tag}] 查詢失敗（{attr}）: {type(e).__name__}")
+            logger.info(f"    [{log_tag}] 查詢失敗（{attr}）: {type(e).__name__}")
             continue
     return None, None
 
@@ -308,7 +311,7 @@ def locate_by_scroll_into_view(driver, el: dict):
         return None
     matched, attr = _scroll_into_view(driver, label, "UiScrollable")
     if matched is not None:
-        print(f"    [UiScrollable] 捲動後用 {attr} 找到元件: {label!r}")
+        logger.info(f"    [UiScrollable] 捲動後用 {attr} 找到元件: {label!r}")
     return matched
 
 
@@ -404,7 +407,7 @@ def prepare_banner_watch(ctx, driver) -> None:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [跑馬燈] 提早打開 enableMultiWindows 失敗：{type(e).__name__}")
+        logger.info(f"    [跑馬燈] 提早打開 enableMultiWindows 失敗：{type(e).__name__}")
 
 
 def watch_banner(ctx, driver, texts: list[str], timeout: float = 10.0, poll_interval: float = 0.1,
@@ -616,8 +619,8 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
         ctx.raise_if_stopped()
         focused = driver.find_elements(AppiumBy.XPATH, "//android.widget.EditText[@focused='true']")
         if focused:
-            print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
-                  f"{focused[0].get_attribute('resource-id')!r}")
+            logger.info(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
+                        f"{focused[0].get_attribute('resource-id')!r}")
             return focused[0], True
         if time.time() >= deadline:
             return None, True
@@ -631,7 +634,7 @@ def _submit_input(driver) -> None:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [輸入] 鍵盤「完成」送出失敗，改按 Enter: {e}")
+        logger.info(f"    [輸入] 鍵盤「完成」送出失敗，改按 Enter: {e}")
         driver.press_keycode(66)  # KEYCODE_ENTER
 
 
@@ -664,7 +667,7 @@ def _typed_mismatch(target, value: str) -> str | None:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [輸入] 讀不回輸入框內容，不比對: {e}")
+        logger.info(f"    [輸入] 讀不回輸入框內容，不比對: {e}")
         return None
     if actual == value or _MASK_CHARS & set(actual):
         return None
@@ -711,7 +714,7 @@ def input_text(ctx, driver, element, value: str, submit: bool = False) -> str:
     if actual is not None:
         if unsupported:
             return f"FAIL（輸入後欄位內容是「{actual}」跟要輸入的不一樣，有特殊字元沒辦法改用按鍵重打）"
-        print(f"    [輸入] 輸入後內容跟預期不一樣（長度 {len(actual)} / {len(value)}），清掉放慢重打一次")
+        logger.info(f"    [輸入] 輸入後內容跟預期不一樣（長度 {len(actual)} / {len(value)}），清掉放慢重打一次")
         _clear_text(driver, target)
         _type_by_keycodes(ctx, driver, target, value, _SLOW_KEY_INTERVAL)
         by_keys = True
@@ -731,7 +734,7 @@ def input_text(ctx, driver, element, value: str, submit: bool = False) -> str:
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
+            logger.info(f"    [輸入] 收鍵盤失敗，照原本流程繼續: {e}")
     return outcome
 
 
@@ -929,7 +932,7 @@ def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None =
             if target in NEVER_TAP_LABELS:
                 break
             if target in keep_labels:
-                print(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
+                logger.info(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
                 break
             element.click()
         except InvalidSessionIdException:
@@ -1081,7 +1084,7 @@ class AndroidPlatform:
     def tap_by_coordinates(self, driver, bounds: dict):
         center_x = bounds["x"] + bounds["width"] / 2
         center_y = bounds["y"] + bounds["height"] / 2
-        print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
+        logger.info(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: clickGesture", {"x": center_x, "y": center_y})
 
     def watch_banner(self, ctx, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
@@ -1105,7 +1108,7 @@ class AndroidPlatform:
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"    [錄影] 開始錄影失敗，這次不錄：{type(e).__name__}：{e}")
+            logger.info(f"    [錄影] 開始錄影失敗，這次不錄：{type(e).__name__}：{e}")
             return False
 
     def stop_capture(self, driver, save_path: str | None) -> str | None:
@@ -1115,7 +1118,7 @@ class AndroidPlatform:
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"    [錄影] 停止錄影失敗：{type(e).__name__}：{e}")
+            logger.info(f"    [錄影] 停止錄影失敗：{type(e).__name__}：{e}")
             return None
         if not save_path or not data:
             return None
@@ -1163,7 +1166,7 @@ class AndroidPlatform:
         except WebDriverException:
             return []
         if "permissioncontroller" in package or "packageinstaller" in package:
-            print(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
+            logger.info(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
             return []
         return android_dismiss_modal(driver, keep_labels=keep_labels)
 

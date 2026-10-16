@@ -1,5 +1,7 @@
 """config.generate_content_with_retry：Gemini 暫時性錯誤的重試（報告 #3）"""
 
+import logging
+
 import httpx
 import pytest
 from google.genai.errors import ClientError, ServerError
@@ -157,20 +159,21 @@ def test_stream_usage_counted_once(monkeypatch, sleeps):
     assert usage.as_dict() == {"calls": 1, "prompt_tokens": 10, "output_tokens": 4, "total_tokens": 14}
 
 
-def test_stream_failure_warning_shows_progress(monkeypatch, sleeps, capsys):
+def test_stream_failure_warning_shows_progress(monkeypatch, sleeps, caplog):
     # 斷線警告要帶這次已收到的字數，才看得出是斷在哪裡
     _use_stream(monkeypatch, [
         [_Chunk("12345"), httpx.ReadError("connection reset")],
         [_Chunk("OK")],
     ])
+    caplog.set_level(logging.INFO, logger="aitest")
     config.generate_content_stream_with_retry(label="測試", model="m")
-    out = capsys.readouterr().out
+    out = caplog.text
     assert "[測試] 開始串流（m）" in out
     assert "收到 5 字" in out
     assert "[測試] 串流完成" in out and "收到 2 字" in out
 
 
-def test_stream_progress_printed_while_waiting(monkeypatch, sleeps, capsys):
+def test_stream_progress_logged_while_waiting(monkeypatch, sleeps, caplog):
     import threading
     gate = threading.Event()
 
@@ -180,13 +183,17 @@ def test_stream_progress_printed_while_waiting(monkeypatch, sleeps, capsys):
             yield _Chunk("OK")
 
     monkeypatch.setattr(config, "_llm_client", type("C", (), {"models": _SlowModels()})())
-    real_print = print
 
-    def spy(*args, **kwargs):
-        real_print(*args, **kwargs)
-        if "串流中" in str(args[0]):
-            gate.set()
+    class _Spy(logging.Handler):
+        def emit(self, record):
+            if "串流中" in record.getMessage():
+                gate.set()
 
-    monkeypatch.setattr("builtins.print", spy)
-    assert config.generate_content_stream_with_retry(model="m", progress_interval_sec=0.01) == "OK"
-    assert "串流中…已 0 秒，收到 0 字" in capsys.readouterr().out
+    spy = _Spy()
+    caplog.set_level(logging.INFO, logger="aitest")
+    config.logger.addHandler(spy)
+    try:
+        assert config.generate_content_stream_with_retry(model="m", progress_interval_sec=0.01) == "OK"
+    finally:
+        config.logger.removeHandler(spy)
+    assert "串流中…已 0 秒，收到 0 字" in caplog.text

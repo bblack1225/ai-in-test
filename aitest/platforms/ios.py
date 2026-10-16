@@ -15,6 +15,7 @@ XML 節點 tag 本身就是 class，座標是 x/y/width/height 數值屬性；�
 
 import hashlib
 import json
+import logging
 import time
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
@@ -38,6 +39,8 @@ from aitest.platforms.base import (
     wait_until_stable,
 )
 from aitest.platforms.scan_core import identity_keys_in_region, position_bucket, read_and_merge_round
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 掃描（capture_screen_map.py）用：解析、可捲動容器、捲動手勢、橫向容器收集
@@ -251,24 +254,24 @@ def collect_horizontal_region(platform, driver, region: dict, screen_width: int,
         time.sleep(0.3)
         return False
 
-    print(f"  [橫向捲動收集] 確認為橫向容器（{region['class']}），開始邊捲邊抓...")
+    logger.info(f"  [橫向捲動收集] 確認為橫向容器（{region['class']}），開始邊捲邊抓...")
     previous_region_keys = None
     for round_index in range(1, max_rounds):
         new_count, _, _, _, raw = read_and_merge_round(
             platform, driver, screen_width, screen_height, merged, round_screenshots
         )
         region_keys = frozenset(identity_keys_in_region(raw, b))
-        print(f"  [橫向捲動收集] 第{round_index}輪：這輪容器內{len(region_keys)}個，"
-              f"新增{new_count}個，累積合併{len(merged)}個不重複元件")
+        logger.info(f"  [橫向捲動收集] 第{round_index}輪：這輪容器內{len(region_keys)}個，"
+                    f"新增{new_count}個，累積合併{len(merged)}個不重複元件")
         if region_keys == previous_region_keys:
-            print(f"  [橫向捲動收集] 連續兩輪容器內內容一致，判定已捲到最右邊，停止")
+            logger.info(f"  [橫向捲動收集] 連續兩輪容器內內容一致，判定已捲到最右邊，停止")
             break
         previous_region_keys = region_keys
         swipe_within_region(driver, b, "left")
         time.sleep(0.5)
     else:
-        print(f"  [警告] 橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
-              f"這個容器可能還有內容沒收集完整，建議人工複核")
+        logger.warning(f"  橫向捲動收集達到輪次上限（{max_rounds}輪）仍未捲到底，"
+                       f"這個容器可能還有內容沒收集完整，建議人工複核")
 
     # 捲回最左邊，避免影響後續的垂直捲動或其他操作
     previous_source = None
@@ -308,7 +311,7 @@ def skip_visible_in_page_source(driver):
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"  [提示] 無法設定跳過 visible，照原本方式讀畫面結構（{e}）")
+        logger.info(f"  [提示] 無法設定跳過 visible，照原本方式讀畫面結構（{e}）")
         yield
         return
     try:
@@ -319,7 +322,7 @@ def skip_visible_in_page_source(driver):
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"  [警告] 恢復 pageSourceExcludedAttributes 失敗，之後掃描前請重新連線（{e}）")
+            logger.warning(f"  恢復 pageSourceExcludedAttributes 失敗，之後掃描前請重新連線（{e}）")
 
 
 def predicate_literal(text: str) -> str:
@@ -345,7 +348,7 @@ def find_anchor(driver, text: str):
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [錨點消歧義] 錨點查詢失敗: {type(e).__name__}")
+        logger.info(f"    [錨點消歧義] 錨點查詢失敗: {type(e).__name__}")
         return None
     return anchors[0] if len(anchors) == 1 else None
 
@@ -361,12 +364,12 @@ def ensure_visible(driver, element):
     try:
         if element.get_attribute("visible") == "true":
             return element
-        print("    [捲動至可視範圍] 元件目前不在可視範圍內，嘗試捲動...")
+        logger.info("    [捲動至可視範圍] 元件目前不在可視範圍內，嘗試捲動...")
         driver.execute_script("mobile: scroll", {"element": element.id, "toVisible": True})
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [捲動至可視範圍] 檢查/捲動失敗，照原本流程繼續: {e}")
+        logger.info(f"    [捲動至可視範圍] 檢查/捲動失敗，照原本流程繼續: {e}")
     return element
 
 
@@ -391,7 +394,8 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
         try:
             active = driver.switch_to.active_element
             if active is not None and active.get_attribute("type") in _INPUT_TYPES:
-                print(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 name={active.get_attribute('name')!r}")
+                logger.info(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 "
+                            f"name={active.get_attribute('name')!r}")
                 return active, True
         except InvalidSessionIdException:
             raise
@@ -445,7 +449,7 @@ def dismiss_keyboard(driver) -> bool:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [輸入] 找鍵盤工具列的完成鈕失敗: {e}")
+        logger.info(f"    [輸入] 找鍵盤工具列的完成鈕失敗: {e}")
     return not shown()
 
 
@@ -715,7 +719,7 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
         if element is None:
             break
         if target in keep_labels:
-            print(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
+            logger.info(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
             break
         try:
             element.click()
@@ -893,7 +897,7 @@ class IOSPlatform:
     def tap_by_coordinates(self, driver, bounds: dict):
         center_x = bounds["x"] + bounds["width"] / 2
         center_y = bounds["y"] + bounds["height"] / 2
-        print(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
+        logger.info(f"    [座標點擊] x={center_x}, y={center_y}  (來自 element_map.json 的 bounds={bounds})")
         driver.execute_script("mobile: tap", {"x": center_x, "y": center_y})
 
     def watch_banner(self, ctx, driver, texts: list[str], timeout: float = 10.0) -> tuple[dict, dict, str]:
@@ -906,7 +910,7 @@ class IOSPlatform:
         element.send_keys(value)
         # 字已經打好了，鍵盤收不起來不讓整步 FAIL，但註記出來：下一步被鍵盤擋住時看得出原因
         if not dismiss_keyboard(driver):
-            print("    [輸入] 鍵盤收不起來，照原本流程繼續")
+            logger.info("    [輸入] 鍵盤收不起來，照原本流程繼續")
             return "PASS（鍵盤收不起來，可能會擋住下一步）"
         return "PASS"
 
@@ -954,7 +958,7 @@ class IOSPlatform:
         # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
         try:
             if driver.find_elements(AppiumBy.IOS_PREDICATE, _PERMISSION_ALERT_PREDICATE):
-                print("    [關閉非預期彈窗] 畫面上是系統權限視窗，不處理")
+                logger.info("    [關閉非預期彈窗] 畫面上是系統權限視窗，不處理")
                 return []
         except InvalidSessionIdException:
             raise

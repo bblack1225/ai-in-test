@@ -51,6 +51,7 @@ import base64
 import binascii
 import copy
 import json
+import logging
 import mimetypes
 import signal
 import threading
@@ -82,8 +83,11 @@ from aitest.core.run_test_case import (
     with_dismiss_note,
 )
 from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.run_context import LLMUsage, RunContext
+
+logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8767
@@ -157,7 +161,7 @@ def get_driver(force_reconnect: bool = False):
         driver = None
     if driver is None:
         driver = webdriver.Remote(APPIUM_SERVER_URL, options=PLATFORM.make_options())
-        print(f"[viewer_server] 已連線 Appium（{PLATFORM.name}），driver 會保持開啟直到這支伺服器結束")
+        logger.info(f"[viewer_server] 已連線 Appium（{PLATFORM.name}），driver 會保持開啟直到這支伺服器結束")
     return driver
 
 
@@ -182,7 +186,7 @@ def ensure_session_alive():
     try:
         driver.find_elements(PLATFORM.native_by, "__viewer_server_liveness_check__")
     except InvalidSessionIdException:
-        print("[viewer_server] [警告] Appium session 已失效，重新連線...")
+        logger.warning("[viewer_server] Appium session 已失效，重新連線...")
         get_driver(force_reconnect=True)
 
 
@@ -564,7 +568,7 @@ def run_llm_chat(payload: dict) -> dict:
         try:
             var_keys = WORKSPACE.var_keys(payload["project"])
         except WorkspaceError as e:
-            print(f"[llm_chat] 讀不到專案變數，這次不提供給 LLM：{e}")
+            logger.info(f"[llm_chat] 讀不到專案變數，這次不提供給 LLM：{e}")
     system_prompt = _build_llm_testgen_system_prompt(json.dumps(screens_context, ensure_ascii=False), var_keys)
 
     try:
@@ -587,8 +591,8 @@ def run_llm_chat(payload: dict) -> dict:
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
-    print(f"[llm_chat token用量] {usage.summary()}"
-          f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料、{attachment_count} 個附件）")
+    logger.info(f"[llm_chat token用量] {usage.summary()}"
+                f"（{len(messages)} 則對話歷史、{len(screens_context)} 個畫面的精簡資料、{attachment_count} 個附件）")
     return {"reply": (response.text or "").strip(), "usage": usage.as_dict()}
 
 
@@ -665,7 +669,8 @@ def llm_generate_scenarios(payload: dict) -> dict:
         return {"error": f"{type(e).__name__}: {e}"}
 
     usage_info = usage.as_dict()
-    print(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] {usage.summary()}（{len(screens_context)} 個畫面的精簡資料）")
+    logger.info(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] {usage.summary()}"
+                f"（{len(screens_context)} 個畫面的精簡資料）")
 
     try:
         parsed = json.loads((text or "").strip())
@@ -722,7 +727,7 @@ def run_test_script(payload: dict) -> dict:
             if dismissed:
                 precheck["message"] = with_dismiss_note(precheck["message"], dismissed)
             ctx.update_progress(precheck=precheck)
-            print(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
+            logger.info(f"[測案執行] 第0步畫面檢查：{precheck['status']}，{precheck['message']}")
             if precheck["status"] == "fail":
                 results = [_step_result(i, step, "SKIP（第0步畫面檢查沒通過，沒有執行）")
                            for i, step in enumerate(steps, 1)]
@@ -793,7 +798,7 @@ def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_
 
         if track_current:
             ctx.update_progress(current=i)
-        print(f"[測案執行] 第{i}/{len(steps)}步：{step.get('action')} {step.get('target')}")
+        logger.info(f"[測案執行] 第{i}/{len(steps)}步：{step.get('action')} {step.get('target')}")
         screen = screens_by_name.get(step.get("screen_name"))
         el = None
         if screen is not None:
@@ -870,7 +875,7 @@ def run_batch(payload: dict) -> dict:
     _test_running.set()
     # 整批共用：換組不會登出，同一個登入檔不用重登；values 是目前登入那個檔的值
     login = {"name": None, "values": {}, "files": var_files}
-    print(f"[批次執行] 開始：{len(groups)} 組地圖、{sum(len(g['cases']) for g in groups)} 份測案，App：{app_id}")
+    logger.info(f"[批次執行] 開始：{len(groups)} 組地圖、{sum(len(g['cases']) for g in groups)} 份測案，App：{app_id}")
     try:
         with PLATFORM.page_source_context(d):
             for gi, (g_in, g_out) in enumerate(zip(groups_in, groups)):
@@ -899,7 +904,7 @@ def _load_var_files(project_id: str | None, names: list[str]) -> dict | None:
         try:
             files[name] = WORKSPACE.read_vars(project_id, [name])[name]
         except WorkspaceError as e:
-            print(f"[批次執行] 變數檔「{name}」讀不到：{e}")
+            logger.info(f"[批次執行] 變數檔「{name}」讀不到：{e}")
             files[name] = None
     return files
 
@@ -959,7 +964,7 @@ def _run_batch_group(ctx, d, gi: int, g_in: dict, g_out: dict, app_id, auto_navi
         ctx.update_progress(current={"group": gi, "case": ci})
         _locked_update(ctx, c_out, status="running")
         started = time.time()
-        print(f"[批次執行] 第 {gi + 1} 組第 {ci + 1} 份：{c_out['name']}")
+        logger.info(f"[批次執行] 第 {gi + 1} 組第 {ci + 1} 份：{c_out['name']}")
 
         start_screen = _first_screen(steps)
         try:
@@ -1062,7 +1067,7 @@ def describe_saved_screen(payload: dict) -> dict:
         if path.is_relative_to(base) and path.is_file():
             screenshot_png = path.read_bytes()
             available = not payload.get("screenshot_blocked")
-    print(f"[補描述] {screen_name}：{len(elements)} 個元件，{'有' if available else '沒有'}截圖")
+    logger.info(f"[補描述] {screen_name}：{len(elements)} 個元件，{'有' if available else '沒有'}截圖")
 
     native = [e for e in elements if e.get("id_source") == "native" and e.get("native_id")]
     generated = [e for e in elements if e not in native]
@@ -1085,7 +1090,7 @@ def describe_saved_screen(payload: dict) -> dict:
     for tid, e in zip(temp_ids, generated):
         if generated_desc.get(tid):
             descriptions[e["unique_id"]] = generated_desc[tid]
-    print(f"[補描述] {screen_name} 的 LLM 用量：{ctx.usage.summary()}")
+    logger.info(f"[補描述] {screen_name} 的 LLM 用量：{ctx.usage.summary()}")
     return {"descriptions": descriptions, "usage": ctx.usage.as_dict()}
 
 
@@ -1174,7 +1179,7 @@ def _finish_recording(rec: Recording, locked: bool = False) -> None:
             with _device_lock:
                 rec.finish(get_driver())
     except Exception as e:
-        print(f"[錄製] 還原裝置設定失敗（{type(e).__name__}: {e}），重新啟動 viewer_server 就會恢復")
+        logger.info(f"[錄製] 還原裝置設定失敗（{type(e).__name__}: {e}），重新啟動 viewer_server 就會恢復")
 
 
 def record_cancel() -> dict:
@@ -1228,7 +1233,7 @@ def _start_describe_job(rec: Recording, items: list[tuple[int, str]]) -> None:
                     with _describe_lock:
                         job["results"].append({"n": n, "name": name, "descriptions": descriptions})
                 except Exception as e:
-                    print(f"[錄製補描述] {name} 失敗：{type(e).__name__}: {e}")
+                    logger.info(f"[錄製補描述] {name} 失敗：{type(e).__name__}: {e}")
                     with _describe_lock:
                         job["failed"].append({"n": n, "name": name, "error": f"{type(e).__name__}: {e}"})
                 with _describe_lock:
@@ -1238,7 +1243,7 @@ def _start_describe_job(rec: Recording, items: list[tuple[int, str]]) -> None:
             rec.remove_files()
             with _describe_lock:
                 job["running"] = False
-            print(f"[錄製補描述] 完成，LLM 用量：{ctx.usage.summary()}")
+            logger.info(f"[錄製補描述] 完成，LLM 用量：{ctx.usage.summary()}")
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -1564,7 +1569,8 @@ class Handler(BaseHTTPRequestHandler):
             return record_action(path, payload)
 
     def log_message(self, format, *args):
-        print("[viewer_server]", format % args)
+        # 每個 HTTP 請求一行（網頁輪詢很頻繁），平常不顯示，只記 debug
+        logger.debug("[viewer_server] %s", format % args)
 
 
 def _raise_interrupt(signum, frame):
@@ -1579,6 +1585,7 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"監聽埠（預設 {DEFAULT_PORT}）")
     parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="專案資料夾（預設 ./workspace）")
     args = parser.parse_args()
+    setup_logging("server")
     PLATFORM = get_platform(args.platform)
     PORT = args.port
     WORKSPACE = Workspace(args.workspace)
@@ -1586,8 +1593,8 @@ def main():
     # 被 aitest.py 或 kill 結束（SIGTERM）時跟 Ctrl+C 一樣收尾：關掉 Appium session，手機上不會留著 WDA 連線
     signal.signal(signal.SIGTERM, _raise_interrupt)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"[viewer_server] 已啟動（平台：{PLATFORM.name}），只接受本機連線")
-    print(f"[viewer_server] 用瀏覽器打開 http://{HOST}:{PORT}/ ，Ctrl+C 結束")
+    logger.info(f"[viewer_server] 已啟動（平台：{PLATFORM.name}），只接受本機連線")
+    logger.info(f"[viewer_server] 用瀏覽器打開 http://{HOST}:{PORT}/ ，Ctrl+C 結束")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

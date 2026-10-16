@@ -40,6 +40,7 @@ import argparse
 import hashlib
 import io
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -48,10 +49,13 @@ from google.genai import types
 from PIL import Image
 
 from aitest.config import APPIUM_SERVER_URL, LLM_MODEL, generate_content_with_retry
+from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import wait_until_stable
 from aitest.platforms.scan_core import candidate_signature, read_and_merge_round
 from aitest.run_context import RunContext
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 1. 輸出路徑設定
@@ -107,11 +111,11 @@ def wait_for_screen_stable(platform, driver, screen_width: int, screen_height: i
 
     started = time.monotonic()
     if wait_until_stable(driver, signature, max_wait=max_wait, poll_interval=poll_interval_sec):
-        print(f"  [畫面穩定檢查] 連續兩次讀取一致，判定畫面已穩定（{time.monotonic() - started:.1f} 秒）")
+        logger.info(f"  [畫面穩定檢查] 連續兩次讀取一致，判定畫面已穩定（{time.monotonic() - started:.1f} 秒）")
         return True
-    print(f"  [警告] 等了 {max_wait:g} 秒畫面內容依然持續變化，可能有非同步載入尚未完成、"
-          f"或本身就是輪播/即時更新的動態內容。這次掃描結果會照最後一次讀到的繼續產出，"
-          f"但需要人工複核這次資料是否可信（見 screen_stable_at_scan 欄位）")
+    logger.warning(f"  等了 {max_wait:g} 秒畫面內容依然持續變化，可能有非同步載入尚未完成、"
+                   f"或本身就是輪播/即時更新的動態內容。這次掃描結果會照最後一次讀到的繼續產出，"
+                   f"但需要人工複核這次資料是否可信（見 screen_stable_at_scan 欄位）")
     return False
 
 
@@ -148,8 +152,8 @@ def downgrade_duplicate_native_ids(platform, candidates: list[dict]) -> list[dic
                 el["native_id"] = None
 
     if downgraded:
-        print(f"  [警告] 偵測到 {platform.native_id_name} 在同畫面重複使用（清單版型常見），"
-              f"改用文字/位置指紋辨識: {sorted(downgraded)}")
+        logger.warning(f"  偵測到 {platform.native_id_name} 在同畫面重複使用（清單版型常見），"
+                       f"改用文字/位置指紋辨識: {sorted(downgraded)}")
 
     return candidates
 
@@ -210,8 +214,8 @@ def collect_candidates_with_scroll(platform, driver, screen_width: int, screen_h
         new_count, raw_len, page_source, signature, _ = read_and_merge_round(
             platform, driver, screen_width, screen_height, merged, round_screenshots
         )
-        print(f"  [捲動收集] 第{round_index + 1}輪：這輪讀到{raw_len}個候選，"
-              f"新增{new_count}個，累積合併{len(merged)}個不重複元件")
+        logger.info(f"  [捲動收集] 第{round_index + 1}輪：這輪讀到{raw_len}個候選，"
+                    f"新增{new_count}個，累積合併{len(merged)}個不重複元件")
 
         # 這一輪垂直位置上，如果有還沒處理過的巢狀橫向容器，先原地把它左右捲完
         for region in platform.horizontal_scroll_candidates(page_source):
@@ -226,18 +230,18 @@ def collect_candidates_with_scroll(platform, driver, screen_width: int, screen_h
         # 捲動沒有回報值的平台（iOS），靠「連續兩輪垂直捲動前讀到的內容完全一致」判斷到底
         if not platform.scroll_reports_movement:
             if signature == previous_signature:
-                print(f"  [捲動收集] 連續兩輪內容完全一致，判定已捲到底，停止")
+                logger.info(f"  [捲動收集] 連續兩輪內容完全一致，判定已捲到底，停止")
                 break
             previous_signature = signature
 
         moved = platform.scroll_screen(driver, screen_width, screen_height, "down")
         if moved is False:
-            print(f"  [捲動收集] 系統回報已經無法再往下捲，判定已捲到底，停止")
+            logger.info(f"  [捲動收集] 系統回報已經無法再往下捲，判定已捲到底，停止")
             break
         time.sleep(0.5)  # 給畫面一點時間反應捲動動畫/懶載入
     else:
-        print(f"  [警告] 捲動收集達到輪次上限（{max_rounds}輪）仍未偵測到捲到底，"
-              f"這個畫面可能還有內容沒收集完整，建議人工複核")
+        logger.warning(f"  捲動收集達到輪次上限（{max_rounds}輪）仍未偵測到捲到底，"
+                       f"這個畫面可能還有內容沒收集完整，建議人工複核")
 
     # 捲動收集完後畫面停在很下面，捲回頂部，避免影響後續操作（例如接著要點擊
     # 別的元件、或換下一個畫面掃描時，手機還停留在這個畫面捲到一半的位置）。
@@ -316,15 +320,15 @@ def describe_native_elements(ctx, platform, screen_name: str, elements: list[dic
 
     usage = getattr(response, "usage_metadata", None)
     if usage:
-        print(f"  [LLM token用量／native元件] prompt={usage.prompt_token_count} "
-              f"output={usage.candidates_token_count} total={usage.total_token_count}"
-              f"（{len(elements)} 個元件、不含截圖，一次呼叫）")
+        logger.info(f"  [LLM token用量／native元件] prompt={usage.prompt_token_count} "
+                    f"output={usage.candidates_token_count} total={usage.total_token_count}"
+                    f"（{len(elements)} 個元件、不含截圖，一次呼叫）")
 
     raw_text = (response.text or "").strip()
     try:
         result_list = json.loads(raw_text)
     except json.JSONDecodeError:
-        print(f"  [警告] native元件描述生成失敗，回傳非合法JSON: {raw_text}")
+        logger.warning(f"  native元件描述生成失敗，回傳非合法JSON: {raw_text}")
         return {}
 
     # key 用 class::native_id 組合，避免同一個 native_id 出現在不同 class 時互相覆蓋描述
@@ -411,15 +415,15 @@ def describe_generated_elements(ctx, platform, screen_name: str, screenshot_png:
 
     usage = getattr(response, "usage_metadata", None)
     if usage:
-        print(f"  [LLM token用量] prompt={usage.prompt_token_count} "
-              f"output={usage.candidates_token_count} total={usage.total_token_count}"
-              f"（{len(elements)} 個元件、{'含' if screenshot_available else '不含'}截圖，一次呼叫）")
+        logger.info(f"  [LLM token用量] prompt={usage.prompt_token_count} "
+                    f"output={usage.candidates_token_count} total={usage.total_token_count}"
+                    f"（{len(elements)} 個元件、{'含' if screenshot_available else '不含'}截圖，一次呼叫）")
 
     raw_text = (response.text or "").strip()
     try:
         result_list = json.loads(raw_text)
     except json.JSONDecodeError:
-        print(f"  [警告] 無id元件描述生成失敗，回傳非合法JSON: {raw_text}")
+        logger.warning(f"  無id元件描述生成失敗，回傳非合法JSON: {raw_text}")
         return {}
 
     return {
@@ -504,7 +508,7 @@ def assign_unique_ids(screen_name: str, candidates: list[dict]) -> None:
             # 一樣的 unique_id；偵測到碰撞就加上編號後綴，保證同一次掃描內絕對不重複
             if unique_id in seen_unique_ids:
                 seen_unique_ids[unique_id] += 1
-                print(f"  [警告] unique_id 碰撞，加上編號後綴區隔: {unique_id}_{seen_unique_ids[unique_id]}")
+                logger.warning(f"  unique_id 碰撞，加上編號後綴區隔: {unique_id}_{seen_unique_ids[unique_id]}")
                 unique_id = f"{unique_id}_{seen_unique_ids[unique_id]}"
             else:
                 seen_unique_ids[unique_id] = 1
@@ -548,8 +552,8 @@ def build_screen_data(ctx, platform, screen_name: str, candidates: list[dict], r
     """
     screenshot_blocked = is_screenshot_blocked(screenshot_png)
     if screenshot_blocked:
-        print("  [警告] 截圖偵測為單一顏色（可能是 App 的截圖保護，Android 稱為 FLAG_SECURE），"
-              "改用純文字線索判斷用途、略過裁切")
+        logger.warning("  截圖偵測為單一顏色（可能是 App 的截圖保護，Android 稱為 FLAG_SECURE），"
+                       "改用純文字線索判斷用途、略過裁切")
 
     screenshot_img = Image.open(io.BytesIO(screenshot_png))
     scale_x = screenshot_img.size[0] / screen_width
@@ -565,11 +569,11 @@ def build_screen_data(ctx, platform, screen_name: str, candidates: list[dict], r
     screenshot_path = SCREENSHOTS_DIR / f"{screen_name}_{scanned_at}.png"
     screenshot_img.save(base_dir / screenshot_path)
 
-    print(f"  找到候選元件數量: {len(candidates)}")
+    logger.info(f"  找到候選元件數量: {len(candidates)}")
 
     native_elements = [el for el in candidates if el["native_id"]]
     generated_elements = [el for el in candidates if not el["native_id"]]
-    print(f"  有native id: {len(native_elements)} 個 / 無id: {len(generated_elements)} 個")
+    logger.info(f"  有native id: {len(native_elements)} 個 / 無id: {len(generated_elements)} 個")
 
     assign_unique_ids(screen_name, candidates)
     descriptions = describe_candidates(ctx, platform, screen_name, candidates, round_screenshots,
@@ -602,7 +606,7 @@ def build_screen_data(ctx, platform, screen_name: str, candidates: list[dict], r
                 crop_path = CROPS_DIR / f"{screen_name}_{unique_id.split('::')[-1]}.png"
                 crop_saved = crop_element_screenshot(round_screenshot_png, el["bounds"], base_dir / crop_path, scale_x, scale_y)
                 if not crop_saved:
-                    print(f"  [警告] 元件超出截圖可視範圍，略過裁切: {unique_id}")
+                    logger.warning(f"  元件超出截圖可視範圍，略過裁切: {unique_id}")
 
             result_elements.append({
                 "unique_id": unique_id,
@@ -667,7 +671,7 @@ def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, 
     傳專案資料夾）。回傳資料裡的路徑一律是相對 out_dir 的 "screenshots/xxx.png"，
     所以地圖搬到哪個資料夾都能用。None（預設）＝目前工作目錄，跟以前一樣。
     """
-    print(f"開始掃描畫面: {screen_name}")
+    logger.info(f"開始掃描畫面: {screen_name}")
 
     window_size = driver.get_window_size()
     screen_width, screen_height = window_size["width"], window_size["height"]
@@ -681,7 +685,7 @@ def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, 
 
     scroll_collected = platform.has_scrollable_content(page_source) and scroll
     if scroll_collected:
-        print("  [偵測到可捲動內容] 開始邊捲邊抓，收集完整清單...")
+        logger.info("  [偵測到可捲動內容] 開始邊捲邊抓，收集完整清單...")
         raw_candidates, round_screenshots = collect_candidates_with_scroll(
             platform, driver, screen_width, screen_height)
         candidates = downgrade_duplicate_native_ids(platform, raw_candidates)
@@ -693,8 +697,8 @@ def scan_screen(ctx, platform, driver, screen_name: str, describe: bool = True, 
                                     screen_width, screen_height, describe=describe, save_crops=save_crops,
                                     out_dir=out_dir, is_stable=is_stable, scroll_collected=scroll_collected)
 
-    print(f"  完成，共產出 {len(screen_data['elements'])} 筆元件資料"
-          + ("" if is_stable else "（⚠️ 掃描當下畫面未確認穩定，建議人工複核）"))
+    logger.info(f"  完成，共產出 {len(screen_data['elements'])} 筆元件資料"
+                + ("" if is_stable else "（⚠️ 掃描當下畫面未確認穩定，建議人工複核）"))
     return screen_data
 
 
@@ -716,7 +720,7 @@ def save_to_json(screen_data: dict, output_path: Path):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print(f"已儲存至 {output_path}")
+    logger.info(f"已儲存至 {output_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +741,7 @@ def main():
     parser.add_argument("--save_crops", action="store_true",
                         help="另外存無 id 元件的裁切小圖到 crops/，給人工核對 LLM 描述用（預設不存）")
     args = parser.parse_args()
+    setup_logging("scan")
     platform = get_platform(args.platform)
     output_path = Path(args.output) if args.output else OUTPUT_JSON_PATH
 
@@ -748,7 +753,7 @@ def main():
         save_to_json(screen_data, output_path)
     finally:
         driver.quit()
-    print(f"這次掃描的 LLM 用量：{ctx.usage.summary()}")
+    logger.info(f"這次掃描的 LLM 用量：{ctx.usage.summary()}")
 
 
 if __name__ == "__main__":

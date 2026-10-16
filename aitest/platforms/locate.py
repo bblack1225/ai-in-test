@@ -25,12 +25,15 @@
 locate_empty_label_by_anchor：用附近唯一的文字當錨點，挑同一列、x 座標最接近的同類元件。
 """
 
+import logging
 import xml.etree.ElementTree as ET
 
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
 
 from aitest.platforms.base import main_scroll_area, shrink_bounds
+
+logger = logging.getLogger(__name__)
 
 
 def find_by_class_and_text(platform, driver, class_name: str, label: str) -> list:
@@ -64,11 +67,11 @@ def locate_with_scroll(ctx, platform, driver, el: dict, max_rounds: int = 8):
         except InvalidSessionIdException:
             raise
         except WebDriverException as e:
-            print(f"    [XPath+捲動] 查詢失敗: {query}  ({type(e).__name__})")
+            logger.info(f"    [XPath+捲動] 查詢失敗: {query}  ({type(e).__name__})")
             return []
 
     matches = _query()
-    print(f"    [XPath+捲動] 第0輪（不捲）: {query} -> 查到 {len(matches)} 個")
+    logger.info(f"    [XPath+捲動] 第0輪（不捲）: {query} -> 查到 {len(matches)} 個")
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
@@ -78,7 +81,7 @@ def locate_with_scroll(ctx, platform, driver, el: dict, max_rounds: int = 8):
     # 捲十幾輪才輪到關彈窗很浪費時間，而且彈窗還在時捲的是底下的畫面，關掉後畫面已經不在頂端
     if _dismiss_dialogs(ctx, platform, driver):
         matches = _query()
-        print(f"    [XPath+捲動] 關掉彈窗後重查: {query} -> 查到 {len(matches)} 個")
+        logger.info(f"    [XPath+捲動] 關掉彈窗後重查: {query} -> 查到 {len(matches)} 個")
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -90,18 +93,18 @@ def locate_with_scroll(ctx, platform, driver, el: dict, max_rounds: int = 8):
             ctx.raise_if_stopped()
             moved = platform.scroll_once(driver, area, "down")
             if moved is False:
-                print(f"    [XPath+捲動] {area_name} 已經捲不動了，停止")
+                logger.info(f"    [XPath+捲動] {area_name} 已經捲不動了，停止")
                 return None
             if moved is None:
                 # 平台沒辦法回報這次有沒有真的捲動（iOS），改用捲動前後畫面有沒有變判斷，
                 # 可靠度略低（見 capture_screen_map.collect_candidates_with_scroll 的說明）
                 current_source = driver.page_source
                 if current_source == previous_source:
-                    print(f"    [XPath+捲動] {area_name} 捲動前後畫面沒變，判定捲不動了，停止")
+                    logger.info(f"    [XPath+捲動] {area_name} 捲動前後畫面沒變，判定捲不動了，停止")
                     return None
                 previous_source = current_source
             found = _query()
-            print(f"    [XPath+捲動] {area_name} 第{round_index}輪: 查到 {len(found)} 個")
+            logger.info(f"    [XPath+捲動] {area_name} 第{round_index}輪: 查到 {len(found)} 個")
             if len(found) == 1:
                 return found[0]
             if len(found) > 1:
@@ -157,8 +160,8 @@ def locate_by_anchor(platform, driver, el: dict):
         return None
 
     closest = min(candidates, key=lambda c: abs(c.location["y"] - anchor_y))
-    print(f"    [錨點消歧義] 用鄰近文字「{anchor_text}」（y={anchor_y}）"
-          f"從 {len(candidates)} 個同文字候選中挑出最接近的一個")
+    logger.info(f"    [錨點消歧義] 用鄰近文字「{anchor_text}」（y={anchor_y}）"
+                f"從 {len(candidates)} 個同文字候選中挑出最接近的一個")
     return closest
 
 
@@ -189,7 +192,7 @@ def locate_empty_label_by_anchor(platform, driver, el: dict):
             anchor_text, anchor = text, candidate
             break
     if anchor is None:
-        print(f"    [錨點定位] 附近文字都不唯一或找不到：{nearby_text_list}")
+        logger.info(f"    [錨點定位] 附近文字都不唯一或找不到：{nearby_text_list}")
         return None
     anchor_y = _center(anchor)[1]
 
@@ -202,12 +205,12 @@ def locate_empty_label_by_anchor(platform, driver, el: dict):
     max_dy = bounds["height"] * 2
     same_row = [c for c in candidates if abs(_center(c)[1] - anchor_y) <= max_dy]
     if not same_row:
-        print(f"    [錨點定位] 錨點「{anchor_text}」同一列沒有 {el['class']}（{len(candidates)} 個都離太遠）")
+        logger.info(f"    [錨點定位] 錨點「{anchor_text}」同一列沒有 {el['class']}（{len(candidates)} 個都離太遠）")
         return None
     target_x = bounds["x"] + bounds["width"] / 2
     closest = min(same_row, key=lambda c: abs(_center(c)[0] - target_x))
-    print(f"    [錨點定位] 無文字元件：用唯一的鄰近文字「{anchor_text}」，"
-          f"從同一列 {len(same_row)} 個 {el['class']} 挑 x 最接近的")
+    logger.info(f"    [錨點定位] 無文字元件：用唯一的鄰近文字「{anchor_text}」，"
+                f"從同一列 {len(same_row)} 個 {el['class']} 挑 x 最接近的")
     return closest
 
 
@@ -220,10 +223,10 @@ def _dismiss_dialogs(ctx, platform, driver) -> list[str]:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [關閉非預期彈窗] 檢查失敗，照原本流程捲動找: {e}")
+        logger.info(f"    [關閉非預期彈窗] 檢查失敗，照原本流程捲動找: {e}")
         return []
     if dismissed:
-        print(f"    [關閉非預期彈窗] 找元件前先關掉，按了：{'、'.join(dismissed)}")
+        logger.info(f"    [關閉非預期彈窗] 找元件前先關掉，按了：{'、'.join(dismissed)}")
         ctx.dismissed_while_locating.extend(dismissed)
     return dismissed
 
@@ -234,7 +237,7 @@ def locate_generated_element(ctx, platform, driver, el: dict):
     if not label:
         matched = locate_empty_label_by_anchor(platform, driver, el)
         if matched is None:
-            print("    [定位] label 為空，鄰近文字也定位不到")
+            logger.info("    [定位] label 為空，鄰近文字也定位不到")
         return matched
 
     matched = locate_with_scroll(ctx, platform, driver, el)
@@ -249,7 +252,7 @@ def locate_generated_element(ctx, platform, driver, el: dict):
         return None
 
     attrs = "  ".join(f"{k}={v!r}" for k, v in platform.match_preview(matched).items())
-    print(f"    [命中元件屬性（{source}）] location={matched.location}  size={matched.size}  "
-          f"{attrs}  enabled={matched.get_attribute('enabled')!r}")
+    logger.info(f"    [命中元件屬性（{source}）] location={matched.location}  size={matched.size}  "
+                f"{attrs}  enabled={matched.get_attribute('enabled')!r}")
     return matched
 
