@@ -65,7 +65,7 @@ from appium.webdriver.common.appiumby import AppiumBy
 from google.genai import types
 from selenium.common.exceptions import InvalidSessionIdException, NoSuchElementException, WebDriverException
 
-from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_with_retry
+from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT, LLM_MODEL, LLM_MODEL_PRO, PROJECT_ROOT, generate_content_stream_with_retry, generate_content_with_retry
 from aitest.core.capture_screen_map import describe_generated_elements, describe_native_elements, scan_screen
 from aitest.core.navigator import MapIndex, Navigator
 from aitest.core.recorder import RECORDINGS_DIR, Recording, RecordingError, recording_summary
@@ -652,8 +652,10 @@ def llm_generate_scenarios(payload: dict) -> dict:
 
     usage = LLMUsage()
     try:
-        response = generate_content_with_retry(
+        # 用串流收：Pro 呼叫時間長，串流不會閒置，比較不容易被中間節點切斷
+        text = generate_content_stream_with_retry(
             usage=usage,
+            label="llm_scenarios",
             model=LLM_MODEL_PRO,
             contents=prompt,
             config=types.GenerateContentConfig(temperature=0.4, response_mime_type="application/json"),
@@ -665,7 +667,7 @@ def llm_generate_scenarios(payload: dict) -> dict:
     print(f"[llm_scenarios token用量／{LLM_MODEL_PRO}] {usage.summary()}（{len(screens_context)} 個畫面的精簡資料）")
 
     try:
-        parsed = json.loads((response.text or "").strip())
+        parsed = json.loads((text or "").strip())
     except Exception as e:
         return {"error": f"LLM回應不是合法JSON（{type(e).__name__}: {e}）", "usage": usage_info}
 
