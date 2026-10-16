@@ -17,6 +17,9 @@ class FakeDriver:
     def update_settings(self, values):
         pass
 
+    def get_screenshot_as_png(self):
+        return b"png"
+
 
 @pytest.fixture
 def server(monkeypatch):
@@ -84,3 +87,49 @@ def test_batch_current_not_overwritten_by_steps(server, monkeypatch):
     assert seen == [{"group": 0, "case": 0}]
     assert result["groups"][0]["cases"][0]["status"] in ("fail", "skip")
     assert server._progress_snapshot("batch")["running"] is False
+
+
+@pytest.fixture
+def ws(server, monkeypatch, tmp_path):
+    from aitest.core.workspace import Workspace
+    w = Workspace(tmp_path / "workspace")
+    w.create_project("demo", "Demo", "android")
+    w.write_item("demo", "cases", "登入", {"test_name": "登入", "steps": STEPS}, overwrite=False)
+    monkeypatch.setattr(server, "WORKSPACE", w)
+    return w
+
+
+def test_single_run_saved_for_project_case(server, ws):
+    """選的是專案測案：留一筆紀錄，失敗的步驟有截圖"""
+    result = server.run_test_script({"element_map": {"screens": []}, "test_case": {"steps": STEPS},
+                                     "check_screen": False, "project": "demo", "case_ref": "登入"})
+    assert result["run_saved"] is True
+    [run] = ws.list_runs("demo", "登入")
+    assert run["status"] == "fail" and run["source"] == {"kind": "single"}
+    assert run["steps"] == {"pass": 0, "fail": 2, "skip": 0, "total": 2}
+    full = ws.read_run("demo", "登入", run["id"])
+    assert full["case_snapshot"]["steps"] == STEPS
+    assert ws.run_file("demo", full["results"][0]["screenshot"]).read_bytes() == b"png"
+
+
+def test_single_run_not_saved_without_case_ref(server, ws):
+    result = server.run_test_script({"element_map": {"screens": []}, "test_case": {"steps": STEPS},
+                                     "check_screen": False, "project": "demo"})
+    assert result["run_saved"] is False
+    assert ws.list_run_cases("demo") == []
+
+
+def test_batch_saves_only_project_cases(server, ws):
+    result = server.run_batch({
+        "app_id": "app", "project": "demo", "batch_name": "每日",
+        "groups": [{"map_name": "m", "map": {"screens": []},
+                    "cases": [{"name": "登入", "ref": "登入", "case": {"steps": STEPS}},
+                              {"name": "臨時", "case": {"steps": STEPS}}]}],
+        "options": {"auto_navigate": False},
+    })
+    [entry] = ws.list_run_cases("demo")
+    assert entry["case"] == "登入" and entry["recent"] == [result["groups"][0]["cases"][0]["status"]]
+    source = entry["last"]["source"]
+    assert source["kind"] == "batch" and source["batch_name"] == "每日" and source["batch_id"] == result["batch_id"]
+    [record] = ws.batch_runs("demo", result["batch_id"])
+    assert record["case"] == "登入"

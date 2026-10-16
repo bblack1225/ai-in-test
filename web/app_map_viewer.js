@@ -1931,6 +1931,7 @@
       var target = btn.dataset.tab;
       document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.toggle("active", p.id === "tab-" + target); });
       syncTabsWithCurrentMap();
+      if (target === "results") loadResultsCases();  // 每次切過來都重讀，剛跑完的結果才看得到
     });
   });
 
@@ -2851,12 +2852,21 @@
       var res = await fetch(API_BASE + "/run_test_script", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ element_map: elementMap, test_case: runscriptTestCase, check_screen: runscriptCheckScreen.checked, dismiss_dialogs: runscriptDismissDialogs.checked,
-          project: currentProject ? currentProject.id : null, vars: currentProject ? runscriptVars : [] }),
+          project: currentProject ? currentProject.id : null, vars: currentProject ? runscriptVars : [],
+          case_ref: currentProject ? runscriptCaseRef : null }),
       });
       runFinished = true;
       var data = await res.json();
       if (data.error) alert("執行失敗：" + data.error);
-      else renderRunscriptPreview(data.results, data.stopped, data.precheck);
+      else {
+        renderRunscriptPreview(data.results, data.stopped, data.precheck);
+        // 只有專案測案會留執行紀錄（測試結果分頁）
+        var savedNote = document.createElement("div");
+        savedNote.className = "script-note";
+        savedNote.textContent = data.run_saved ? "這次的結果已存進「測試結果」分頁"
+          : currentProject ? "這份測案沒存進專案，結果不會留紀錄（存檔後再執行，就會出現在「測試結果」分頁）" : "沒有開啟專案，結果不會留紀錄";
+        runscriptBody.prepend(savedNote);
+      }
     } catch (err) {
       alert(failText("連線失敗", err, "（請確認 viewer_server.py 已啟動）"));
     } finally {
@@ -3294,7 +3304,7 @@
         method: "POST", headers: { "Content-Type": "application/json" },
         // 開著專案就用專案設定的 bundle id 重開 App；沒有的話伺服器照舊用 config.toml／前景 App
         body: JSON.stringify({ options: batchOptions(), app_id: (currentProject && currentProject.bundle_id) || null,
-          project: currentProject ? currentProject.id : null, groups: batchGroups.map(function (g) {
+          project: currentProject ? currentProject.id : null, batch_name: currentBatchName, groups: batchGroups.map(function (g) {
           return { map_name: g.mapName, map: g.map, setup_case: g.setup, setup_map: g.setupMapRef ? g.setupMap : null, cases: g.cases };
         }) }),
       });
@@ -3459,6 +3469,8 @@
     batchGroups = [];  // 批次設定引用的是上一個專案的地圖／測案，換專案就清掉
     currentBatchName = null; batchSavedJson = null;
     batchResultsEl.innerHTML = "";
+    resetResults();
+    if (document.getElementById("tab-results").classList.contains("active")) loadResultsCases();
     try { localStorage.setItem("lastProject", id || ""); } catch (e) { /* 存不了就下次手動選 */ }
     projectSelect.value = id || "";
     if (!d) {
@@ -4596,6 +4608,277 @@
     setProjectStatus(ids.length ? "選一個專案開始，地圖、測案都會自動存在專案裡"
       : "還沒有專案：用 uv run aitest-workspace create 建立（見 README 3.3），或匯入其他人給的專案 zip");
   }
+
+  // ================= 測試結果：依測案看歷次執行紀錄（workspace runs/） =================
+  // 只有專案測案會留紀錄（單份執行選的是專案測案、批次裡用專案測案加入的）；不會自動刪，在這裡勾選刪除。
+  // 版面：預設只列測案，點一份測案就在它下面展開歷次執行（一次只展開一份），紀錄多的時候分頁
+  var resultsCaseListEl = document.getElementById("resultsCaseList");
+  var resultsSearch = document.getElementById("resultsSearch");
+  var resultsFailedOnly = document.getElementById("resultsFailedOnly");
+  var resultsCaseAll = document.getElementById("resultsCaseAll");
+  var resultsCaseDeleteBtn = document.getElementById("resultsCaseDeleteBtn");
+  var RESULT_SOURCE_LABEL = { single: "單份執行", batch: "批次" };
+  var RESULTS_PAGE_SIZE = 10;
+  var resultsCases = [], resultsCase = null, resultsRuns = [], resultsPage = 0;
+  var resultsCaseChecked = {}, resultsRunChecked = {}, resultsRunDetail = {};
+
+  function resetResults() {
+    resultsCases = []; resultsCase = null; resultsRuns = []; resultsPage = 0;
+    resultsCaseChecked = {}; resultsRunChecked = {}; resultsRunDetail = {};
+    renderResults();
+  }
+  function collapseResultsCase() {
+    resultsCase = null; resultsRuns = []; resultsPage = 0; resultsRunChecked = {}; resultsRunDetail = {};
+  }
+  async function loadResultsCases() {
+    if (!currentProject) { resetResults(); return; }
+    try { resultsCases = (await apiJson("GET", projectApi("/runs"))).cases; }
+    catch (err) { resultsCaseListEl.innerHTML = '<div class="script-note warn">讀不到執行紀錄：' + escapeHtml(err.message) + "</div>"; return; }
+    var names = resultsCases.map(function (c) { return c.case; });
+    Object.keys(resultsCaseChecked).forEach(function (n) { if (names.indexOf(n) < 0) delete resultsCaseChecked[n]; });
+    if (resultsCase && names.indexOf(resultsCase) >= 0) await loadResultsRuns(resultsCase);
+    else { collapseResultsCase(); renderResults(); }
+  }
+  async function loadResultsRuns(name) {
+    try { resultsRuns = (await apiJson("GET", projectApi("/runs/" + encodeURIComponent(name)))).runs; }
+    catch (err) { alert("讀不到「" + name + "」的紀錄：" + err.message); return; }
+    resultsCase = name;
+    var ids = resultsRuns.map(function (r) { return r.id; });
+    Object.keys(resultsRunChecked).forEach(function (id) { if (ids.indexOf(id) < 0) delete resultsRunChecked[id]; });
+    resultsPage = Math.min(resultsPage, Math.max(0, Math.ceil(resultsRuns.length / RESULTS_PAGE_SIZE) - 1));
+    renderResults();
+  }
+  function visibleResultsCases() {
+    var q = resultsSearch.value.trim().toLowerCase();
+    return resultsCases.filter(function (c) {
+      return (!q || c.case.toLowerCase().indexOf(q) >= 0) && (!resultsFailedOnly.checked || c.last.status === "fail");
+    });
+  }
+  function pageRuns() { return resultsRuns.slice(resultsPage * RESULTS_PAGE_SIZE, (resultsPage + 1) * RESULTS_PAGE_SIZE); }
+  function resultSteps(r) { return r.steps.pass + "/" + r.steps.total + " 步通過"; }
+  function resultSource(src) {
+    src = src || {};
+    return src.kind === "batch" ? "批次「" + (src.batch_name || "未存檔的批次") + "」" : (RESULT_SOURCE_LABEL[src.kind] || "—");
+  }
+  function statusChip(st) {
+    return '<span class="status-chip ' + escapeHtml(st || "") + '">' + escapeHtml(BATCH_STATUS_LABEL[st] || st || "—") + "</span>";
+  }
+  // 全選框：勾了一部分時顯示半勾
+  function syncSelectAll(box, names, checked) {
+    var n = names.filter(function (k) { return checked[k]; }).length;
+    box.checked = names.length > 0 && n === names.length;
+    box.indeterminate = n > 0 && n < names.length;
+    box.disabled = !names.length;
+  }
+  function syncResultsChecks() {
+    syncSelectAll(resultsCaseAll, visibleResultsCases().map(function (c) { return c.case; }), resultsCaseChecked);
+    resultsCaseDeleteBtn.disabled = !Object.keys(resultsCaseChecked).length;
+    var runAll = resultsCaseListEl.querySelector(".results-run-all");
+    if (!runAll) return;
+    syncSelectAll(runAll, pageRuns().map(function (r) { return r.id; }), resultsRunChecked);
+    var n = Object.keys(resultsRunChecked).length, btn = resultsCaseListEl.querySelector('[data-act="delete-runs"]');
+    btn.disabled = !n;
+    btn.textContent = "🗑 刪除選取" + (n ? "（" + n + " 筆）" : "");
+  }
+  function renderResults() {
+    if (!currentProject) {
+      resultsCaseListEl.innerHTML = '<div class="empty-state">開啟專案後，這裡會列出跑過的測案。</div>';
+    } else if (!resultsCases.length) {
+      resultsCaseListEl.innerHTML = '<div class="empty-state">還沒有執行紀錄。在「測案執行」跑專案裡的測案（單份或批次）後，結果會留在這裡。</div>';
+    } else {
+      var rows = visibleResultsCases();
+      resultsCaseListEl.innerHTML = rows.length ? '<table class="map-table results-case-table"><thead><tr><th></th><th>測案</th><th>最近一次</th>' +
+        '<th title="左邊比較舊、右邊是最新的">最近 10 次</th><th>最後執行</th><th>筆數</th></tr></thead><tbody>' +
+        rows.map(function (c) {
+          var open = c.case === resultsCase;
+          var dots = c.recent.slice().reverse().map(function (st) {
+            return '<i class="result-dot ' + escapeHtml(st || "") + '" title="' + escapeHtml(BATCH_STATUS_LABEL[st] || st || "") + '"></i>';
+          }).join("");
+          return '<tr data-case="' + escapeHtml(c.case) + '"' + (open ? ' class="current"' : "") + ">" +
+            '<td><input type="checkbox" class="results-case-cb" title="勾選要清除紀錄的測案"' + (resultsCaseChecked[c.case] ? " checked" : "") + "></td>" +
+            '<td class="name"><span class="results-caret">' + (open ? "▾" : "▸") + "</span>" + escapeHtml(c.case) +
+            (c.exists ? "" : ' <span class="script-note warn" title="測案檔已經不在專案裡">檔案已不在</span>') + "</td>" +
+            "<td>" + statusChip(c.last.status) + "</td>" +
+            '<td class="result-dots">' + dots + "</td>" +
+            '<td class="time">' + escapeHtml(c.last.started_at || "") + "</td>" +
+            '<td class="num">' + c.count + "</td></tr>" +
+            (open ? '<tr class="results-runs-row"><td colspan="6">' + runsHtml() + "</td></tr>" : "");
+        }).join("") + "</tbody></table>" : '<div class="empty-state">沒有符合條件的測案。</div>';
+    }
+    syncResultsChecks();
+  }
+  function runsHtml() {
+    if (!resultsRuns.length) return '<div class="empty-state">這份測案沒有執行紀錄了。</div>';
+    var pages = Math.ceil(resultsRuns.length / RESULTS_PAGE_SIZE);
+    var tools = '<div class="btn-row results-runs-tools">' +
+      '<label class="field-row" style="gap:4px;" title="勾選這一頁的全部紀錄"><input type="checkbox" class="results-run-all"> 全選這頁</label>' +
+      '<button class="btn danger" data-act="delete-runs" disabled>🗑 刪除選取</button>' +
+      '<span class="results-runs-count">共 ' + resultsRuns.length + " 筆</span></div>";
+    var pager = pages > 1 ? '<div class="results-pager">' +
+      '<button class="btn" data-act="page" data-page="' + (resultsPage - 1) + '"' + (resultsPage === 0 ? " disabled" : "") + ">‹ 較新</button>" +
+      pageNumbers(pages, resultsPage).map(function (i) {
+        if (i === null) return '<span class="results-pager-gap">…</span>';
+        return '<button class="btn' + (i === resultsPage ? " primary" : "") + '" data-act="page" data-page="' + i + '">' + (i + 1) + "</button>";
+      }).join("") +
+      '<button class="btn" data-act="page" data-page="' + (resultsPage + 1) + '"' + (resultsPage >= pages - 1 ? " disabled" : "") + ">較舊 ›</button>" +
+      "</div>" : "";
+    return '<div class="results-runs">' + tools + pageRuns().map(function (r) {
+      var meta = [resultSource(r.source), resultSteps(r)];
+      if (r.duration != null) meta.push(r.duration + " 秒");
+      if (r.login) meta.push("🔑 " + r.login);
+      if (r.vars && r.vars.length) meta.push("🧩 " + r.vars.join("、"));
+      if (r.stopped) meta.push("⏹ 手動停止");
+      var detail = resultsRunDetail[r.id] || {};
+      return '<div class="results-run-row" data-id="' + escapeHtml(r.id) + '">' +
+        '<input type="checkbox" class="results-run-cb"' + (resultsRunChecked[r.id] ? " checked" : "") + ' title="勾選要刪除的紀錄">' +
+        '<details class="batch-result-case"' + (detail.open ? " open" : "") + ">" +
+        "<summary>" + statusChip(r.status) + '<span class="run-time">' + escapeHtml(r.started_at || r.id) + "</span>" +
+        '<span class="meta">' + escapeHtml(meta.join("・")) + "</span></summary>" +
+        '<div class="batch-result-body">' + (detail.run ? runDetailHtml(detail.run) : "讀取中…") + "</div>" +
+        "</details></div>";
+    }).join("") + pager + "</div>";
+  }
+  // 頁碼：第一頁、最後一頁、目前這頁前後兩頁，中間跳過的用 null（顯示成 …）
+  function pageNumbers(pages, current) {
+    var out = [];
+    for (var i = 0; i < pages; i++) {
+      if (i === 0 || i === pages - 1 || Math.abs(i - current) <= 2) out.push(i);
+      else if (out[out.length - 1] !== null) out.push(null);
+    }
+    return out;
+  }
+  function runDetailHtml(run) {
+    var src = run.source || {};
+    // 每一筆都能匯出自己；批次的另外能匯出整批
+    var html = '<div class="btn-row"><span>' + escapeHtml(resultSource(src) + (src.map_name ? "・地圖：" + src.map_name : "")) + "</span>" +
+      (run.id ? '<button class="btn" data-act="export-run" data-id="' + escapeHtml(run.id) + '">⬇ 匯出這筆</button>' : "") +
+      (src.kind === "batch" && src.batch_id ? '<button class="btn" data-act="export-batch" data-batch="' + escapeHtml(src.batch_id) + '">⬇ 匯出這批的報告</button>' : "") +
+      "</div>";
+    if (run.reason) html += '<div class="script-note warn">' + escapeHtml(run.reason) + "</div>";
+    if (run.navigation && run.navigation.length) {
+      html += '<div><b>登入／回到起始畫面</b><ol class="batch-nav-log">' +
+        run.navigation.map(function (line) { return "<li>" + escapeHtml(line) + "</li>"; }).join("") + "</ol></div>";
+    }
+    if (run.precheck) html += "<div><b>第0步：</b>" + escapeHtml(run.precheck.message || "") + "</div>";
+    if (run.results && run.results.length) {
+      html += "<div><b>步驟</b>" + run.results.map(function (r) {
+        var screenLink = r.screen_name ? ' <button class="link-btn" data-act="goto-screen" data-screen="' + escapeHtml(r.screen_name) +
+          '" title="到地圖檢視看這個畫面">' + escapeHtml(r.screen_name) + "</button>" : "";
+        var shot = r.screenshot ? '<a href="' + escapeHtml(projectFileUrl(r.screenshot)) + '" target="_blank" rel="noopener">' +
+          '<img class="result-shot" alt="失敗當下的截圖" src="' + escapeHtml(projectFileUrl(r.screenshot)) + '"></a>' : "";
+        return '<div class="batch-step-line ' + outcomeClass(r.outcome) + '"><span class="no">' + r.index + "</span>" +
+          "<span>" + escapeHtml((r.action || "") + (r.note ? "｜" + r.note : "")) + screenLink + '</span><span class="out">' + escapeHtml(r.outcome) + "</span></div>" + shot;
+      }).join("") + "</div>";
+    } else if (!run.reason) {
+      html += '<div class="script-note">沒有執行任何步驟。</div>';
+    }
+    return html;
+  }
+  function projectFileUrl(rel) {
+    return API_BASE + "/projects/" + encodeURIComponent(currentProject.id) + "/" + rel.split("/").map(encodeURIComponent).join("/");
+  }
+  async function openRunDetail(id) {
+    var entry = resultsRunDetail[id] = resultsRunDetail[id] || {};
+    entry.open = true;
+    if (entry.run) return;
+    try { entry.run = (await apiJson("GET", projectApi("/runs/" + encodeURIComponent(resultsCase) + "/" + encodeURIComponent(id)))).run; }
+    catch (err) { entry.run = { reason: "讀不到這筆紀錄：" + err.message, results: [] }; }
+    var body = resultsCaseListEl.querySelector('.results-run-row[data-id="' + CSS.escape(id) + '"] .batch-result-body');
+    if (body) body.innerHTML = runDetailHtml(entry.run);
+  }
+  function gotoMapScreen(name) {
+    var s = screens.find(function (x) { return x.name === name; });
+    if (!s) { alert("目前開著的地圖「" + (currentMapName || "") + "」裡沒有「" + name + "」這個畫面，可能在別張地圖，或已經改名、刪除了"); return; }
+    document.querySelector('.tab-btn[data-tab="map"]').click();
+    selectScreen(s.uid);
+  }
+  async function deleteCheckedRuns() {
+    var ids = Object.keys(resultsRunChecked);
+    if (!ids.length || !confirm("要刪除「" + resultsCase + "」的 " + ids.length + " 筆執行紀錄（含截圖）嗎？刪了不能復原。")) return;
+    try {
+      await apiJson("POST", projectApi("/runs/" + encodeURIComponent(resultsCase) + "/delete"), { ids: ids });
+      resultsRunChecked = {};
+      ids.forEach(function (id) { delete resultsRunDetail[id]; });
+      await loadResultsCases();
+    } catch (err) { alert("刪除失敗：" + err.message); }
+  }
+  function onRunsClick(e) {
+    var row = e.target.closest(".results-run-row");
+    if (e.target.classList.contains("results-run-all")) {
+      pageRuns().forEach(function (r) {
+        if (e.target.checked) resultsRunChecked[r.id] = true; else delete resultsRunChecked[r.id];
+      });
+      resultsCaseListEl.querySelectorAll(".results-run-cb").forEach(function (cb) { cb.checked = e.target.checked; });
+      syncResultsChecks();
+      return;
+    }
+    if (row && e.target.classList.contains("results-run-cb")) {
+      if (e.target.checked) resultsRunChecked[row.dataset.id] = true; else delete resultsRunChecked[row.dataset.id];
+      syncResultsChecks();
+      return;
+    }
+    var act = e.target.closest("[data-act]");
+    if (act && act.dataset.act === "delete-runs") { deleteCheckedRuns(); return; }
+    if (act && act.dataset.act === "page") {
+      resultsPage = Number(act.dataset.page);
+      renderResults();
+      return;
+    }
+    if (act && act.dataset.act === "goto-screen") { gotoMapScreen(act.dataset.screen); return; }
+    if (act && (act.dataset.act === "export-batch" || act.dataset.act === "export-run")) {
+      var batch = act.dataset.act === "export-batch";
+      if (!confirm("報告會包含失敗當下的 App 畫面截圖（可能有帳號、金額），分享前請確認對象。\n\n要下載" + (batch ? "這批" : "這筆") + "的報告嗎？")) return;
+      var a = document.createElement("a");
+      a.href = API_BASE + projectApi(batch ? "/batch-runs/" + encodeURIComponent(act.dataset.batch) + "/export"
+        : "/runs/" + encodeURIComponent(resultsCase) + "/" + encodeURIComponent(act.dataset.id) + "/export");
+      a.click();
+      return;
+    }
+    var summary = e.target.closest("summary");
+    if (!summary || !row) return;
+    if (summary.parentElement.open) { if (resultsRunDetail[row.dataset.id]) resultsRunDetail[row.dataset.id].open = false; }  // click 發生在收合之前
+    else openRunDetail(row.dataset.id);
+  }
+
+  resultsSearch.addEventListener("input", renderResults);
+  resultsFailedOnly.addEventListener("change", renderResults);
+  document.getElementById("resultsRefreshBtn").addEventListener("click", function () {
+    resultsRunDetail = {};
+    loadResultsCases();
+  });
+  resultsCaseListEl.addEventListener("click", function (e) {
+    if (e.target.closest(".results-runs-row")) { onRunsClick(e); return; }
+    var row = e.target.closest("tr[data-case]");
+    if (!row) return;
+    var name = row.dataset.case;
+    if (e.target.classList.contains("results-case-cb")) {
+      if (e.target.checked) resultsCaseChecked[name] = true; else delete resultsCaseChecked[name];
+      syncResultsChecks();
+      return;
+    }
+    // 再點一次同一份就收起來；換一份就換成展開那一份
+    var same = name === resultsCase;
+    collapseResultsCase();
+    if (same) renderResults(); else loadResultsRuns(name);
+  });
+  resultsCaseAll.addEventListener("change", function () {
+    visibleResultsCases().forEach(function (c) {
+      if (resultsCaseAll.checked) resultsCaseChecked[c.case] = true; else delete resultsCaseChecked[c.case];
+    });
+    renderResults();
+  });
+  resultsCaseDeleteBtn.addEventListener("click", async function () {
+    var names = Object.keys(resultsCaseChecked);
+    var total = resultsCases.filter(function (c) { return resultsCaseChecked[c.case]; }).reduce(function (sum, c) { return sum + c.count; }, 0);
+    if (!names.length || !confirm("要清除這 " + names.length + " 份測案的全部執行紀錄（共 " + total + " 筆，含截圖）嗎？\n\n" +
+      names.join("\n") + "\n\n測案本身不會刪掉。紀錄刪了不能復原。")) return;
+    try {
+      resultsCases = (await apiJson("POST", projectApi("/runs/delete"), { cases: names })).cases;
+      resultsCaseChecked = {};
+      if (names.indexOf(resultsCase) >= 0) collapseResultsCase();
+      renderResults();
+    } catch (err) { alert("刪除失敗：" + err.message); }
+  });
 
   initScenarioFromCurrentMap();
   initLlmgenFromCurrentMap();

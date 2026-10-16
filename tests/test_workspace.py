@@ -240,3 +240,71 @@ def test_merge_refuses_other_platform(ws, tmp_path):
     other.create_project("demo-ios", "Demo", "android")
     with pytest.raises(WorkspaceError):
         ws.merge_zip(other.export_zip("demo-ios"))
+
+
+# ---- 執行紀錄 ----------------------------------------------------------
+
+def _record(status="fail", batch_id=None, ts=1760000000.0):
+    return {"started_ts": ts, "started_at": "2026-10-16 14:30:00", "status": status,
+            "source": {"kind": "batch", "batch_id": batch_id} if batch_id else {"kind": "single"},
+            "results": [{"index": 1, "outcome": "FAIL（找不到元件）"}], "case_snapshot": CASE}
+
+
+def test_runs_list_and_delete(ws):
+    ws.write_item("demo-ios", "cases", "登入", CASE, overwrite=False)
+    first = ws.save_run("demo-ios", "登入", _record("pass"), {})
+    second = ws.save_run("demo-ios", "登入", _record("fail"), {1: b"png"})
+    assert first != second  # 同一毫秒也不會撞名
+    [entry] = ws.list_run_cases("demo-ios")
+    assert entry["count"] == 2 and entry["exists"] is True
+    assert [r["id"] for r in ws.list_runs("demo-ios", "登入")] == [second, first]
+    shot = ws.read_run("demo-ios", "登入", second)["results"][0]["screenshot"]
+    assert ws.run_file("demo-ios", shot).is_file()
+
+    ws.delete_runs("demo-ios", "登入", [second])
+    assert not ws.run_file("demo-ios", shot).exists()
+    assert [r["id"] for r in ws.list_runs("demo-ios", "登入")] == [first]
+    ws.delete_case_runs("demo-ios", ["登入"])
+    assert ws.list_run_cases("demo-ios") == []
+
+
+def test_runs_follow_case_rename_and_delete(ws):
+    ws.write_item("demo-ios", "cases", "登入", CASE, overwrite=False)
+    run_id = ws.save_run("demo-ios", "登入", _record(), {1: b"png"})
+    ws.rename_item("demo-ios", "cases", "登入", "登入2")
+    shot = ws.read_run("demo-ios", "登入2", run_id)["results"][0]["screenshot"]
+    assert shot.startswith("runs/登入2/") and ws.run_file("demo-ios", shot).is_file()
+    ws.delete_item("demo-ios", "cases", "登入2")
+    assert ws.list_run_cases("demo-ios") == []
+
+
+def test_runs_rejects_bad_names(ws):
+    with pytest.raises(WorkspaceError):
+        ws.read_run("demo-ios", "登入", "../project")
+    with pytest.raises(WorkspaceError):
+        ws.run_file("demo-ios", "../project.json")
+
+
+def test_export_zip_skips_runs(ws):
+    ws.save_run("demo-ios", "登入", _record(), {1: b"png"})
+    names = zipfile.ZipFile(io.BytesIO(ws.export_zip("demo-ios"))).namelist()
+    assert not any("/runs/" in n for n in names)
+
+
+def test_batch_report_html(ws):
+    from aitest.core.run_report import render_batch_report
+    ws.save_run("demo-ios", "登入", _record("fail", "b1", 1.0), {1: b"png"})
+    ws.save_run("demo-ios", "其他", _record("pass", "b2", 2.0), {})
+    records = ws.batch_runs("demo-ios", "b1")
+    assert [r["case"] for r in records] == ["登入"]
+    html = render_batch_report(ws.get_project("demo-ios"), records, lambda rel: ws.run_file("demo-ios", rel))
+    assert "data:image/png;base64," in html and "找不到元件" in html
+
+
+def test_run_report_html(ws):
+    """單筆報告：單份執行的紀錄也能匯出，通過的也預設展開"""
+    from aitest.core.run_report import render_run_report
+    run_id = ws.save_run("demo-ios", "登入", _record("pass"), {})
+    html = render_run_report(ws.get_project("demo-ios"), ws.read_run("demo-ios", "登入", run_id),
+                             lambda rel: ws.run_file("demo-ios", rel))
+    assert "單份執行" in html and "<details open>" in html
