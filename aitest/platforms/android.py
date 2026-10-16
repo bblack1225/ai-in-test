@@ -899,9 +899,11 @@ def _find_by_texts(driver, texts: list[str]) -> list:
         return []
 
 
-def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None) -> list[str]:
+def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None,
+                          keep_labels=()) -> list[str]:
     """iOS 版 dismiss_modal 的 Android 對應：先找「純關閉」語意的按鈕；找不到、
     且畫面確定是對話框時，才點「確定 / OK」這類確認語意的。永遠不點 NEVER_TAP_LABELS。
+    要按的按鈕在 keep_labels 裡就整個不處理（測案預期的視窗，見 iOS 版說明）。
     快篩：沒有任何 modal 線索、也不是對話框，就不做任何裝置查詢。"""
     if (page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS)
             and not _is_dialog(page_source)):
@@ -925,6 +927,9 @@ def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None =
         try:
             target = ((element.get_attribute("text") or element.get_attribute("content-desc")) or "").strip()
             if target in NEVER_TAP_LABELS:
+                break
+            if target in keep_labels:
+                print(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
                 break
             element.click()
         except InvalidSessionIdException:
@@ -1146,9 +1151,9 @@ class AndroidPlatform:
     def recording_source(self, page_source: str, state: dict | None) -> str:
         return app_windows_only(page_source, (state or {}).get("package"))
 
-    def dismiss_dialogs(self, driver) -> list[str]:
+    def dismiss_dialogs(self, driver, keep_labels=()) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）"""
+        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels 見 android_dismiss_modal"""
         # 系統權限視窗不處理（使用者決定）：權限框是系統的 permissioncontroller／packageinstaller
         # 跳出來的，出現時目前前景的 package 就是它
         try:
@@ -1160,7 +1165,7 @@ class AndroidPlatform:
         if "permissioncontroller" in package or "packageinstaller" in package:
             print(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
             return []
-        return android_dismiss_modal(driver)
+        return android_dismiss_modal(driver, keep_labels=keep_labels)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("text") or element.get_attribute("content-desc") or "").strip()

@@ -85,3 +85,48 @@ def test_ios_crawler_only_taps_buttons():
     driver = FakeIOSDriver()
     assert ios.dismiss_modal(driver) == []
     assert driver.clicked == []
+
+
+def test_keeps_expected_dialog():
+    """第一步畫面本來就是這個確認框：按鈕在 keep_labels 裡就整個不處理，也不改按別顆"""
+    driver = FakeDriver(["取消", "確定"])
+    assert android.android_dismiss_modal(driver, keep_labels={"取消", "確定"}) == []
+    assert driver.clicked == []
+
+
+def test_ios_keeps_expected_dialog():
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeIOSDriver()
+    assert IOSPlatform().dismiss_dialogs(driver, keep_labels={"下次再說"}) == []
+    assert driver.clicked == []
+
+
+class ScreenPlatform:
+    screen_id_attrs = ("resource-id",)
+    screen_label_attrs = ("text",)
+
+
+class SourceDriver:
+    def __init__(self, texts):
+        self.page_source = "<hierarchy>" + "".join(f'<node text="{t}" />' for t in texts) + "</hierarchy>"
+
+
+CONFIRM_SCREEN = {"elements": [{"label": "確定要送出嗎？"}, {"label": "取消"}, {"label": "確定"}]}
+
+
+def test_labels_if_on_screen_when_matching():
+    """目前畫面就是第一步的確認框 → 回傳地圖上這個畫面的按鈕文字"""
+    from aitest.core.run_test_case import labels_if_on_screen
+
+    driver = SourceDriver(["確定要送出嗎？", "取消", "確定"])
+    assert labels_if_on_screen(ScreenPlatform(), driver, "確認框", CONFIRM_SCREEN) == {"確定要送出嗎？", "取消", "確定"}
+
+
+def test_labels_if_on_screen_when_not_matching():
+    """目前畫面不是第一步的畫面（例如首頁上跳了 Root 警告）→ 空集合，照常關彈窗"""
+    from aitest.core.run_test_case import labels_if_on_screen
+
+    driver = SourceDriver(["偵測到 Root", "我知道了"])
+    assert labels_if_on_screen(ScreenPlatform(), driver, "確認框", CONFIRM_SCREEN) == set()
+    assert labels_if_on_screen(ScreenPlatform(), driver, None, None) == set()

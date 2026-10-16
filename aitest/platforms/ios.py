@@ -672,7 +672,8 @@ def _first_button_label(driver, labels: list[str], any_type: bool = False):
     return None, None
 
 
-def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False) -> list[str]:
+def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False,
+                  keep_labels=()) -> list[str]:
     """
     偵測並關掉擋在前面的提示對話框（報價連線中斷、root 偵測、行銷推播、
     「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
@@ -691,6 +692,8 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
 
     any_type：關閉按鈕不限 Button 類型（見 _first_button_label）。跑測案時用（步驟失敗才會
     檢查）；爬蟲每一頁都會檢查，維持只找 Button，免得誤點一般畫面上剛好叫「取消」「關閉」的文字
+
+    keep_labels：要按的按鈕文字在這裡面，就當作這個視窗是測案預期的畫面，整個不處理（不改按別顆）
     """
     if page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS):
         return []
@@ -710,6 +713,9 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
             if has_alert:
                 element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS)
         if element is None:
+            break
+        if target in keep_labels:
+            print(f"    [關閉非預期彈窗] 「{target}」是第一步畫面上的按鈕，視窗是預期的，不處理")
             break
         try:
             element.click()
@@ -941,9 +947,9 @@ class IOSPlatform:
             return None
         return (info or {}).get("bundleId")
 
-    def dismiss_dialogs(self, driver) -> list[str]:
+    def dismiss_dialogs(self, driver, keep_labels=()) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）"""
+        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels 見 dismiss_modal"""
         # 系統權限視窗不處理（使用者決定）：有些權限框的按鈕是「不允許／好」，
         # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
         try:
@@ -954,7 +960,7 @@ class IOSPlatform:
             raise
         except WebDriverException:
             return []
-        return dismiss_modal(driver, any_type=True)
+        return dismiss_modal(driver, any_type=True, keep_labels=keep_labels)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()

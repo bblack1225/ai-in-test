@@ -86,14 +86,15 @@ def load_element_lookup(screen_name: str) -> dict:
     raise SystemExit(f"element_map.json 裡找不到畫面「{screen_name}」")
 
 
-def try_dismiss_dialogs(ctx, platform, driver) -> list[str]:
+def try_dismiss_dialogs(ctx, platform, driver, keep_labels=()) -> list[str]:
     """ctx.dismiss_dialogs 有開才去找彈窗，回傳按過的按鈕文字；沒開或沒找到回傳空清單。
     開關對應網頁的勾選框／命令列 --dismiss_dialogs，預設關閉：測案本來就要操作的對話框
-    （例如「確定買進」確認框）不該被自動關掉"""
+    （例如「確定買進」確認框）不該被自動關掉。
+    keep_labels：要按的按鈕文字在這裡面就不處理（測案開始前用，見 labels_if_on_screen）"""
     if not ctx.dismiss_dialogs:
         return []
     try:
-        dismissed = platform.dismiss_dialogs(driver)
+        dismissed = platform.dismiss_dialogs(driver, keep_labels=keep_labels)
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
@@ -493,6 +494,21 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
 def check_current_screen(platform, driver, screen_name: str, elements: list) -> tuple[str, str]:
     return match_screen_in_source(driver.page_source, elements, screen_name,
                                   id_attrs=platform.screen_id_attrs, label_attrs=platform.screen_label_attrs)
+
+
+def labels_if_on_screen(platform, driver, screen_name: str | None, screen: dict | None) -> set[str]:
+    """
+    測案開始前關彈窗用：目前畫面比對得上第一步的畫面（check_current_screen 是 pass）時，
+    回傳地圖上這個畫面的元件文字，彈窗的按鈕在裡面就代表這個視窗是測案本來要操作的
+    （例如第一步就是按確認框的「確定」），不能自動點掉。比對不上或沒辦法比對回傳空集合，照常關彈窗。
+    """
+    if not screen_name or screen is None:
+        return set()
+    elements = screen.get("elements", [])
+    status, _ = check_current_screen(platform, driver, screen_name, elements)
+    if status != "pass":
+        return set()
+    return {label for el in elements if (label := (el.get("label") or "").strip())}
 
 
 def verify_current_screen(platform, driver, screen_name: str, element_lookup: dict) -> bool:
