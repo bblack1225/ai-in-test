@@ -82,7 +82,8 @@ from aitest.core.run_test_case import (
     wait_after_action,
     with_dismiss_note,
 )
-from aitest.core.workspace import DEFAULT_ROOT, Workspace, WorkspaceError
+from aitest.core.run_report import render_batch_report, render_run_report
+from aitest.core.workspace import DEFAULT_ROOT, RUNS_DIR, Workspace, WorkspaceError
 from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.run_context import LLMUsage, RunContext
@@ -100,8 +101,9 @@ WEB_PAGES = {"/": "app_map_viewer.html", "/app_map_viewer.html": "app_map_viewer
 # web/ 裡可以直接給網頁讀的檔案類型（只看 web/ 第一層，不會讀到子資料夾或外面）
 WEB_ASSET_SUFFIXES = (".css", ".js")
 DATA_DIRS = ("screenshots", "crops", "test_results")
-# 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png（recordings 是錄製中的快照）
-PROJECT_STATIC_DIRS = ("screenshots", "crops", RECORDINGS_DIR)
+# 專案資料夾裡可以給網頁讀的子資料夾：/projects/<專案>/screenshots/xxx.png（recordings 是錄製中的快照，
+# runs 是執行紀錄的失敗截圖）
+PROJECT_STATIC_DIRS = ("screenshots", "crops", RECORDINGS_DIR, RUNS_DIR)
 WORKSPACE = Workspace(DEFAULT_ROOT)  # main() 依 --workspace 設定
 
 
@@ -709,7 +711,9 @@ def run_test_script(payload: dict) -> dict:
         merged.update(var_files[name])
     ctx = _new_ctx(dismiss_dialogs=bool(payload.get("dismiss_dialogs", False)))
     ctx.set_vars(merged, var_names)
-    results = []
+    results, shots = [], {}
+    started = time.time()
+    precheck = None
     ctx.progress = {"running": True, "current": 0, "total": len(steps), "results": results, "precheck": None}
     _stop_requested.clear()
     _register_run("test", ctx)
@@ -733,11 +737,31 @@ def run_test_script(payload: dict) -> dict:
                            for i, step in enumerate(steps, 1)]
                 ctx.update_progress(results=results)
             else:
-                _run_steps(ctx, d, steps, screens_by_name, results, track_current=True)
+                _run_steps(ctx, d, steps, screens_by_name, results, track_current=True, shots=shots)
     finally:
         _test_running.clear()
         ctx.update_progress(running=False, current=None)
-    return {"results": results, "stopped": ctx.stopped(), "precheck": precheck}
+    # 選的是專案測案才留紀錄（測案編輯送來、還沒存的沒有名稱可以歸類）
+    run_saved = _save_run(payload.get("project"), payload.get("case_ref"), test_case, shots, {
+        "started_ts": started, "duration": round(time.time() - started, 1), "source": {"kind": "single"},
+        "status": _case_status(results, ctx.stopped()), "stopped": ctx.stopped(), "reason": None,
+        "login": None, "vars": var_names, "precheck": precheck, "navigation": [], "results": results})
+    return {"results": results, "stopped": ctx.stopped(), "precheck": precheck, "run_saved": run_saved}
+
+
+def _save_run(project_id, case_ref, test_case: dict, shots: dict, record: dict) -> bool:
+    """存一筆執行紀錄（測試結果分頁看的）；沒開專案、不是專案測案就不存。存失敗只記 log，不影響執行結果"""
+    if not project_id or not case_ref:
+        return False
+    try:
+        WORKSPACE.save_run(project_id, case_ref, {
+            **record, "started_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record["started_ts"])),
+            "platform": PLATFORM.name, "case_snapshot": test_case,
+        }, shots)
+        return True
+    except (WorkspaceError, OSError) as e:
+        logger.warning(f"[測試結果] 執行紀錄存不了（{case_ref}）：{e}")
+        return False
 
 
 def _precheck_screen(ctx, d, steps: list, screens_by_name: dict) -> dict:
@@ -783,11 +807,13 @@ def _step_result(i: int, step: dict, outcome: str) -> dict:
     }
 
 
-def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_current: bool = False):
+def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_current: bool = False,
+               shots: dict | None = None):
     """
     逐步執行，每做完一步就把結果 append 到 results（results 是 ctx.progress 裡的 list，網頁輪詢看得到）。
     track_current：單份測案執行時把「目前第幾步」寫進 ctx.progress["current"]；批次執行的 current
     是「第幾組第幾份」，不能被蓋掉
+    shots：有給的話，失敗的步驟當下拍一張截圖放進去 {第幾步: png}（存執行紀錄用）
     """
     banner_outcomes = {}
     for i, step in enumerate(steps, 1):
@@ -807,6 +833,11 @@ def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_
             outcome = run_step_in_case(ctx, PLATFORM, d, steps, i, el, banner_outcomes)
         except StopRequested:
             outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
+        if shots is not None and outcome.startswith("FAIL"):
+            try:
+                shots[i] = d.get_screenshot_as_png()
+            except WebDriverException as e:  # 截不到圖不影響結果，斷線的話下一步自然會報錯
+                logger.info(f"[測案執行] 第{i}步失敗截圖拍不到：{type(e).__name__}")
         with ctx.lock:
             results.append(_step_result(i, step, outcome))
 
@@ -869,7 +900,9 @@ def run_batch(payload: dict) -> dict:
 
     # 整批共用一份 ctx：關彈窗開關整批一樣；變數每份測案開始前依它選的檔重新設定（_apply_case_vars）
     ctx = _new_ctx(dismiss_dialogs=bool(options.get("dismiss_dialogs", False)))
-    ctx.progress = {"running": True, "groups": groups, "current": None, "app_id": app_id}
+    # batch_id：這次批次執行的代號，每份測案的執行紀錄都記著，測試結果分頁才能匯出「這一批」的報告
+    ctx.progress = {"running": True, "groups": groups, "current": None, "app_id": app_id, "project": project_id,
+                    "batch_id": time.strftime("%Y%m%d_%H%M%S"), "batch_name": payload.get("batch_name")}
     _stop_requested.clear()
     _register_run("batch", ctx)
     _test_running.set()
@@ -884,7 +917,7 @@ def run_batch(payload: dict) -> dict:
     finally:
         _test_running.clear()
         ctx.update_progress(running=False, current=None)
-    return {"groups": groups, "stopped": ctx.stopped(), "app_id": app_id}
+    return {"groups": groups, "stopped": ctx.stopped(), "app_id": app_id, "batch_id": ctx.progress["batch_id"]}
 
 
 def _case_login(c: dict) -> str | None:
@@ -957,54 +990,67 @@ def _run_batch_group(ctx, d, gi: int, g_in: dict, g_out: dict, app_id, auto_navi
                           allow_restart=allow_restart)
 
     for ci, (c_in, c_out) in enumerate(zip(g_in.get("cases") or [], g_out["cases"])):
-        steps = (c_in.get("case") or {}).get("steps", [])
         if ctx.stopped():
             _locked_update(ctx, c_out, status="skip", reason="使用者已停止")
             continue
         ctx.update_progress(current={"group": gi, "case": ci})
         _locked_update(ctx, c_out, status="running")
-        started = time.time()
+        started, shots = time.time(), {}
         logger.info(f"[批次執行] 第 {gi + 1} 組第 {ci + 1} 份：{c_out['name']}")
+        _run_batch_case(ctx, d, c_in, c_out, index, screens_by_name, navigator, bool(setup), auto_navigate, login,
+                        shots)
+        if c_out["duration"] is None:
+            _locked_update(ctx, c_out, duration=round(time.time() - started, 1))
+        # 批次裡用專案測案（ref）加入的才留紀錄
+        _save_run(ctx.progress.get("project"), c_in.get("ref"), c_in.get("case") or {}, shots, {
+            "started_ts": started, "duration": c_out["duration"],
+            "source": {"kind": "batch", "batch_id": ctx.progress.get("batch_id"),
+                       "batch_name": ctx.progress.get("batch_name"), "map_name": g_out["map_name"],
+                       "app_id": app_id},
+            **{k: copy.deepcopy(c_out[k]) for k in ("status", "reason", "login", "vars", "precheck", "navigation",
+                                                    "results")},
+            "stopped": ctx.stopped()})
 
-        start_screen = _first_screen(steps)
-        try:
-            # 同 run_test_script：開始前先關掉擋在前面的彈窗，第一步畫面本來就是這個視窗時不關
-            dismissed = try_dismiss_dialogs(ctx, PLATFORM, d, _expected_labels(ctx, d, steps, screens_by_name))
-            if dismissed:
-                c_out["navigation"].append(f"畫面上有彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
-            login_name, var_names = _case_login(c_in), c_in.get("vars") or []
-            unreadable = [n for n in [login_name, *var_names] if n and login["files"].get(n) is None]
-            if unreadable:
-                _locked_update(ctx, c_out, status="skip",
-                               reason=f"變數檔讀不到（可能已改名或刪除）：{'、'.join(unreadable)}",
-                               duration=round(time.time() - started, 1))
-                continue
-            if login_name and login_name != login["name"]:
-                failed = _switch_login(ctx, navigator, login_name, var_names, bool(setup), login, c_out["navigation"])
-                if failed:
-                    _locked_update(ctx, c_out, status="skip", reason=failed, duration=round(time.time() - started, 1))
-                    continue
-            _apply_case_vars(ctx, login, var_names)
-            if auto_navigate and start_screen:
-                if not navigator.navigate_to(index, start_screen, c_out["navigation"]):
-                    _locked_update(ctx, c_out, status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」",
-                                   duration=round(time.time() - started, 1))
-                    continue
-            else:
-                _locked_update(ctx, c_out, precheck=_precheck_screen(ctx, d, steps, screens_by_name))
-                if c_out["precheck"]["status"] == "fail":
-                    _locked_update(ctx, c_out, status="skip", reason="第0步畫面檢查沒通過",
-                                   duration=round(time.time() - started, 1))
-                    continue
-            _run_steps(ctx, d, steps, screens_by_name, c_out["results"])
-        except StopRequested:
-            _locked_update(ctx, c_out, reason="使用者已停止")
-        except Exception as e:
-            # 導航途中 Appium 出錯之類的：只影響這一份，記下原因接著跑下一份
-            _locked_update(ctx, c_out, reason=f"執行時發生錯誤：{type(e).__name__}：{e}")
-        crashed = (c_out["reason"] or "").startswith("執行時發生錯誤")
-        _locked_update(ctx, c_out, status="fail" if crashed else _case_status(c_out["results"], ctx.stopped()),
-                       duration=round(time.time() - started, 1))
+
+def _run_batch_case(ctx, d, c_in: dict, c_out: dict, index, screens_by_name: dict, navigator: Navigator,
+                    has_setup: bool, auto_navigate: bool, login: dict, shots: dict) -> None:
+    """批次裡的一份測案：關彈窗 → 切換登入 → 回到起始畫面 → 跑步驟，結果寫進 c_out"""
+    steps = (c_in.get("case") or {}).get("steps", [])
+    start_screen = _first_screen(steps)
+    try:
+        # 同 run_test_script：開始前先關掉擋在前面的彈窗，第一步畫面本來就是這個視窗時不關
+        dismissed = try_dismiss_dialogs(ctx, PLATFORM, d, _expected_labels(ctx, d, steps, screens_by_name))
+        if dismissed:
+            c_out["navigation"].append(f"畫面上有彈窗，先關掉（按了「{'」「'.join(dismissed)}」）")
+        login_name, var_names = _case_login(c_in), c_in.get("vars") or []
+        unreadable = [n for n in [login_name, *var_names] if n and login["files"].get(n) is None]
+        if unreadable:
+            _locked_update(ctx, c_out, status="skip",
+                           reason=f"變數檔讀不到（可能已改名或刪除）：{'、'.join(unreadable)}")
+            return
+        if login_name and login_name != login["name"]:
+            failed = _switch_login(ctx, navigator, login_name, var_names, has_setup, login, c_out["navigation"])
+            if failed:
+                _locked_update(ctx, c_out, status="skip", reason=failed)
+                return
+        _apply_case_vars(ctx, login, var_names)
+        if auto_navigate and start_screen:
+            if not navigator.navigate_to(index, start_screen, c_out["navigation"]):
+                _locked_update(ctx, c_out, status="skip", reason=f"沒辦法回到起始畫面「{start_screen}」")
+                return
+        else:
+            _locked_update(ctx, c_out, precheck=_precheck_screen(ctx, d, steps, screens_by_name))
+            if c_out["precheck"]["status"] == "fail":
+                _locked_update(ctx, c_out, status="skip", reason="第0步畫面檢查沒通過")
+                return
+        _run_steps(ctx, d, steps, screens_by_name, c_out["results"], shots=shots)
+    except StopRequested:
+        _locked_update(ctx, c_out, reason="使用者已停止")
+    except Exception as e:
+        # 導航途中 Appium 出錯之類的：只影響這一份，記下原因接著跑下一份
+        _locked_update(ctx, c_out, reason=f"執行時發生錯誤：{type(e).__name__}：{e}")
+    crashed = (c_out["reason"] or "").startswith("執行時發生錯誤")
+    _locked_update(ctx, c_out, status="fail" if crashed else _case_status(c_out["results"], ctx.stopped()))
 
 
 def stop_test_script() -> dict:
@@ -1438,6 +1484,13 @@ class Handler(BaseHTTPRequestHandler):
           POST   /api/projects/<id>/vars/<name>/rename  變數檔改名 {new_name}（批次裡的引用一起改）
           POST   /api/projects/<id>/cases/<name>/rename 測案改名 {new_name}（test_name、批次裡的引用一起改）
           GET    /api/projects/<id>/cases/<name>/used-by  哪些批次引用這份測案 → {batches: [...]}
+          GET    /api/projects/<id>/runs                有執行紀錄的測案 → {cases: [...]}
+          POST   /api/projects/<id>/runs/delete         整份測案的紀錄清掉 {cases: [...]}
+          GET    /api/projects/<id>/runs/<測案>          這份測案的歷次紀錄（不含明細）→ {runs: [...]}
+          POST   /api/projects/<id>/runs/<測案>/delete   刪幾筆紀錄 {ids: [...]}
+          GET    /api/projects/<id>/runs/<測案>/<紀錄id>  一筆紀錄的完整內容 → {run}
+          GET    /api/projects/<id>/runs/<測案>/<紀錄id>/export  這一筆的報告（單一 HTML，截圖內嵌）
+          GET    /api/projects/<id>/batch-runs/<批次執行id>/export  這次批次執行的報告（單一 HTML，截圖內嵌）
         不碰手機，所以不用排 _device_lock；檔案寫入是先寫暫存檔再改名，不會寫出半份。
         """
         url = urlsplit(self.path)
@@ -1471,6 +1524,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif len(parts) >= 2 and parts[1] in ("runs", "batch-runs"):
+                self._handle_runs_api(method, parts[0], parts[1], parts[2:])
             elif len(parts) >= 3 and parts[1] == "maps":
                 # 地圖要排在下面的通用改名前面，不然 maps/<name>/rename 會被當成一般項目改名擋掉
                 self._handle_map_api(method, parts[0], parts[2], parts[3:], query)
@@ -1495,6 +1550,46 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(e.status, {"error": str(e)})
         except Exception as e:
             self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def _send_report(self, html: str, filename: str):
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(filename)}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle_runs_api(self, method: str, project_id: str, kind: str, rest: list):
+        def file_of(rel):
+            return WORKSPACE.run_file(project_id, rel)
+
+        if kind == "batch-runs":
+            if method != "GET" or len(rest) != 2 or rest[1] != "export":
+                self._send_json(404, {"error": "not found"})
+                return
+            records = WORKSPACE.batch_runs(project_id, rest[0])
+            name = (records[0].get("source") or {}).get("batch_name") or "批次"
+            self._send_report(render_batch_report(WORKSPACE.get_project(project_id), records, file_of),
+                              f"{name}_{rest[0]}.html")
+        elif method == "GET" and not rest:
+            self._send_json(200, {"cases": WORKSPACE.list_run_cases(project_id)})
+        elif method == "POST" and rest == ["delete"]:
+            WORKSPACE.delete_case_runs(project_id, list((self._read_json_body() or {}).get("cases") or []))
+            self._send_json(200, {"cases": WORKSPACE.list_run_cases(project_id)})
+        elif method == "GET" and len(rest) == 1:
+            self._send_json(200, {"runs": WORKSPACE.list_runs(project_id, rest[0])})
+        elif method == "POST" and len(rest) == 2 and rest[1] == "delete":
+            WORKSPACE.delete_runs(project_id, rest[0], list((self._read_json_body() or {}).get("ids") or []))
+            self._send_json(200, {"runs": WORKSPACE.list_runs(project_id, rest[0])})
+        elif method == "GET" and len(rest) == 2:
+            self._send_json(200, {"run": WORKSPACE.read_run(project_id, rest[0], rest[1])})
+        elif method == "GET" and len(rest) == 3 and rest[2] == "export":
+            record = WORKSPACE.read_run(project_id, rest[0], rest[1])
+            self._send_report(render_run_report(WORKSPACE.get_project(project_id), record, file_of),
+                              f"{rest[0]}_{rest[1]}.html")
+        else:
+            self._send_json(404, {"error": "not found"})
 
     def _handle_map_api(self, method: str, project_id: str, name: str, rest: list, query: dict):
         if method == "GET" and not rest:

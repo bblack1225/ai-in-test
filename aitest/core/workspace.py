@@ -11,7 +11,8 @@
             ├── screenshots/        ← 所有地圖共用，地圖裡的 "screenshots/xxx.png" 相對於專案資料夾
             ├── cases/<名稱>.json   ← 測試案例（不綁地圖）
             ├── batches/<名稱>.json ← 批次設定，地圖、測案都用名稱引用
-            └── vars/<名稱>.json    ← 變數檔 {"sensitive", "values": {KEY: 值}}，測案裡的 ${KEY} 執行時換成值
+            ├── vars/<名稱>.json    ← 變數檔 {"sensitive", "values": {KEY: 值}}，測案裡的 ${KEY} 執行時換成值
+            └── runs/<測案>/        ← 執行紀錄 <紀錄id>.json＋失敗截圖 <紀錄id>_shots/（不跟著專案匯出）
 
 交付給不同團隊時，各自只拿自己 App 的專案（匯出成 zip，對方匯入），工具本身是同一份。
 
@@ -52,6 +53,10 @@ KINDS = ("cases", "batches", "vars")
 ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # 舊版的登入帳號檔（一個檔裡好幾組帳號），第一次開專案時拆成 vars/<帳號名稱>.json
 LEGACY_ACCOUNTS_FILE = "accounts.json"
+# 執行紀錄（測試結果分頁）：runs/<測案>/<紀錄id>.json，失敗截圖在 <紀錄id>_shots/
+RUNS_DIR = "runs"
+SHOTS_SUFFIX = "_shots"
+RUN_ID_RE = re.compile(r"^\d{8}_\d{6}_\d{3}(_\d+)?$")
 # 匯入 zip 的上限，避免誤選到巨大檔案把硬碟塞滿
 MAX_IMPORT_BYTES = 2 * 1024 ** 3
 
@@ -451,6 +456,7 @@ class Workspace:
         path.unlink()
         if kind == "cases":
             self._update_case_refs(project_id, name, None)
+            shutil.rmtree(path.parent.parent / RUNS_DIR / name, ignore_errors=True)  # 執行紀錄一起刪
 
     def batches_using_case(self, project_id: str, name: str) -> list[str]:
         """哪些批次設定引用了這份測案（當一般測案或登入測案），刪除前提醒用"""
@@ -508,6 +514,10 @@ class Workspace:
             _write_json_atomic(dst, data)
             src.unlink()
             self._update_case_refs(project_id, name, new_name)
+            runs = src.parent.parent / RUNS_DIR
+            if (runs / name).is_dir() and not (runs / new_name).exists():
+                os.replace(runs / name, runs / new_name)  # 執行紀錄跟著改名
+                self._rename_run_shots(runs / new_name, name, new_name)
             return
         os.replace(src, dst)
         for batch_path in (src.parent.parent / "batches").glob("*.json"):
@@ -530,6 +540,24 @@ class Workspace:
             if changed:
                 _write_json_atomic(batch_path, batch)
 
+    @staticmethod
+    def _rename_run_shots(d: Path, name: str, new_name: str) -> None:
+        """紀錄裡的截圖路徑含測案名稱（runs/<測案>/...），資料夾改名後要跟著改"""
+        old_prefix, new_prefix = f"{RUNS_DIR}/{name}/", f"{RUNS_DIR}/{new_name}/"
+        for p in d.glob("*.json"):
+            try:
+                record = _read_json(p)
+            except (json.JSONDecodeError, OSError):
+                continue
+            changed = False
+            for r in record.get("results") or [] if isinstance(record, dict) else []:
+                shot = r.get("screenshot") if isinstance(r, dict) else None
+                if isinstance(shot, str) and shot.startswith(old_prefix):
+                    r["screenshot"] = new_prefix + shot[len(old_prefix):]
+                    changed = True
+            if changed:
+                _write_json_atomic(p, record)
+
     def read_vars(self, project_id: str, names: list[str]) -> dict:
         """依序讀好幾個變數檔，回傳 {檔名: {KEY: 值}}；找不到的檔案直接報錯，不默默略過"""
         out = {}
@@ -547,6 +575,128 @@ class Workspace:
                 keys.setdefault(k, []).append(item["name"])
         return keys
 
+    # ---- 執行紀錄（runs/<測案>/<紀錄id>.json）------------------------------
+    # 一筆紀錄是「一份專案測案跑一次」的結果（單份執行或批次裡的一份），失敗步驟的截圖放在
+    # <紀錄id>_shots/<第幾步>.png。只記專案測案：沒存檔的測案沒有名稱可以歸類。不會自動刪，
+    # 由使用者在「測試結果」分頁手動刪
+
+    def _runs_dir(self, project_id: str, case: str) -> Path:
+        if not ITEM_NAME_RE.match(case or ""):
+            raise WorkspaceError(f"測案名稱「{case}」不合法")
+        return self._existing_dir(project_id) / RUNS_DIR / case
+
+    def _run_path(self, project_id: str, case: str, run_id: str) -> Path:
+        if not RUN_ID_RE.match(run_id or ""):
+            raise WorkspaceError(f"紀錄代號「{run_id}」不合法")
+        return self._runs_dir(project_id, case) / f"{run_id}.json"
+
+    def save_run(self, project_id: str, case: str, record: dict, shots: dict[int, bytes] | None = None) -> str:
+        """存一筆執行紀錄，回傳紀錄 id；shots 是 {第幾步: 截圖 png}，步驟結果的 screenshot 欄位填相對路徑"""
+        d = self._runs_dir(project_id, case)
+        base = time.strftime("%Y%m%d_%H%M%S", time.localtime(record.get("started_ts") or time.time()))
+        base += f"_{int((record.get('started_ts') or time.time()) * 1000) % 1000:03d}"
+        run_id, n = base, 1
+        while (d / f"{run_id}.json").exists():
+            n += 1
+            run_id = f"{base}_{n}"
+        if shots:
+            shots_dir = d / f"{run_id}{SHOTS_SUFFIX}"
+            shots_dir.mkdir(parents=True, exist_ok=True)
+            for index, png in shots.items():
+                (shots_dir / f"{index}.png").write_bytes(png)
+            for r in record.get("results") or []:
+                if r.get("index") in shots:
+                    r["screenshot"] = f"{RUNS_DIR}/{case}/{run_id}{SHOTS_SUFFIX}/{r['index']}.png"
+        _write_json_atomic(d / f"{run_id}.json", {**record, "id": run_id})
+        return run_id
+
+    def _read_runs(self, d: Path) -> list[dict]:
+        """資料夾裡的紀錄，新的在前；讀不出來的略過"""
+        runs = []
+        for p in sorted(d.glob("*.json"), reverse=True) if d.is_dir() else []:
+            if p.name.startswith(".") or not RUN_ID_RE.match(p.stem):
+                continue
+            try:
+                record = _read_json(p)
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(record, dict):
+                runs.append({**record, "id": p.stem})
+        return runs
+
+    @staticmethod
+    def _run_summary(record: dict) -> dict:
+        """列表用：不含步驟明細和測案內容"""
+        outcomes = [str(r.get("outcome", "")) for r in record.get("results") or []]
+        return {
+            **{k: record.get(k) for k in ("id", "started_at", "status", "duration", "source", "login", "vars",
+                                          "stopped", "reason", "platform")},
+            "steps": {"pass": sum(o.startswith("PASS") for o in outcomes),
+                      "fail": sum(o.startswith("FAIL") for o in outcomes),
+                      "skip": sum(o.startswith("SKIP") for o in outcomes),
+                      "total": len((record.get("case_snapshot") or {}).get("steps") or outcomes)},
+        }
+
+    def list_run_cases(self, project_id: str, recent: int = 10) -> list[dict]:
+        """有執行紀錄的測案：最近一次的結果、最近幾次的狀態（新的在前）、筆數；exists＝測案檔還在"""
+        root = self._existing_dir(project_id) / RUNS_DIR
+        out = []
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            if not d.is_dir() or not ITEM_NAME_RE.match(d.name):
+                continue
+            runs = self._read_runs(d)
+            if not runs:
+                continue
+            out.append({"case": d.name, "exists": (d.parent.parent / "cases" / f"{d.name}.json").is_file(),
+                        "count": len(runs), "last": self._run_summary(runs[0]),
+                        "recent": [r.get("status") for r in runs[:recent]]})
+        return out
+
+    def list_runs(self, project_id: str, case: str) -> list[dict]:
+        return [self._run_summary(r) for r in self._read_runs(self._runs_dir(project_id, case))]
+
+    def read_run(self, project_id: str, case: str, run_id: str) -> dict:
+        path = self._run_path(project_id, case, run_id)
+        if not path.is_file():
+            raise WorkspaceError(f"找不到這筆執行紀錄（{run_id}）", 404)
+        return {**_read_json(path), "id": run_id, "case": case}
+
+    def delete_runs(self, project_id: str, case: str, run_ids: list[str]) -> None:
+        """刪掉幾筆紀錄（含截圖）；刪到一筆都不剩時，資料夾也拿掉"""
+        paths = [self._run_path(project_id, case, run_id) for run_id in run_ids]  # 先全部檢查過再刪
+        for path in paths:
+            path.unlink(missing_ok=True)
+            shutil.rmtree(path.with_name(f"{path.stem}{SHOTS_SUFFIX}"), ignore_errors=True)
+        d = self._runs_dir(project_id, case)
+        if d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
+
+    def delete_case_runs(self, project_id: str, cases: list[str]) -> None:
+        """整份測案的紀錄全部清掉"""
+        dirs = [self._runs_dir(project_id, case) for case in cases]
+        for d in dirs:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def batch_runs(self, project_id: str, batch_id: str) -> list[dict]:
+        """同一次批次執行留下的紀錄（跨測案），依開始時間排；匯出報告用"""
+        root = self._existing_dir(project_id) / RUNS_DIR
+        out = []
+        for d in root.iterdir() if root.is_dir() else []:
+            if d.is_dir() and ITEM_NAME_RE.match(d.name):
+                out += [{**r, "case": d.name} for r in self._read_runs(d)
+                        if (r.get("source") or {}).get("batch_id") == batch_id]
+        if not out:
+            raise WorkspaceError("找不到這次批次執行的紀錄（可能已經刪掉了）", 404)
+        return sorted(out, key=lambda r: (r.get("started_ts") or 0, r["id"]))
+
+    def run_file(self, project_id: str, rel: str) -> Path:
+        """紀錄裡 screenshot 欄位的相對路徑 → 實際檔案（不會讀到 runs/ 外面）"""
+        root = (self._existing_dir(project_id) / RUNS_DIR).resolve()
+        path = (root.parent / rel).resolve()
+        if not path.is_relative_to(root):
+            raise WorkspaceError(f"不合法的路徑：{rel}")
+        return path
+
     # ---- 匯出／匯入 zip（交付給其他團隊用）-----------------------------
 
     def export_zip(self, project_id: str) -> bytes:
@@ -558,6 +708,8 @@ class Workspace:
                     continue  # 帳密這類變數檔不跟著專案交給其他團隊
                 if p.is_relative_to(d / "recordings"):
                     continue  # 錄製建樹中途的快照，建立完就會刪掉
+                if p.is_relative_to(d / RUNS_DIR):
+                    continue  # 執行紀錄是這台電腦跑的結果（含失敗截圖），不跟著專案交出去
                 if p.is_file() and not p.name.startswith("."):
                     zf.write(p, f"{project_id}/{p.relative_to(d).as_posix()}")
         return buf.getvalue()

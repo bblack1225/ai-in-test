@@ -47,6 +47,7 @@
     <button class="tab-btn" data-tab="scenario">測試情境產生</button>
     <button class="tab-btn" data-tab="llmgen">測案編輯</button>
     <button class="tab-btn" data-tab="runscript">測案執行</button>
+    <button class="tab-btn" data-tab="results">測試結果</button>
   </div>
 
   <section class="tab-panel active" id="tab-map">
@@ -230,6 +231,26 @@
         </div>
         <div id="batchResults"></div>
         </div>
+      </div>
+    </section>
+  </section>
+
+  <section class="tab-panel" id="tab-results">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>測試結果</h2>
+        <button class="btn" id="resultsRefreshBtn" title="重新讀取執行紀錄">↻ 重新整理</button>
+      </div>
+      <div class="detail-body" style="max-height:none;">
+        <div class="btn-row">
+          <input type="search" class="results-search" id="resultsSearch" placeholder="搜尋測案名稱">
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="resultsFailedOnly"> 只看最近一次失敗</label>
+        </div>
+        <div class="btn-row">
+          <label class="field-row" style="gap:4px;"><input type="checkbox" id="resultsCaseAll"> 全選</label>
+          <button class="btn danger" id="resultsCaseDeleteBtn" disabled>🗑 清除選取測案的紀錄</button>
+        </div>
+        <div id="resultsCaseList"><div class="empty-state">開啟專案後，這裡會列出跑過的測案。</div></div>
       </div>
     </section>
   </section>

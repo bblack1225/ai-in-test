@@ -533,3 +533,32 @@ textarea.case-json-editor { display: block; margin: 0 0 12px; width: 100%; box-s
 .toast-close { flex: none; border: none; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: calc(14px * var(--font-scale)); line-height: 1; padding: 2px 4px; border-radius: 4px; }
 .toast-close:hover { background: var(--grey-soft); color: var(--ink); }
 .record-describe-status { max-width: 380px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); box-shadow: var(--shadow); font-size: calc(12px * var(--font-scale)); }
+
+/* 測試結果分頁：測案列表，點一份在下面展開歷次執行（分頁） */
+.results-search { flex: 1; min-width: 160px; max-width: 360px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: calc(12.5px * var(--font-scale)); }
+.results-case-table tbody tr[data-case] { cursor: pointer; }
+.results-case-table tbody tr[data-case]:hover td { background: var(--grey-soft); }
+.results-case-table tr.current td { background: var(--accent-soft); }
+.results-case-table td.name { min-width: 8em; }
+.results-case-table .results-caret { display: inline-block; width: 1.1em; color: var(--ink-soft); }
+.results-case-table .script-note { display: inline; padding: 1px 6px; margin: 0; }
+.results-case-table tr.results-runs-row > td { padding: 0 0 12px 28px; background: var(--paper); }
+.results-case-table tr.results-runs-row:hover td { background: var(--paper); }
+.result-dots { white-space: nowrap; }
+.result-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 3px; background: var(--grey-mid); }
+.result-dot.pass { background: var(--accent); }
+.result-dot.fail { background: var(--danger); }
+.result-dot.skip { background: var(--gold); }
+.results-runs { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; }
+.results-runs-count { color: var(--ink-soft); margin-left: auto; }
+.results-run-row { display: flex; align-items: flex-start; gap: 8px; }
+.results-run-row > input[type="checkbox"] { margin-top: 11px; flex: 0 0 auto; }
+.results-run-row > details { flex: 1; min-width: 0; margin-bottom: 0; }
+.results-run-row summary .run-time { font-family: "IBM Plex Mono", monospace; font-weight: 600; white-space: nowrap; }
+.results-run-row summary .meta { margin-left: auto; text-align: right; }
+.results-runs .batch-step-line { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 0.8fr); gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); }
+.results-pager { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; padding-top: 6px; }
+.results-pager .btn { min-width: 34px; }
+.result-shot { display: block; max-width: 220px; margin: 4px 0 8px 30px; border: 1px solid var(--line); border-radius: 6px; }
+.link-btn { border: none; background: none; padding: 0 2px; color: var(--accent); cursor: pointer; text-decoration: underline; font: inherit; }
+.results-pager-gap { align-self: center; color: var(--ink-soft); padding: 0 2px; }
