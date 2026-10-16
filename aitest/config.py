@@ -11,6 +11,7 @@
 """
 
 import os
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -163,24 +164,24 @@ def _retry_after_seconds(error) -> float | None:
     return None
 
 
-def generate_content_with_retry(usage=None, max_retries=4, base_delay_sec=5, **kwargs):
+def _call_with_retry(call, max_retries=4, base_delay_sec=5, failure_detail=None):
     """
-    usage：這次操作的 LLMUsage（aitest.run_context），呼叫成功就把這次的用量加進去；
-    同一次操作的每個呼叫都傳同一個物件，最後就是這次操作的總用量。
-
-    包一層重試邏輯，減少手動重跑的次數：
-      - 5xx（ServerError）：Gemini 伺服器端暫時性過載，等幾秒重試
-      - 429 每分鐘請求數超過上限：連續掃描很多畫面時常見，等一下就能繼續。
-        優先用回應裡 Google 建議的等待秒數，沒有的話等得比 5xx 久一點
-      - 429 整天的額度用完：重試也不會恢復，直接拋出（見 TROUBLESHOOTING #17）
-      - 其他 4xx（格式錯、金鑰無效）重試也不會變好，直接拋出
+    共用的重試迴圈：call() 每次執行一次完整的 Gemini 呼叫，成功就回傳它的結果。
+    重試規則見 generate_content_with_retry 的說明。
+    failure_detail：失敗時呼叫，回傳的文字接在重試警告後面（串流用來記斷線前收了多久、多少字）。
     """
+    import httpx
     from google.genai.errors import ClientError, ServerError
 
-    client = get_llm_client()
     for attempt in range(1, max_retries + 1):
         try:
-            response = client.models.generate_content(**kwargs)
+            return call()
+        # NetworkError 涵蓋連線失敗、讀取中斷（串流途中斷線）等；RemoteProtocolError 是伺服器沒回應就關掉
+        except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.TimeoutException) as e:
+            if attempt == max_retries:
+                raise
+            wait_sec = base_delay_sec * attempt
+            reason = f"連線中斷（{type(e).__name__}）"
         except ServerError as e:
             if attempt == max_retries:
                 raise
@@ -191,9 +192,79 @@ def generate_content_with_retry(usage=None, max_retries=4, base_delay_sec=5, **k
                 raise
             wait_sec = _retry_after_seconds(e) or base_delay_sec * attempt * 2
             reason = "請求太頻繁（429）"
-        else:
-            if usage is not None:
-                usage.add(response)
-            return response
-        print(f"  [警告] Gemini API {reason}（第{attempt}次），{wait_sec:g}秒後重試...")
+        detail = f"，{failure_detail()}" if failure_detail else ""
+        print(f"  [警告] Gemini API {reason}（第{attempt}次）{detail}，{wait_sec:g}秒後重試...")
         time.sleep(wait_sec)
+
+
+def generate_content_with_retry(usage=None, max_retries=4, base_delay_sec=5, **kwargs):
+    """
+    usage：這次操作的 LLMUsage（aitest.run_context），呼叫成功就把這次的用量加進去；
+    同一次操作的每個呼叫都傳同一個物件，最後就是這次操作的總用量。
+
+    包一層重試邏輯，減少手動重跑的次數：
+      - 5xx（ServerError）：Gemini 伺服器端暫時性過載，等幾秒重試
+      - 429 每分鐘請求數超過上限：連續掃描很多畫面時常見，等一下就能繼續。
+        優先用回應裡 Google 建議的等待秒數，沒有的話等得比 5xx 久一點
+      - 429 整天的額度用完：重試也不會恢復，直接拋出（見 TROUBLESHOOTING #17）
+      - 連線中斷／逾時（httpx 層的 RemoteProtocolError 等）：長時間的呼叫（例如 Pro 模型）
+        常被伺服器端或中間節點直接斷線，回傳 ServerError 之外的例外，重試就能過
+      - 其他 4xx（格式錯、金鑰無效）重試也不會變好，直接拋出
+    """
+    client = get_llm_client()
+    response = _call_with_retry(lambda: client.models.generate_content(**kwargs), max_retries, base_delay_sec)
+    if usage is not None:
+        usage.add(response)
+    return response
+
+
+def generate_content_stream_with_retry(usage=None, label="LLM", max_retries=4, base_delay_sec=5,
+                                      progress_interval_sec=15, **kwargs) -> str:
+    """
+    跟 generate_content_with_retry 一樣的重試規則，但改用串流收回應：資料持續送回來，
+    連線不會長時間閒置，比較不容易被中間節點（公司 proxy、VPN）切斷。
+    回傳的是完整文字（收完整段才回傳）；串流途中斷線時整段從頭重試，不會回傳不完整的結果。
+
+    label：log 開頭的標籤，看得出是哪個功能在跑。log 有：開始、每 progress_interval_sec 秒一行進度
+    （字數一直沒增加就是卡住了）、完成時的耗時與字數；斷線重試時記下這次已串流幾秒、收到幾字，
+    每次都斷在差不多的秒數，就是中間節點有總時間上限。
+    """
+    client = get_llm_client()
+    # 這次嘗試的開始時間、目前收到的字數；每次重試都歸零
+    progress = {"start": time.monotonic(), "chars": 0}
+
+    def elapsed():
+        return time.monotonic() - progress["start"]
+
+    def collect():
+        progress["start"], progress["chars"] = time.monotonic(), 0
+        stop = threading.Event()
+
+        def report():
+            # 用另一條執行緒定時印：Pro 先思考很久才送第一段、或串流卡住時，也看得到它還在等
+            while not stop.wait(progress_interval_sec):
+                print(f"[{label}] 串流中…已 {elapsed():.0f} 秒，收到 {progress['chars']:,} 字")
+
+        threading.Thread(target=report, daemon=True).start()
+        try:
+            parts, usage_chunk = [], None
+            for chunk in client.models.generate_content_stream(**kwargs):
+                if chunk.text:
+                    parts.append(chunk.text)
+                    progress["chars"] += len(chunk.text)
+                # 用量資訊通常只在某些 chunk 帶，記下最後一個有帶的
+                if chunk.usage_metadata is not None:
+                    usage_chunk = chunk
+            return "".join(parts), usage_chunk
+        finally:
+            stop.set()
+
+    print(f"[{label}] 開始串流（{kwargs.get('model')}）...")
+    total_start = time.monotonic()
+    text, usage_chunk = _call_with_retry(
+        collect, max_retries, base_delay_sec,
+        failure_detail=lambda: f"已串流 {elapsed():.0f} 秒、收到 {progress['chars']:,} 字")
+    print(f"[{label}] 串流完成，耗時 {time.monotonic() - total_start:.0f} 秒，收到 {len(text):,} 字")
+    if usage is not None:
+        usage.add(usage_chunk)  # 沒帶用量的串流也算一次呼叫，跟 generate_content_with_retry 一致
+    return text
