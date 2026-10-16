@@ -3850,16 +3850,27 @@
       name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
       if (!name) return null;
     }
+    // 存成新測案時 test_name 跟著檔名（跟另存、改名一樣），選單才不會多一個括號顯示原本的 test_name
+    var renamed = name !== llmgenProjectName && llmgenLatestCase.test_name !== name;
+    var toSave = renamed ? withTestName(llmgenLatestCase, name) : llmgenLatestCase;
     try {
-      if (!(await saveProjectItem("cases", name, llmgenLatestCase, name === llmgenProjectName))) return null;
+      if (!(await saveProjectItem("cases", name, toSave, name === llmgenProjectName))) return null;
+      // 存成功才改開著的這份（同一個物件改，執行分頁選的如果是它也一起變）
+      if (renamed) llmgenLatestCase.test_name = name;
       syncRunscriptAfterLlmgenSave(llmgenLatestCase, name);
       llmgenProjectName = name;
       llmgenFileName = null;
       llmgenSavedText = JSON.stringify(llmgenLatestCase);
-      updateLlmgenCaseControls();
+      if (renamed) renderLlmgenCase(llmgenLatestCase, true);  // 名稱改了 LLM 還不知道
+      else updateLlmgenCaseControls();
       setProjectStatus("測案「" + name + "」已存進專案");
       return name;
     } catch (err) { alert("存檔失敗：" + err.message); return null; }
+  }
+  function withTestName(testCase, name) {
+    var copy = JSON.parse(JSON.stringify(testCase));
+    copy.test_name = name;
+    return copy;
   }
   // 執行分頁選的是測案編輯送來的這份（之後沒再改過）：存好之後改成選專案裡的那一份，不再顯示「還沒存」
   function syncRunscriptAfterLlmgenSave(savedCase, name) {
@@ -3877,8 +3888,7 @@
     var name = (prompt("另存成新的專案測案，名稱：" + note, defaultName) || "").trim();
     if (!name) return;
     if (name === from) { alert("另存要取不一樣的名稱，要存回原本這份請按「💾 儲存」"); return; }
-    var copy = JSON.parse(JSON.stringify(testCase));
-    copy.test_name = name;
+    var copy = withTestName(testCase, name);
     try {
       if (!(await saveProjectItem("cases", name, copy, false))) return;
       if (runscriptTestCase === testCase) {
@@ -3914,7 +3924,9 @@
     var name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
     if (!name) return;
     try {
-      if (!(await saveProjectItem("cases", name, runscriptTestCase, false))) return;
+      // test_name 跟著檔名，存成功才改
+      if (!(await saveProjectItem("cases", name, withTestName(runscriptTestCase, name), false))) return;
+      runscriptTestCase.test_name = name;
       runscriptCaseRef = name;
       renderRunscriptCasePicker();
       // 測案編輯開著的剛好是被覆蓋的那份：它的「上次存的內容」換成這份，狀態才會正確顯示有沒有還沒存的修改
