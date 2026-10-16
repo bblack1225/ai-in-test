@@ -200,7 +200,6 @@ svg#tree { display: block; margin: 0 auto; }
 .tap-result.fail { background: var(--danger-soft); color: var(--danger); }
 .tap-result.pending { background: var(--grey-soft); color: var(--ink-soft); }
 /* 這次操作的 LLM 用量（掃描、補描述、情境產生…）：不搶眼，看得到就好 */
-.usage-line { font-size: calc(11px * var(--font-scale)); color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; padding: 4px 2px; }
 
 .modal-list-row {
   padding: 7px 9px; border-radius: 8px; background: var(--grey-soft); font-size: calc(11.5px * var(--font-scale)); cursor: pointer; border: 1.5px solid transparent;
@@ -434,7 +433,6 @@ pre.case-json { font-family: "IBM Plex Mono", monospace; font-size: calc(11px * 
 .case-copy-btn.done { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
 textarea.case-json-editor { display: block; margin: 0 0 12px; width: 100%; box-sizing: border-box; min-height: 320px; font-family: "IBM Plex Mono", monospace; font-size: calc(11px * var(--font-scale)); background: var(--paper-raised); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px; resize: vertical; }  /* margin：跟下面確定／取消那排隔開（看的時候 pre 本身就有 margin） */
 .chat-msg.info-note { align-self: center; background: var(--accent-soft); color: var(--accent-ink); font-size: calc(11px * var(--font-scale)); }
-.chat-msg.usage-note { align-self: flex-start; background: transparent; color: var(--ink-soft); padding: 0 4px; font-size: calc(10.5px * var(--font-scale)); font-family: "IBM Plex Mono", monospace; }
 .case-sync-badge { margin-left: 8px; padding: 2px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: calc(11px * var(--font-scale)); }
 
 .seg-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; background: var(--paper); }
@@ -522,4 +520,16 @@ textarea.case-json-editor { display: block; margin: 0 0 12px; width: 100%; box-s
 .record-review tr.deleted td { opacity: 0.45; }
 .record-review-name { width: 100%; min-width: 140px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: calc(12px * var(--font-scale)); }
 .el-box.risky { border-style: dashed; }
-.record-describe-status { position: fixed; right: 16px; bottom: 16px; z-index: 900; max-width: 380px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); box-shadow: var(--shadow); font-size: calc(12px * var(--font-scale)); }
+/* 右下角提示（LLM 用量等）：錄製描述進度也放在這一疊裡，才不會互相蓋住 */
+.toast-stack { position: fixed; right: 16px; bottom: 16px; z-index: 1100; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.toast-stack > * { pointer-events: auto; }
+/* 收合時最新的蓋在最上面、舊的往後疊；滑鼠移上去展開。位置和高度由 layoutToasts() 算 */
+.toast-pile { position: relative; width: 100%; transition: height 0.25s ease; }
+.toast-pile:empty { display: none; }
+.toast { position: absolute; right: 0; bottom: 0; width: 100%; box-sizing: border-box; overflow: hidden; display: flex; align-items: flex-start; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); color: var(--ink); box-shadow: var(--shadow); font-size: calc(12px * var(--font-scale)); font-family: "IBM Plex Mono", monospace; transform-origin: center bottom; transition: transform 0.25s ease, opacity 0.25s ease, height 0.25s ease; }
+.toast > * { transition: opacity 0.2s ease; }
+.toast.behind > * { opacity: 0; }
+.toast-text { flex: 1; white-space: pre-line; }
+.toast-close { flex: none; border: none; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: calc(14px * var(--font-scale)); line-height: 1; padding: 2px 4px; border-radius: 4px; }
+.toast-close:hover { background: var(--grey-soft); color: var(--ink); }
+.record-describe-status { max-width: 380px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-raised); box-shadow: var(--shadow); font-size: calc(12px * var(--font-scale)); }
