@@ -51,6 +51,7 @@ iOS / Android 共用：流程（遞迴、樹/圖資料、登出偵測、App 邊�
 """
 
 import argparse
+import logging
 import re
 import time
 from pathlib import Path
@@ -61,9 +62,12 @@ from selenium.common.exceptions import InvalidSessionIdException, WebDriverExcep
 from aitest.config import APPIUM_SERVER_URL
 from aitest.core.capture_screen_map import scan_screen
 from aitest.core.workspace import DEFAULT_MAP, DEFAULT_ROOT, Workspace, WorkspaceError, _write_json_atomic
+from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import CHROME_BOTTOM_FRACTION, CHROME_TOP_FRACTION, NEVER_TAP_LABELS, wait_until_stable
 from aitest.run_context import RunContext
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_PATH = Path("app_map_tree.json")
 
@@ -211,27 +215,27 @@ def reset_and_replay(platform, driver, path: list, state: dict, root_uid: str) -
     src = driver.page_source
     _, current = platform.skeleton(driver, src)
     if current != root_uid:
-        print("    [重放路徑] 目前不在根畫面，試著用根畫面的『自我循環』候選當錨點拉回去")
+        logger.info("    [重放路徑] 目前不在根畫面，試著用根畫面的『自我循環』候選當錨點拉回去")
         for anchor in _find_root_noop_anchors(state, root_uid):
             tap_candidate(platform, driver, anchor, screen_h)
             wait_until_stable(driver, max_wait=1.5)
             src = driver.page_source
             _, current = platform.skeleton(driver, src)
             if current == root_uid:
-                print(f"    [重放路徑] 用錨點「{anchor.get('label') or anchor.get('native_id')}」成功拉回根畫面")
+                logger.info(f"    [重放路徑] 用錨點「{anchor.get('label') or anchor.get('native_id')}」成功拉回根畫面")
                 break
 
     if current != root_uid:
-        print(f"    [重放路徑] 錨點都試過了還是回不去根畫面（目前在 {current}），放棄")
+        logger.info(f"    [重放路徑] 錨點都試過了還是回不去根畫面（目前在 {current}），放棄")
         return False
 
     for i, step in enumerate(path):
         el = _find_element_by_uid(state, step["screen_uid"], step["element_uid"])
         if el is None:
-            print(f"    [重放路徑] 第{i + 1}步的元件資料找不到，放棄：{step['element_uid']}")
+            logger.info(f"    [重放路徑] 第{i + 1}步的元件資料找不到，放棄：{step['element_uid']}")
             return False
         if not tap_candidate(platform, driver, el, screen_h):
-            print(f"    [重放路徑] 第{i + 1}步點擊失敗，放棄：{step['element_uid']}")
+            logger.info(f"    [重放路徑] 第{i + 1}步點擊失敗，放棄：{step['element_uid']}")
             return False
         wait_until_stable(driver, max_wait=1.5)
     return True
@@ -255,7 +259,7 @@ def recover_to(platform, driver, target_uid: str, tries: int = 3,
     if current == target_uid:
         return True
     if path and state is not None:
-        print("    [recover] go_back 重試都失敗，改用「回根畫面＋重放已知路徑」最後手段")
+        logger.info("    [recover] go_back 重試都失敗，改用「回根畫面＋重放已知路徑」最後手段")
         root_uid = path[0]["screen_uid"]
         if reset_and_replay(platform, driver, path, state, root_uid):
             src = driver.page_source
@@ -297,7 +301,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
     src = driver.page_source
     dismissed = platform.dismiss_modal(driver, page_source=src)
     if dismissed:
-        print(f"  [關掉對話框] {dismissed}")
+        logger.info(f"  [關掉對話框] {dismissed}")
         state["skipped"].append({"screen_uid": None, "reason": "dismissed_modal", "buttons": dismissed})
         src = driver.page_source
 
@@ -316,7 +320,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
                 "from": parent_uid, "via": via_uid, "to": uid,
                 "kind": "cross-link", "label": via_label,
             })
-        print(f"    -> 已爬過的畫面 uid={uid}（記 cross-link，不重掃）")
+        logger.info(f"    -> 已爬過的畫面 uid={uid}（記 cross-link，不重掃）")
         return uid
 
     if len(state["screens"]) >= cfg["max_screens"]:
@@ -326,8 +330,8 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
     existing_names = {r["screen_name"] for r in state["screens"].values()}
     name = _screen_name(skeleton, suggested_name, existing_names)
 
-    print(f"\n[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
-          f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
+    logger.info(f"[爬蟲] 掃描「{name}」 uid={uid} depth={depth} "
+                f"（已收錄 {len(state['screens'])} / {cfg['max_screens']}）")
     screen_data = scan_screen(ctx, platform, driver, name, describe=cfg["describe"], scroll=False, wait_stable=False,
                                page_source=src, out_dir=cfg.get("out_dir"))
 
@@ -356,7 +360,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
     save_map(state, cfg["meta"])
 
     if depth >= cfg["max_depth"]:
-        print(f"  已達最大深度 {cfg['max_depth']}，這個分支不再往下")
+        logger.info(f"  已達最大深度 {cfg['max_depth']}，這個分支不再往下")
         return uid
 
     screen_h = screen_data["screen_height"]
@@ -426,12 +430,13 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
             continue
         candidates.append(text_el)
 
-    print(f"  {len(candidates)} 個候選可點"
-          + ("（dry-run：只列不點）" if cfg["dry_run"] else ""))
+    logger.info(f"  {len(candidates)} 個候選可點"
+                + ("（dry-run：只列不點）" if cfg["dry_run"] else ""))
 
     if cfg["dry_run"]:
         for i, el in enumerate(candidates):
-            print(f"    [{i + 1}] {el['class']}  「{el.get('label') or el.get('description') or el['unique_id']}」")
+            text = el.get('label') or el.get('description') or el['unique_id']
+            logger.info(f"    [{i + 1}] {el['class']}  「{text}」")
         return uid
 
     pattern_children: dict[str, set] = {}   # 同 name pattern -> 導到哪些 child_uid
@@ -439,7 +444,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
 
     for i, el in enumerate(candidates):
         if len(state["screens"]) >= cfg["max_screens"]:
-            print("  已達 max_screens 上限，停止繼續探索")
+            logger.info("  已達 max_screens 上限，停止繼續探索")
             break
 
         label = el.get("label") or el.get("description") or el.get("native_id") or el["unique_id"]
@@ -454,7 +459,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
             })
             continue
 
-        print(f"  [{i + 1}/{len(candidates)}] 點擊「{label}」")
+        logger.info(f"  [{i + 1}/{len(candidates)}] 點擊「{label}」")
 
         if not tap_candidate(platform, driver, el, screen_h):
             state["skipped"].append({
@@ -467,12 +472,12 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
         after_src = driver.page_source
         modal_after = platform.dismiss_modal(driver, page_source=after_src)
         if modal_after:
-            print(f"    [點擊後關掉對話框] {modal_after}")
+            logger.info(f"    [點擊後關掉對話框] {modal_after}")
             after_src = driver.page_source
 
         outside = went_outside_app(driver, cfg["bundle_id"])
         if outside:
-            print(f"    [跑到 App 外] {outside}，activate_app 拉回、跳過這個元件")
+            logger.info(f"    [跑到 App 外] {outside}，activate_app 拉回、跳過這個元件")
             try:
                 driver.activate_app(cfg["bundle_id"])
             except InvalidSessionIdException:
@@ -489,7 +494,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
                 "reason": f"went_outside:{outside}", "label": el.get("label", ""),
             })
             if not recover_to(platform, driver, uid, path=path, state=state):
-                print("    [警告] 拉回後無法確認回到本畫面，放棄這個畫面剩餘候選")
+                logger.warning("    拉回後無法確認回到本畫面，放棄這個畫面剩餘候選")
                 break
             continue
 
@@ -506,7 +511,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
                 "from": uid, "via": el["unique_id"], "to": uid, "kind": "noop",
                 "label": el.get("label", ""),
             })
-            print("    [點擊後畫面骨架沒變] 記 noop，繼續下一個候選")
+            logger.info("    [點擊後畫面骨架沒變] 記 noop，繼續下一個候選")
             continue
 
         child_path = path + [{"screen_uid": uid, "element_uid": el["unique_id"]}]
@@ -518,7 +523,7 @@ def crawl_screen(ctx, platform, driver, suggested_name: str, parent_uid: str | N
         finally:
             recovered = recover_to(platform, driver, uid, path=path, state=state)
             if not recovered:
-                print(f"    [警告] 無法確認回到「{name}」，放棄這個畫面剩餘候選")
+                logger.warning(f"    無法確認回到「{name}」，放棄這個畫面剩餘候選")
                 save_map(state, cfg["meta"])
         if not recovered:
             break
@@ -545,17 +550,17 @@ def crawl(ctx, platform, driver, cfg: dict) -> dict:
     state = {"screens": {}, "edges": [], "skipped": [], "visit_order": []}
     try:
         crawl_screen(ctx, platform, driver, cfg["root_name"], None, None, [], 0, cfg, state)
-        print(f"\n[爬蟲] 完成，共收錄 {len(state['screens'])} 個不重複畫面")
+        logger.info(f"[爬蟲] 完成，共收錄 {len(state['screens'])} 個不重複畫面")
     except CrawlAborted as e:
-        print(f"\n[爬蟲中止] {e}")
-        print(f"  已收錄 {len(state['screens'])} 個畫面，資料已存到 {OUTPUT_PATH}")
+        logger.info(f"[爬蟲中止] {e}")
+        logger.info(f"  已收錄 {len(state['screens'])} 個畫面，資料已存到 {OUTPUT_PATH}")
         state["aborted_reason"] = str(e)
     save_map(state, cfg["meta"])
     if cfg["describe"]:
-        print(f"  LLM 用量（畫面描述）：{ctx.usage.summary()}")
+        logger.info(f"  LLM 用量（畫面描述）：{ctx.usage.summary()}")
     for uid in state["visit_order"]:
         r = state["screens"][uid]
-        print(f"  {'  ' * r['depth']}- {r['screen_name']} (depth {r['depth']}, {len(r['elements'])} 元件)")
+        logger.info(f"  {'  ' * r['depth']}- {r['screen_name']} (depth {r['depth']}, {len(r['elements'])} 元件)")
     return state
 
 
@@ -588,6 +593,7 @@ def main():
                          help=f"搭配 --project：寫進專案的哪張地圖（預設 {DEFAULT_MAP}；新名稱就新增一張）")
     parser.add_argument("--workspace", default=str(DEFAULT_ROOT), help="workspace 資料夾（預設 ./workspace）")
     args = parser.parse_args()
+    setup_logging("crawl")
 
     global OUTPUT_PATH
     out_dir = None
@@ -606,8 +612,8 @@ def main():
         out_dir = ws.project_dir(args.project)
         backup = ws.backup_map(args.project, args.map)
         if backup:
-            print(f"[爬蟲] 地圖「{args.map}」原本的內容已備份到 {backup}")
-        print(f"[爬蟲] 寫進專案「{args.project}」的地圖「{args.map}」：{OUTPUT_PATH}")
+            logger.info(f"[爬蟲] 地圖「{args.map}」原本的內容已備份到 {backup}")
+        logger.info(f"[爬蟲] 寫進專案「{args.project}」的地圖「{args.map}」：{OUTPUT_PATH}")
     args.platform = args.platform or "ios"
 
     platform = get_platform(args.platform)
@@ -615,7 +621,7 @@ def main():
     # 知道要爬哪支 App 的話，iOS 連線時順便把它打開
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=platform.make_options(app_id=bundle_id))
     bundle_id = bundle_id or platform.app_id(driver)
-    print(f"[爬蟲] 平台：{platform.name}，App：{bundle_id}")
+    logger.info(f"[爬蟲] 平台：{platform.name}，App：{bundle_id}")
 
     cfg = {
         "root_name": args.root_name,

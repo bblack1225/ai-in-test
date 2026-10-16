@@ -115,7 +115,7 @@
 - [x] README、`docs/guide/*.html`、`docs/CRAWLER_TREE_HANDOFF.md`、程式訊息、網頁裡的指令全部更新；`TROUBLESHOOTING.md` 舊紀錄保留原指令，開頭加說明
 - [x] venv + pip 的安裝方式改成 `pip install -e .`（實際在新的 venv 裝過一次確認可用）
 - [x] 測試改成 `from aitest… import`，拿掉 pytest 的 `pythonpath` 權宜設定
-- [ ] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`（獨立一個分支做，不跟搬家混在一起）
+- [x] 報告 #13：`print` 改成 `logging`，server 的 log 也存到 `logs/`（`refactor/logging`）：每行帶日期時間到毫秒；server、爬蟲、掃描、跑測案寫到 `logs/<名稱>-<時間>.log`；給人看的指令輸出（doctor、workspace、compare_versions、`aitest-run` 的總結）維持 print；HTTP 請求 log 降成 debug 不顯示。實機驗證過（2026-10-16）
 - [x] 驗證（不用手機）：pytest 72 個全過；所有模組 import、7 個指令和 2 個 tools 的 `--help`、`aitest doctor`；
   `aitest-server` 啟動後用瀏覽器開網頁、開專案，地圖與截圖正常、console 沒錯誤；`aitest start` 能啟動伺服器
 - [x] 驗證（實機，2026-10-12）：`uv run aitest start` 掃描、跑測案、爬蟲跑一小段
@@ -178,7 +178,7 @@
 | 10 | `except Exception` 讓斷線看起來像找不到元件 | 步驟 4（server 剩 8 處留到步驟 7） | [x] |
 | 11 | AI 定位每次重試都重送整個畫面結構 | 步驟 7 | [ ] |
 | 12 | 文件提到已刪掉的檔案和舊模型名 | 步驟 2 | [x] |
-| 13 | 全部用 print | 步驟 6 之後另開分支 | [ ] |
+| 13 | 全部用 print | 步驟 6 之後另開分支（`refactor/logging`） | [x] |
 | 14 | 沒有程式碼檢查工具設定 | 步驟 2（風格類的 48 筆還沒修） | [x] |
 | 15 | LLM 對話每輪重送全部內容 | 報告也建議先不動，等用量顯示後確認成本再決定 | [-] 暫不做 |
 | 16 | 個人編輯器設定進了 git | 步驟 2 | [x] |

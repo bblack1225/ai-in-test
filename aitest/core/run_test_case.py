@@ -43,6 +43,7 @@ POC: App 測試案例執行器（第三步），iOS / Android 共用
 
 import argparse
 import json
+import logging
 import os
 import re
 import time
@@ -60,9 +61,12 @@ from selenium.common.exceptions import (
 )
 
 from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT
+from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
 from aitest.platforms.base import wait_until_stable
 from aitest.run_context import RunContext, StopRequested
+
+logger = logging.getLogger(__name__)
 
 ELEMENT_MAP_PATH = Path("element_map.json")
 TEST_CASES_DIR = Path("test_cases")
@@ -98,10 +102,10 @@ def try_dismiss_dialogs(ctx, platform, driver, keep_labels=()) -> list[str]:
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [關閉非預期彈窗] 檢查失敗，照原本結果繼續: {e}")
+        logger.info(f"    [關閉非預期彈窗] 檢查失敗，照原本結果繼續: {e}")
         return []
     if dismissed:
-        print(f"    [關閉非預期彈窗] 按了：{'、'.join(dismissed)}")
+        logger.info(f"    [關閉非預期彈窗] 按了：{'、'.join(dismissed)}")
     return dismissed
 
 
@@ -208,9 +212,9 @@ def _locate_by_custom_xpath(driver, el: dict):
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [自訂XPath] 查詢失敗: {custom_xpath}  ({e})")
+        logger.info(f"    [自訂XPath] 查詢失敗: {custom_xpath}  ({e})")
         return None
-    print(f"    [自訂XPath] {custom_xpath} -> 查到 {len(matches)} 個")
+    logger.info(f"    [自訂XPath] {custom_xpath} -> 查到 {len(matches)} 個")
     if len(matches) != 1:
         return None
     return matches[0]
@@ -403,8 +407,8 @@ def _read_text_by_position(platform, driver, el: dict, y_tolerance: float = 10.0
     if best is None:
         return None
     text = platform.node_text(best)
-    print(f"    [位置定位] 掃描時座標 ({bounds['x']:g}, {bounds['y']:g}) 附近的 {el['class']}，"
-          f"目前文字：「{text}」")
+    logger.info(f"    [位置定位] 掃描時座標 ({bounds['x']:g}, {bounds['y']:g}) 附近的 {el['class']}，"
+                f"目前文字：「{text}」")
     return text
 
 
@@ -518,7 +522,7 @@ def verify_current_screen(platform, driver, screen_name: str, element_lookup: di
     比對方式見 match_screen_in_source。
     """
     status, message = check_current_screen(platform, driver, screen_name, list(element_lookup.values()))
-    print(f"  [畫面校驗] {message}")
+    logger.info(f"  [畫面校驗] {message}")
     return status != "fail"
 
 
@@ -776,7 +780,7 @@ def run_test_case(ctx, platform, driver, test_case: dict, element_lookup: dict):
         outcome = run_step_in_case(ctx, platform, driver, steps, i, element_lookup.get(step.get("target")),
                                    banner_outcomes)
         results.append((i, step, outcome))
-        print(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
+        logger.info(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
         if should_wait_after(platform, steps, i):
             wait_after_action(platform, driver)
     return results
@@ -787,7 +791,7 @@ def save_result_screenshot(driver, screen_name: str):
     path = TEST_RESULTS_DIR / f"{screen_name}_after.png"
     with open(path, "wb") as f:
         f.write(driver.get_screenshot_as_png())
-    print(f"執行後截圖存到 {path}")
+    logger.info(f"執行後截圖存到 {path}")
 
 
 def main():
@@ -797,13 +801,14 @@ def main():
     parser.add_argument("--dismiss_dialogs", action="store_true",
                         help="步驟失敗時先關掉擋在前面的非預期彈窗（行銷/評分/推播邀請…）再重試一次")
     args = parser.parse_args()
+    setup_logging("run")
     platform = get_platform(args.platform)
     ctx = RunContext(dismiss_dialogs=args.dismiss_dialogs)
 
     test_case = load_test_case(args.screen_name)
     element_lookup = load_element_lookup(args.screen_name)
 
-    print(f"執行畫面「{args.screen_name}」的測試案例（{platform.name}），共 {len(test_case['steps'])} 個步驟")
+    logger.info(f"執行畫面「{args.screen_name}」的測試案例（{platform.name}），共 {len(test_case['steps'])} 個步驟")
 
     driver = webdriver.Remote(APPIUM_SERVER_URL, options=platform.make_options())
 

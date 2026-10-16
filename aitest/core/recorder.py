@@ -18,6 +18,7 @@
 快照存在 <專案>/recordings/<錄製 id>/，建立完成（或取消）就刪掉；不會跟著專案匯出。
 """
 
+import logging
 import shutil
 import time
 from pathlib import Path
@@ -34,6 +35,8 @@ from aitest.core.capture_screen_map import (
 from aitest.core.crawl_app_tree import _hits_risky_keyword
 from aitest.core.run_test_case import run_input_text, run_tap, wait_after_action
 from aitest.platforms.scan_core import candidate_signature
+
+logger = logging.getLogger(__name__)
 
 RECORDINGS_DIR = "recordings"
 
@@ -247,7 +250,7 @@ class Recording:
             # 快照是剛抓的，畫面上的位置可信：定位不到（例如浮動層裡的元件）就照錄製畫面上的座標點
             ctx.raise_if_stopped()
             self.platform.tap_by_coordinates(driver, cand["bounds"])
-            print(f"[錄製] 定位不到「{_entry_text(cand)}」（{result}），改用座標點擊")
+            logger.info(f"[錄製] 定位不到「{_entry_text(cand)}」（{result}），改用座標點擊")
             note = "（定位不到這個元件，改用座標點擊；之後跑測案可能也要靠座標）"
         wait_after_action(self.platform, driver)
         self.message = self._arrive(self._snapshot(driver), cand, force_new) + note

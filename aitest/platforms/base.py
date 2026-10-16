@@ -11,11 +11,14 @@ InvalidSessionIdException 往上丟——它也是 WebDriverException 的子類�
 （urllib3 的連線錯誤）本來就不是 WebDriverException，不會被攔到。
 """
 
+import logging
 import re
 import time
 from contextlib import contextmanager
 
 from selenium.common.exceptions import InvalidSessionIdException, WebDriverException
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # 等畫面穩定（報告 #5：原本爬蟲、跑測案、掃描各寫一套）
@@ -72,7 +75,7 @@ def no_idle_wait(driver):
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
-        print(f"    [waitForIdleTimeout] 設定失敗，照預設等待執行: {e}")
+        logger.info(f"    [waitForIdleTimeout] 設定失敗，照預設等待執行: {e}")
         original = None
     try:
         yield

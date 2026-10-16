@@ -10,11 +10,14 @@
 同理沒設 GEMINI_API_KEY 也能 import，用到 LLM 時（get_llm_client()）才報錯。
 """
 
+import logging
 import os
 import threading
 import time
 import tomllib
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # repo 根目錄（aitest/ 套件的上一層）：config.toml、web/、logs/ 都放在這裡
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -193,7 +196,7 @@ def _call_with_retry(call, max_retries=4, base_delay_sec=5, failure_detail=None)
             wait_sec = _retry_after_seconds(e) or base_delay_sec * attempt * 2
             reason = "請求太頻繁（429）"
         detail = f"，{failure_detail()}" if failure_detail else ""
-        print(f"  [警告] Gemini API {reason}（第{attempt}次）{detail}，{wait_sec:g}秒後重試...")
+        logger.warning(f"  Gemini API {reason}（第{attempt}次）{detail}，{wait_sec:g}秒後重試...")
         time.sleep(wait_sec)
 
 
@@ -243,7 +246,7 @@ def generate_content_stream_with_retry(usage=None, label="LLM", max_retries=4, b
         def report():
             # 用另一條執行緒定時印：Pro 先思考很久才送第一段、或串流卡住時，也看得到它還在等
             while not stop.wait(progress_interval_sec):
-                print(f"[{label}] 串流中…已 {elapsed():.0f} 秒，收到 {progress['chars']:,} 字")
+                logger.info(f"[{label}] 串流中…已 {elapsed():.0f} 秒，收到 {progress['chars']:,} 字")
 
         threading.Thread(target=report, daemon=True).start()
         try:
@@ -259,12 +262,12 @@ def generate_content_stream_with_retry(usage=None, label="LLM", max_retries=4, b
         finally:
             stop.set()
 
-    print(f"[{label}] 開始串流（{kwargs.get('model')}）...")
+    logger.info(f"[{label}] 開始串流（{kwargs.get('model')}）...")
     total_start = time.monotonic()
     text, usage_chunk = _call_with_retry(
         collect, max_retries, base_delay_sec,
         failure_detail=lambda: f"已串流 {elapsed():.0f} 秒、收到 {progress['chars']:,} 字")
-    print(f"[{label}] 串流完成，耗時 {time.monotonic() - total_start:.0f} 秒，收到 {len(text):,} 字")
+    logger.info(f"[{label}] 串流完成，耗時 {time.monotonic() - total_start:.0f} 秒，收到 {len(text):,} 字")
     if usage is not None:
         usage.add(usage_chunk)  # 沒帶用量的串流也算一次呼叫，跟 generate_content_with_retry 一致
     return text
