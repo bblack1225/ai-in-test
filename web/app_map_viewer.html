@@ -167,7 +167,7 @@
           <div class="btn-row">
             <button class="btn" id="llmgenVarsCheckBtn" disabled hidden title="列出這份測案用到的變數，還沒有值的可以直接建立變數檔">🧩 檢查變數</button>
             <button class="btn" id="llmgenSaveToProjectBtn" disabled hidden>💾 儲存</button>
-            <button class="btn" id="llmgenCopyBtn" disabled hidden title="把目前這份（包含還沒存的修改）存成另一份新的專案測案，之後改的是複本">📄 複製一份</button>
+            <button class="btn" id="llmgenCopyBtn" disabled hidden title="把目前這份（包含還沒存的修改）另存成一份新的專案測案，原本那份維持上次存的內容，之後改的是新的這份">📄 另存新測案</button>
             <button class="btn" id="llmgenExportBtn" disabled>⬇ 匯出 JSON</button>
             <button class="btn primary" id="llmgenToRunBtn" disabled>➡ 送去執行</button>
           </div>
@@ -195,7 +195,8 @@
         <div class="field-row">
           <span>測試案例：</span>
           <select class="project-pick" id="runscriptCaseProjectSelect" hidden title="選專案裡的測案"></select>
-          <span id="runscriptCaseHint" style="color:var(--ink-soft);">測案在「測案編輯」新增、修改或匯入，按「➡ 送去執行」也會帶過來</span>
+          <button class="btn" id="runscriptSaveBtn" disabled hidden>💾 儲存</button>
+          <button class="btn" id="runscriptSaveAsBtn" disabled hidden title="把目前選的這份另存成一份新的專案測案，原本那份維持上次存的內容">📄 另存新測案</button>
         </div>
         <div class="field-row" id="runscriptVarsRow" hidden>
           <span>變數檔：</span>

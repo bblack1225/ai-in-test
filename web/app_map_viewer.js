@@ -110,7 +110,10 @@
   }
   // 失敗訊息：平台不符不是連線問題，不要套「伺服器有啟動嗎？」這種提示誤導
   function failText(prefix, err, hint) {
-    return err.platformMismatch ? "⚠️ " + err.message : prefix + "：" + err.message + hint;
+    if (err.platformMismatch) return "⚠️ " + err.message;
+    // session 斷線（例如等 LLM 太久，Appium 閒置逾時關掉）：下一次請求伺服器會自動重連，不是 hint 說的問題
+    if (/InvalidSessionIdException/.test(err.message)) return prefix + "：Appium session 已失效，請再按一次（伺服器會自動重新連線）";
+    return prefix + "：" + err.message + hint;
   }
   // 後端回傳的這次操作 LLM 用量（usage）→ 一行說明；這次沒有呼叫 LLM（例如掃描沒勾描述）回傳空字串
   function usageText(u) {
@@ -2196,6 +2199,7 @@
     llmgenToRunBtn.disabled = !llmgenLatestCase || llmgenEditing;
     llmgenSaveToProjectBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
     llmgenCopyBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject || !llmgenProjectName;
+    renderRunscriptCaseButtons();
     llmgenVarsCheckBtn.disabled = !llmgenLatestCase || llmgenEditing || !currentProject;
     renderLlmgenCaseStatus();
   }
@@ -2592,6 +2596,7 @@
     runscriptTestCase = llmgenLatestCase;
     var unsaved = llmgenHasUnsaved();
     runscriptCaseRef = llmgenProjectName && !unsaved ? llmgenProjectName : null;
+    runscriptEditorFrom = llmgenProjectName;
     runscriptEditorLabel = (llmgenProjectName || llmgenLatestCase.test_name || "（未命名）") +
       (llmgenProjectName ? "（有修改還沒存）" : "（還沒存進專案）");
     renderRunscriptPreview();
@@ -2611,7 +2616,8 @@
   var runscriptBody = document.getElementById("runscriptBody");
   // 地圖一律用「地圖檢視」目前開著的那張（執行當下才抓，地圖換了會跟著變）
   // runscriptCaseRef：選的是專案測案時的名稱；null＝測案編輯送來、不在專案裡（或有修改沒存）的那份
-  var runscriptTestCase = null, runscriptCaseRef = null, runscriptEditorLabel = "";
+  // runscriptEditorFrom：測案編輯送來的那份原本是哪個專案測案（新測案、匯入的是 null），管理測案改名／刪除時用
+  var runscriptTestCase = null, runscriptCaseRef = null, runscriptEditorLabel = "", runscriptEditorFrom = null;
   function renderRunscriptSources() {
     renderRunscriptCasePicker();
   }
@@ -2621,6 +2627,24 @@
     runscriptCaseProjectSelect.hidden = !currentProject && !fromEditor;
     runscriptCaseProjectSelect.innerHTML = caseOptionsHtml(currentProject ? "📁 選專案裡的測案…" : "（沒開專案）", editorOption);
     runscriptCaseProjectSelect.value = runscriptCaseRef || (fromEditor ? "__editor__" : "");
+    renderRunscriptCaseButtons();
+  }
+  // 執行分頁選的，是不是測案編輯現在開著的那份（同一個物件）。
+  // 送去執行時兩邊拿的是同一個物件；測案編輯換測案或改內容都會換成新物件，所以：
+  //   true＝測案編輯那邊也有這個版本，存檔、狀態要兩邊一起更新，切走也不會遺失
+  //   false＝測案編輯已經換成別份或又改過，這個版本只剩執行分頁有
+  function runscriptIsEditorCase() {
+    return !!runscriptTestCase && runscriptTestCase === llmgenLatestCase;
+  }
+  // 執行分頁的儲存／另存：跟測案編輯那兩顆一樣。選的就是測案編輯開著的那份、而且正在手動編輯時先停用
+  function renderRunscriptCaseButtons() {
+    var saveBtn = document.getElementById("runscriptSaveBtn"), saveAsBtn = document.getElementById("runscriptSaveAsBtn");
+    var editingIt = runscriptIsEditorCase() && llmgenEditing;
+    saveBtn.hidden = saveAsBtn.hidden = !currentProject;
+    saveBtn.disabled = !currentProject || !runscriptTestCase || !!runscriptCaseRef || editingIt;
+    saveAsBtn.disabled = !currentProject || !runscriptTestCase || editingIt;
+    saveBtn.title = editingIt ? "測案編輯正在手動編輯這份，請先按「確定」或「取消」"
+      : runscriptCaseRef ? "這份已經存在專案裡了" : "";
   }
   function currentExecutionMap() { return { screens: shortScreensToExecutionFormat(screens) }; }
 
@@ -3817,44 +3841,103 @@
     }, 1500);
   });
 
-  // 儲存：開著的是專案測案就直接存回去；新測案、匯入的才問名稱
-  llmgenSaveToProjectBtn.addEventListener("click", async function () {
-    if (!llmgenLatestCase || !currentProject) return;
+  // 儲存：開著的是專案測案就直接存回去；新測案、匯入的才問名稱。回傳存成的名稱，沒存（取消／失敗）回傳 null
+  async function saveLlmgenCaseToProject() {
+    if (!llmgenLatestCase || !currentProject) return null;
     var name = llmgenProjectName;
     if (!name) {
       var defaultName = (llmgenLatestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
       name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
-      if (!name) return;
+      if (!name) return null;
     }
+    // 存成新測案時 test_name 跟著檔名（跟另存、改名一樣），選單才不會多一個括號顯示原本的 test_name
+    var renamed = name !== llmgenProjectName && llmgenLatestCase.test_name !== name;
+    var toSave = renamed ? withTestName(llmgenLatestCase, name) : llmgenLatestCase;
     try {
-      if (!(await saveProjectItem("cases", name, llmgenLatestCase, name === llmgenProjectName))) return;
+      if (!(await saveProjectItem("cases", name, toSave, name === llmgenProjectName))) return null;
+      // 存成功才改開著的這份（同一個物件改，執行分頁選的如果是它也一起變）
+      if (renamed) llmgenLatestCase.test_name = name;
+      syncRunscriptAfterLlmgenSave(llmgenLatestCase, name);
       llmgenProjectName = name;
       llmgenFileName = null;
       llmgenSavedText = JSON.stringify(llmgenLatestCase);
-      updateLlmgenCaseControls();
+      if (renamed) renderLlmgenCase(llmgenLatestCase, true);  // 名稱改了 LLM 還不知道
+      else updateLlmgenCaseControls();
+      setProjectStatus("測案「" + name + "」已存進專案");
+      return name;
+    } catch (err) { alert("存檔失敗：" + err.message); return null; }
+  }
+  function withTestName(testCase, name) {
+    var copy = JSON.parse(JSON.stringify(testCase));
+    copy.test_name = name;
+    return copy;
+  }
+  // 執行分頁選的是測案編輯送來的這份（之後沒再改過）：存好之後改成選專案裡的那一份，不再顯示「還沒存」
+  function syncRunscriptAfterLlmgenSave(savedCase, name) {
+    if (runscriptCaseRef || !runscriptIsEditorCase()) return;
+    runscriptTestCase = savedCase;
+    runscriptCaseRef = name;
+    renderRunscriptCasePicker();  // 只換選單，不重畫預覽，剛跑完的結果還留著
+  }
+  llmgenSaveToProjectBtn.addEventListener("click", function () { saveLlmgenCaseToProject(); });
+  // 另存新測案：這份（包含還沒存的修改）存成新的專案測案，test_name 跟著新名稱，之後改的是新的這份
+  // from＝原本的專案測案名稱（新測案、匯入的是 null）；unsaved＝有沒有還沒存的修改
+  async function saveCaseAsNew(testCase, from, unsaved) {
+    var note = from && unsaved ? "\n（還沒存的修改會存進新的這份，原本的「" + from + "」維持上次存的內容）" : "";
+    var defaultName = from ? from + "_copy" : (testCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
+    var name = (prompt("另存成新的專案測案，名稱：" + note, defaultName) || "").trim();
+    if (!name) return;
+    if (name === from) { alert("另存要取不一樣的名稱，要存回原本這份請按「💾 儲存」"); return; }
+    var copy = withTestName(testCase, name);
+    try {
+      if (!(await saveProjectItem("cases", name, copy, false))) return;
+      if (runscriptTestCase === testCase) {
+        runscriptTestCase = copy;
+        runscriptCaseRef = name;
+        renderRunscriptCasePicker();  // 只換選單，不重畫預覽，剛跑完的結果還留著
+      }
+      if (llmgenLatestCase === testCase) {
+        var nameChanged = testCase.test_name !== name;
+        llmgenProjectName = name;
+        llmgenFileName = null;
+        llmgenSavedText = JSON.stringify(copy);
+        renderLlmgenCase(copy, llmgenCaseUnsynced || nameChanged);
+        appendChatMessage("info-note", "📄 已" + (from ? "把「" + from + "」" : "") + "另存成「" + name + "」，接下來改的是新的這份");
+      }
+      setProjectStatus("已另存成測案「" + name + "」");
+    } catch (err) { alert("另存失敗：" + err.message); }
+  }
+  llmgenCopyBtn.addEventListener("click", function () {
+    if (!llmgenLatestCase || !currentProject || !llmgenProjectName || llmgenEditing) return;
+    saveCaseAsNew(llmgenLatestCase, llmgenProjectName, llmgenHasUnsaved());
+  });
+
+  // 執行分頁的儲存：選的就是測案編輯開著的那份，跟按測案編輯的「💾 儲存」一樣；
+  // 測案編輯已經換成別份的話，這份只在執行分頁，問名稱存（預設原本的名稱，同名會問要不要覆蓋）
+  document.getElementById("runscriptSaveBtn").addEventListener("click", async function () {
+    if (!runscriptTestCase || runscriptCaseRef || !currentProject) return;
+    if (runscriptIsEditorCase()) {
+      if (!llmgenEditing) await saveLlmgenCaseToProject();
+      return;
+    }
+    var defaultName = runscriptEditorFrom || (runscriptTestCase.test_name || "llm_test_case").replace(/[^\w一-鿿-]+/g, "_");
+    var name = (prompt("存成專案測案，名稱（也是檔名）：", defaultName) || "").trim();
+    if (!name) return;
+    try {
+      // test_name 跟著檔名，存成功才改
+      if (!(await saveProjectItem("cases", name, withTestName(runscriptTestCase, name), false))) return;
+      runscriptTestCase.test_name = name;
+      runscriptCaseRef = name;
+      renderRunscriptCasePicker();
+      // 測案編輯開著的剛好是被覆蓋的那份：它的「上次存的內容」換成這份，狀態才會正確顯示有沒有還沒存的修改
+      if (llmgenProjectName === name) { llmgenSavedText = JSON.stringify(runscriptTestCase); updateLlmgenCaseControls(); }
       setProjectStatus("測案「" + name + "」已存進專案");
     } catch (err) { alert("存檔失敗：" + err.message); }
   });
-  // 複製一份：目前這份（包含還沒存的修改）存成新的專案測案，test_name 跟著新名稱，之後改的是複本
-  llmgenCopyBtn.addEventListener("click", async function () {
-    if (!llmgenLatestCase || !currentProject || !llmgenProjectName || llmgenEditing) return;
-    var from = llmgenProjectName;
-    var note = llmgenHasUnsaved() ? "\n（還沒存的修改會存進複本，原本的「" + from + "」維持上次存的內容）" : "";
-    var name = (prompt("複製成新的專案測案，名稱：" + note, from + "_copy") || "").trim();
-    if (!name) return;
-    if (name === from) { alert("複本要取不一樣的名稱"); return; }
-    var copy = JSON.parse(JSON.stringify(llmgenLatestCase));
-    copy.test_name = name;
-    try {
-      if (!(await saveProjectItem("cases", name, copy, false))) return;
-      var nameChanged = llmgenLatestCase.test_name !== name;
-      llmgenProjectName = name;
-      llmgenFileName = null;
-      llmgenSavedText = JSON.stringify(copy);
-      renderLlmgenCase(copy, llmgenCaseUnsynced || nameChanged);
-      appendChatMessage("info-note", "📄 已複製「" + from + "」成「" + name + "」，接下來改的是複本");
-      setProjectStatus("已複製成測案「" + name + "」");
-    } catch (err) { alert("複製失敗：" + err.message); }
+  document.getElementById("runscriptSaveAsBtn").addEventListener("click", function () {
+    if (!runscriptTestCase || !currentProject) return;
+    if (runscriptIsEditorCase() && llmgenEditing) return;
+    saveCaseAsNew(runscriptTestCase, runscriptCaseRef || runscriptEditorFrom, !runscriptCaseRef);
   });
 
   // ---- 管理測案視窗：列出專案所有測案，每一列直接開啟／改名／刪除（做法跟管理地圖一樣） ----
@@ -3945,6 +4028,18 @@
         runscriptTestCase = null;
         renderRunscriptPreview();
       }
+    } else if (!runscriptCaseRef && runscriptTestCase && runscriptEditorFrom === name) {
+      // 選的是測案編輯送來、有修改還沒存的那份：改名跟著換名稱；刪掉的話跟測案編輯一樣丟掉
+      if (newName) {
+        runscriptEditorFrom = newName;
+        runscriptEditorLabel = newName + "（有修改還沒存）";
+        runscriptTestCase.test_name = newName;
+        renderRunscriptCasePicker();
+      } else {
+        runscriptEditorFrom = null;
+        runscriptTestCase = null;
+        renderRunscriptPreview();
+      }
     }
     var batchChanged = false;
     batchGroups.forEach(function (g) {
@@ -4030,6 +4125,12 @@
   runscriptCaseProjectSelect.addEventListener("change", async function () {
     var name = runscriptCaseProjectSelect.value;
     if (!name || name === "__editor__") { renderRunscriptCasePicker(); return; }
+    // 選的是還沒存的那份，而且只剩執行分頁有這個版本：切走就找不回來，先確認。測案編輯那邊還在的話直接換
+    if (runscriptTestCase && !runscriptCaseRef && !runscriptIsEditorCase() &&
+        !confirm("目前選的「" + runscriptEditorLabel + "」只有執行分頁還有這個版本（測案編輯已經換成別份或又改過），切換之後就找不回來了。\n\n確定要切換嗎？")) {
+      renderRunscriptCasePicker();
+      return;
+    }
     try {
       runscriptTestCase = await fetchProjectCase(name);
       runscriptCaseRef = name;
