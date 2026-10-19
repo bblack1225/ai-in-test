@@ -29,6 +29,7 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.common.appiumby import AppiumBy
@@ -385,6 +386,86 @@ def app_windows_only(page_source: str, package: str | None) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+class PopupAwareDriver:
+    """
+    跑測案一步期間用的 driver 代理：平常什麼都不改，直接轉給真正的 driver。
+    主畫面找不到元件時，呼叫端呼叫 show_popup_windows() 暫時打開 enableMultiWindows，讓 App 自己開的
+    浮動視窗（PopupWindow，例如搜尋框的自動完成下拉清單）也查得到；打開之後 find_element(s)、
+    page_source 只算這支 App 的視窗，狀態列、鍵盤、導覽列的元件不算，免得文字剛好一樣點錯地方。
+    設定在 popup_windows_scope 結束時還原。
+    """
+
+    def __init__(self, driver):
+        self._driver = driver
+        self._package = None
+        self._restore = None  # 這一步打開的才要還原；本來就開著（錄製、跑馬燈監看）不動
+        self.popup_windows_opened = False  # 這一步有沒有打開過（結果文字註記用，還原後也保留）
+
+    def __getattr__(self, name):
+        return getattr(self._driver, name)
+
+    def show_popup_windows(self) -> bool:
+        """回傳這次有沒有新打開（新打開的才值得再找一次）。本來就開著、已經打開過、設定失敗都回 False"""
+        if self._package is not None:
+            return False
+        try:
+            settings = self._driver.get_settings()
+            if settings.get("enableMultiWindows"):
+                return False
+            package = self._driver.current_package
+            self._driver.update_settings({"enableMultiWindows": True})
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
+            logger.info(f"    [浮動視窗] 打開 enableMultiWindows 失敗：{type(e).__name__}")
+            return False
+        self._restore = {"enableMultiWindows": False}
+        self._package = package or ""
+        self.popup_windows_opened = True
+        logger.info("    [浮動視窗] 主畫面找不到元件，暫時打開 enableMultiWindows 再找一次")
+        return True
+
+    def _in_app(self, element) -> bool:
+        if not self._package:
+            return True
+        try:
+            return element.get_attribute("package") == self._package
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException:
+            return False
+
+    def find_elements(self, by, value):
+        found = self._driver.find_elements(by, value)
+        if self._package is None:
+            return found
+        return [e for e in found if self._in_app(e)]
+
+    def find_element(self, by, value):
+        if self._package is None:
+            return self._driver.find_element(by, value)
+        found = self.find_elements(by, value)
+        if not found:
+            raise NoSuchElementException(f"浮動視窗模式下 App 的視窗裡找不到 {by}={value}")
+        return found[0]
+
+    @property
+    def page_source(self):
+        source = self._driver.page_source
+        return source if self._package is None else app_windows_only(source, self._package)
+
+    def close(self) -> None:
+        if self._restore is None:
+            return
+        try:
+            self._driver.update_settings(self._restore)
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
+            logger.info(f"    [浮動視窗] 還原 enableMultiWindows 失敗：{type(e).__name__}")
+        self._restore, self._package = None, None
+
+
 # prepare_banner_watch() 提早打開 enableMultiWindows 前的原始設定存在 ctx.platform_state 的這個 key，
 # watch_banner 結束時用它還原（平台物件是共用的，同一次執行的狀態要放在 ctx）
 _PRE_WATCH_SETTINGS = "android_pre_watch_settings"
@@ -591,12 +672,21 @@ _KEYCODES = {**{str(d): 7 + d for d in range(10)},
              "?": (76, _SHIFT), ":": (74, _SHIFT), "~": (68, _SHIFT)}
 
 
+# AutoCompleteTextView（含 SearchView 的搜尋框）是 EditText 子類別，但 class 名稱不以 EditText 結尾
+_EDIT_TEXT_SUFFIXES = ("EditText", "AutoCompleteTextView")
+_EDIT_TEXT_XPATH_COND = "contains(@class,'EditText') or contains(@class,'AutoCompleteTextView')"
+
+
+def _is_edit_text(element) -> bool:
+    return (element.get_attribute("class") or "").endswith(_EDIT_TEXT_SUFFIXES)
+
+
 def _find_edit_text(element):
     """抓到的是外層容器、旁邊的標籤時，往下找真正的 EditText；本身就是 EditText 就用它"""
-    if (element.get_attribute("class") or "").endswith("EditText"):
+    if _is_edit_text(element):
         return element
     try:
-        inner = element.find_elements(AppiumBy.XPATH, ".//android.widget.EditText")
+        inner = element.find_elements(AppiumBy.XPATH, f".//*[{_EDIT_TEXT_XPATH_COND}]")
     except InvalidSessionIdException:
         raise
     except WebDriverException:
@@ -611,13 +701,13 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
     EditText 出現。點了也等不到就回傳 (None, True)
     """
     target = _find_edit_text(element)
-    if (target.get_attribute("class") or "").endswith("EditText"):
+    if _is_edit_text(target):
         return target, False
     element.click()
     deadline = time.time() + timeout
     while True:
         ctx.raise_if_stopped()
-        focused = driver.find_elements(AppiumBy.XPATH, "//android.widget.EditText[@focused='true']")
+        focused = driver.find_elements(AppiumBy.XPATH, f"//*[@focused='true'][{_EDIT_TEXT_XPATH_COND}]")
         if focused:
             logger.info(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
                         f"{focused[0].get_attribute('resource-id')!r}")
@@ -999,6 +1089,9 @@ class AndroidPlatform:
     supports_banner = True
     screen_id_attrs = ("resource-id",)
     screen_label_attrs = ("text", "content-desc")
+    # 「依變數定位」往上找清單容器用（core/var_xpath.py）
+    list_classes = ("android.widget.ListView", "androidx.recyclerview.widget.RecyclerView",
+                    "android.support.v7.widget.RecyclerView", "android.widget.GridView")
 
     xpath_intro = ("你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的\n"
                    "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。")
@@ -1042,6 +1135,15 @@ class AndroidPlatform:
     def element_flags(self, el: dict) -> dict:
         """原始屬性照實寫進 element_map，留給 viewer 篩選用"""
         return {"clickable": el["clickable"], "checkable": el["checkable"], "enabled": el["enabled"]}
+
+    @contextmanager
+    def popup_windows_scope(self, driver):
+        """跑測案一步期間包一層 PopupAwareDriver：主畫面找不到元件時可以暫時看浮動視窗，結束時還原設定"""
+        proxy = PopupAwareDriver(driver)
+        try:
+            yield proxy
+        finally:
+            proxy.close()
 
     def page_source_context(self, driver):
         """跑測案期間（單份、批次、命令列）套用的設定，見 no_idle_wait"""

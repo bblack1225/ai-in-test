@@ -374,6 +374,14 @@ select.plain-select {
 .xpath-editor-result { font-size: calc(11px * var(--font-scale)); padding: 5px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); }
 .xpath-editor-result.pass { background: var(--accent-soft); color: var(--accent-ink); }
 .xpath-editor-result.fail, .xpath-editor-result.error { background: var(--danger-soft); color: var(--danger); }
+/* 🔁 依變數定位 */
+.var-xpath { margin-top: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.var-xpath-title { font-weight: 700; font-size: calc(12px * var(--font-scale)); margin: 4px 0; }
+.var-xpath-opt { display: block; padding: 3px 0; overflow-wrap: anywhere; }
+.var-xpath-hint { color: var(--ink-soft); font-size: calc(11px * var(--font-scale)); margin-bottom: 4px; }
+.var-xpath-opt.disabled { color: var(--ink-soft); }
+.var-xpath-bad { color: var(--danger); font-size: calc(11px * var(--font-scale)); }
+.var-xpath-key { width: 100%; box-sizing: border-box; }
 .el-locator { font-size: calc(11px * var(--font-scale)); padding: 4px 8px; border-radius: 6px; background: var(--grey-soft); color: var(--ink-soft); word-break: break-all; }
 .el-locator .locator-type { font-weight: 700; margin-right: 6px; color: var(--ink); }
 .el-locator.custom { background: var(--gold-soft); color: var(--gold); }

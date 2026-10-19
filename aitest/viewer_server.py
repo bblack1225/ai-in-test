@@ -83,6 +83,7 @@ from aitest.core.run_test_case import (
     with_dismiss_note,
 )
 from aitest.core.run_report import render_batch_report, render_run_report
+from aitest.core.var_xpath import build_options as build_var_xpath_options, fill as fill_var_xpath
 from aitest.core.workspace import DEFAULT_ROOT, RUNS_DIR, Workspace, WorkspaceError
 from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
@@ -263,17 +264,62 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
 
 
 def test_xpath(xpath: str) -> dict:
-    """讓使用者儲存前先測試自訂 XPath 查到幾個結果，不用真的存檔/執行測案才知道。"""
-    d = get_driver()
-    try:
-        matches = d.find_elements(AppiumBy.XPATH, xpath)
-    except InvalidSessionIdException:
-        raise
-    except WebDriverException as e:
-        return {"count": 0, "error": f"{type(e).__name__}: {e}"}
+    """讓使用者儲存前先測試自訂 XPath 查到幾個結果，不用真的存檔/執行測案才知道。
+    跟跑測案一樣：主畫面查不到時暫時打開「也看浮動視窗」再查（見 run_test_case._find_with_popups），
+    剛打開時浮動視窗可能還沒回報，多查幾次。"""
+    with PLATFORM.popup_windows_scope(get_driver()) as d:
+        try:
+            matches = d.find_elements(AppiumBy.XPATH, xpath)
+            show = getattr(d, "show_popup_windows", None)
+            if not matches and show is not None and show():
+                deadline = time.time() + 2.0
+                while True:
+                    matches = d.find_elements(AppiumBy.XPATH, xpath)
+                    if matches or time.time() >= deadline:
+                        break
+                    time.sleep(0.3)
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
+            return {"count": 0, "error": f"{type(e).__name__}: {e}"}
 
-    preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
-    return {"count": len(matches), "preview": preview}
+        preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
+        in_popup = bool(matches) and getattr(d, "popup_windows_opened", False)
+    return {"count": len(matches), "preview": preview, "in_popup": in_popup}
+
+
+def var_xpath_options(el: dict) -> dict:
+    """
+    「🔁 依變數定位」：列出清單這一列裡的文字，每段文字各組一條含變數的 XPath（core/var_xpath.py），
+    再用這段文字目前的值實測：剛好查到 1 個、而且就是這一列，才標成可以用（usable）。
+    Android 的下拉清單是浮動視窗，先打開「也看浮動視窗」再讀；剛打開時可能還沒回報，多讀幾次。
+    """
+    with PLATFORM.popup_windows_scope(get_driver()) as d:
+        show = getattr(d, "show_popup_windows", None)
+        if show is not None:
+            show()
+        deadline = time.time() + 2.0
+        while True:
+            result = build_var_xpath_options(PLATFORM, d.page_source, el)
+            if result["found"] or time.time() >= deadline:
+                break
+            time.sleep(0.4)
+        if not result["found"]:
+            return result
+        row = result["row_bounds"]
+        for opt in result["options"]:
+            try:
+                matches = d.find_elements(AppiumBy.XPATH, fill_var_xpath(opt["template"], opt["text"]))
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException as e:
+                opt.update(count=0, usable=False, reason=f"查詢失敗：{type(e).__name__}")
+                continue
+            hit = len(matches) == 1 and abs(matches[0].location["x"] - row["x"]) <= 3 \
+                and abs(matches[0].location["y"] - row["y"]) <= 3
+            opt.update(count=len(matches), usable=hit,
+                       reason="" if hit else ("查到的不是這一列" if len(matches) == 1 else f"查到 {len(matches)} 個"))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +500,7 @@ def _build_llm_testgen_system_prompt(screens_context_json: str, var_keys: dict |
 元件資料」設計、產生可以透過 Appium 執行的自動化測試案例。
 
 以下是使用者選定、目前可用的畫面元件資料（JSON，每個畫面下的元件都只精簡保留
-unique_id/id_source/class/label/description 這幾個欄位）：
+unique_id/id_source/class/label/description 這幾個欄位，少數元件另外有 xpath_vars，見規則9）：
 {screens_context_json}
 
 【輸出格式規則，非常重要，一定要遵守】
@@ -526,7 +572,19 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    用來說明要測的流程與預期結果。附件只是「要測什麼」的參考：步驟的 target
    仍然只能用上面畫面資料裡真的存在的 unique_id（規則3），不能因為附件上
    畫了某個按鈕就編造 id。附件裡的流程有步驟對應不到任何畫面元件時，在說明
-   文字裡列出是哪幾步、建議補掃哪個畫面；附件內容看不清楚或有歧義時，先反問
+   文字裡列出是哪幾步、建議補掃哪個畫面；附件內容看不清楚或有歧義時，先反問使用者，不要自己猜。
+8. 送出前補齊輸入欄位：流程裡有送出、確認類的 tap（例如「買進」「賣出」「送出」「確定」
+   「登入」「下一步」）時，先看那個畫面上的輸入欄位（class 是 EditText、AutoCompleteTextView、
+   TextField 這類，或 description 寫著輸入、數量、價格、金額、帳號的元件），完成這個操作
+   一般要填的欄位，使用者沒提到也要在送出前補上 input_text，值用變數代號。依流程判斷哪些
+   不用填（例如選了市價就不用填價格）；判斷不出來要不要填的不要默默略過，在說明文字列出
+   來請使用者確認。說明文字裡另外列出「你沒提到、我補上的輸入步驟」，讓使用者檢查。
+9. xpath_vars：元件有這個欄位，代表使用者幫它設了「依變數定位」的自訂 XPath，執行時會
+   找變數值對應的那個元件，而不是 label/description 寫的那一筆（例如搜尋結果清單裡
+   「代號等於 ${{STOCK_CODE}} 的那一列」，label 可能還是錄製時搜的那檔股票）。要依某個值
+   挑清單中的一筆（點搜尋結果、選帳號、選商品）時，優先用有 xpath_vars 的元件，不要用
+   清單裡顯示錄製時文字的其他元件；前面輸入、驗證這個值的步驟用同一個變數代號
+   （xpath_vars 裡列的 KEY），兩邊才會對得上。
 """
 
 
@@ -1395,7 +1453,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     KNOWN_PATHS = (
-        "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
+        "/tap", "/assert_visible", "/inspect", "/test_xpath", "/var_xpath", "/agent_xpath",
         "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
         "/run_batch", "/check_screen", "/describe_screen",
         "/record/start", "/record/tap", "/record/input", "/record/swipe", "/record/back", "/record/refresh",
@@ -1633,6 +1691,8 @@ class Handler(BaseHTTPRequestHandler):
             return inspect_element(payload)
         if path == "/test_xpath":
             return test_xpath(payload.get("xpath", ""))
+        if path == "/var_xpath":
+            return var_xpath_options(payload)
         if path == "/agent_xpath":
             return agent_generate_xpath(payload)
         if path == "/llm_chat":

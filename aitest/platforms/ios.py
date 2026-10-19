@@ -407,15 +407,33 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
 
 
 _KEYBOARD_DONE_LABELS = ["完成", "Done"]
+# 單行輸入框的送出鍵（文字鍵盤右下角那顆，標籤依輸入框類型不同）：按了會收鍵盤。
+# 多行的 TextView 按 return 是換行，不按；「前往／傳送」這類可能觸發別的動作，不放
+_KEYBOARD_RETURN_LABELS = ["return", "Return", "換行", "search", "Search", "搜尋"]
 
 
-def dismiss_keyboard(driver) -> bool:
+def _tap_toolbar_icon(driver, keyboard_top: float) -> bool:
+    """緊貼鍵盤上緣的工具列只有一顆沒有文字的按鈕（收鍵盤圖示）時點它，回傳有沒有點"""
+    for toolbar in driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeToolbar"):
+        bottom = toolbar.location["y"] + toolbar.size["height"]
+        if not keyboard_top - 5 <= bottom <= keyboard_top + 5:
+            continue
+        buttons = toolbar.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeButton")
+        if len(buttons) == 1 and not (buttons[0].get_attribute("label") or "").strip():
+            logger.info("    [輸入] 點鍵盤上方工具列的收鍵盤圖示")
+            buttons[0].click()
+            return True
+    return False
+
+
+def dismiss_keyboard(driver, return_key: bool = True) -> bool:
     """
     打完字收鍵盤，回傳鍵盤是不是收起來了。Android 打完會收，iOS 不收的話鍵盤會蓋住
     下一步要點的按鈕（例如輸入數量後的「下一步」）。
-      1. 鍵盤上的「完成」鍵（文字鍵盤的 return 鍵常被改成完成）
+      1. 鍵盤上的「完成」鍵；return_key 時再加上 return／search 這類送出鍵（單行輸入框才按）
       2. 數字鍵盤沒有完成鍵，App 常在鍵盤正上方加一條工具列放「完成」按鈕——它不在鍵盤裡，
-         第 1 步找不到。只按緊貼鍵盤上緣的那顆，不會誤按頁面上別的「完成」（例如送出申請）
+         第 1 步找不到。只按緊貼鍵盤上緣的那顆，不會誤按頁面上別的「完成」（例如送出申請）。
+         工具列上只有一顆沒有文字的按鈕（收鍵盤的圖示）也按它；好幾顆時（上一個／下一個…）不猜
     """
     def shown() -> bool:
         try:
@@ -425,10 +443,22 @@ def dismiss_keyboard(driver) -> bool:
         except WebDriverException:
             return False
 
+    def hidden_soon(timeout: float = 1.0) -> bool:
+        """收鍵盤有動畫，剛按完 is_keyboard_shown 可能還是 True，等一下再判斷"""
+        deadline = time.time() + timeout
+        while shown():
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.2)
+        return True
+
     if not shown():
         return True
+    keys = _KEYBOARD_DONE_LABELS + (_KEYBOARD_RETURN_LABELS if return_key else [])
     try:
-        driver.execute_script("mobile: hideKeyboard", {"keys": _KEYBOARD_DONE_LABELS})
+        driver.execute_script("mobile: hideKeyboard", {"keys": keys})
+        if hidden_soon():
+            return True
     except InvalidSessionIdException:
         raise
     except WebDriverException:
@@ -445,7 +475,11 @@ def dismiss_keyboard(driver) -> bool:
                 bottom = button.location["y"] + button.size["height"]
                 if keyboard_top - 60 <= bottom <= keyboard_top + 5:
                     button.click()
+                    if hidden_soon():
+                        return True
                     break
+            if shown() and _tap_toolbar_icon(driver, keyboard_top) and hidden_soon():
+                return True
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
@@ -676,6 +710,32 @@ def _first_button_label(driver, labels: list[str], any_type: bool = False):
     return None, None
 
 
+# App 自己畫的純資訊視窗（公告、提醒）常常只有一顆「確定」。這些字眼出現、而且畫面上只有一顆
+# 確認類按鈕時才按（見 _single_ack_on_notice）。刻意不放「請確認是否」：那是要使用者確認動作的視窗
+# （例如確認送出委託），只有「確定」時按下去就等於幫使用者確認了
+_NOTICE_MARKERS = ("公告", "提醒您", "溫馨提醒", "重要通知", "連線中斷", "偵測到系統")
+
+
+def _single_ack_on_notice(driver):
+    """App 自己畫的公告視窗（不是系統 Alert）：畫面上有公告類字眼、而且只有一顆確認類按鈕時，
+    回傳 (那顆按鈕, 文字)；不符合回傳 (None, None)。好幾顆「確定」時不猜"""
+    notice = " OR ".join(f"label CONTAINS {predicate_literal(m)}" for m in _NOTICE_MARKERS)
+    label_in = "label IN {" + ", ".join(predicate_literal(label) for label in MODAL_ACK_ONLY_LABELS) + "}"
+    try:
+        if not driver.find_elements(AppiumBy.IOS_PREDICATE, notice):
+            return None, None
+        buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, f"type == 'XCUIElementTypeButton' AND {label_in}")
+        if not buttons:  # App 自己畫的按鈕可能不是 Button
+            buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, label_in)
+        if len(buttons) != 1:
+            return None, None
+        return buttons[0], (buttons[0].get_attribute("label") or "").strip()
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        return None, None
+
+
 def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False,
                   keep_labels=()) -> list[str]:
     """
@@ -683,8 +743,9 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
     「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
 
     先點「純關閉」語意的按鈕（我知道了 / 關閉 / 略過…）；找不到、且畫面上
-    出現 XCUIElementTypeAlert 時，才點「確定 / OK」這類確認語意的。永遠不點
-    NEVER_TAP_LABELS（關閉APP…，兩份按鈕清單裡本來就沒有）。
+    出現 XCUIElementTypeAlert 時，才點「確定 / OK」這類確認語意的。跑測案時（any_type）
+    另外處理 App 自己畫的公告：有公告類字眼、而且只有一顆確認類按鈕就按（_single_ack_on_notice）。
+    永遠不點 NEVER_TAP_LABELS（關閉APP…，兩份按鈕清單裡本來就沒有）。
 
     效能（兩層）：
       1. 傳 page_source 進來時，先用字串快篩，沒有任何 modal 線索就直接 return，
@@ -716,6 +777,8 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
                 has_alert = False
             if has_alert:
                 element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS)
+            elif any_type:
+                element, target = _single_ack_on_notice(driver)
         if element is None:
             break
         if target in keep_labels:
@@ -803,6 +866,8 @@ class IOSPlatform:
     # 第0步畫面檢查（run_test_case.match_screen_in_source）：id / 文字放在哪些屬性
     screen_id_attrs = ("name",)
     screen_label_attrs = ("label",)
+    # 「依變數定位」往上找清單容器用（core/var_xpath.py）
+    list_classes = ("XCUIElementTypeTable", "XCUIElementTypeCollectionView")
 
     # /agent_xpath prompt 裡的平台用語（見 viewer_server._build_agent_xpath_prompt）
     xpath_intro = ("你是 iOS UI 自動化測試專家。以下是透過 Appium XCUITest 取得的\n"
@@ -909,7 +974,8 @@ class IOSPlatform:
     def input_text(self, ctx, driver, element, value: str, submit: bool = False) -> str:
         element.send_keys(value)
         # 字已經打好了，鍵盤收不起來不讓整步 FAIL，但註記出來：下一步被鍵盤擋住時看得出原因
-        if not dismiss_keyboard(driver):
+        multiline = element.get_attribute("type") == "XCUIElementTypeTextView"
+        if not dismiss_keyboard(driver, return_key=not multiline):
             logger.info("    [輸入] 鍵盤收不起來，照原本流程繼續")
             return "PASS（鍵盤收不起來，可能會擋住下一步）"
         return "PASS"
@@ -922,6 +988,11 @@ class IOSPlatform:
 
     def stop_capture(self, driver, save_path: str | None) -> str | None:
         return None
+
+    @contextmanager
+    def popup_windows_scope(self, driver):
+        """iOS 的 page source 本來就包含 App 所有視窗（含浮動層），不用另外處理"""
+        yield driver
 
     # --- 錄製建樹（core/recorder.py）：iOS 的 page source 本來就包含 App 所有視窗，不用特別處理 ---
     def begin_recording(self, driver) -> None:

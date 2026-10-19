@@ -130,3 +130,56 @@ def test_labels_if_on_screen_when_not_matching():
     driver = SourceDriver(["偵測到 Root", "我知道了"])
     assert labels_if_on_screen(ScreenPlatform(), driver, "確認框", CONFIRM_SCREEN) == set()
     assert labels_if_on_screen(ScreenPlatform(), driver, None, None) == set()
+
+
+class FakeNoticeDriver:
+    """App 自己畫的公告視窗（不是系統 Alert），只有「確定」按鈕；buttons 是畫面上叫確定的按鈕數"""
+
+    page_source = "<AppiumAUT />"
+
+    def __init__(self, title="複委託權益公告", buttons=1):
+        self.title, self.buttons = title, buttons
+        self.dialog_open = True
+        self.clicked = []
+
+    def find_elements(self, by, value):
+        if not self.dialog_open or "XCUIElementTypeAlert" in value:
+            return []
+        if "label CONTAINS" in value:
+            markers = [m for m in ("公告", "提醒您", "請確認是否") if f"'{m}'" in value]
+            return [FakeIOSElement(self, self.title)] if any(m in self.title for m in markers) else []
+        if "'確定'" in value and "XCUIElementTypeButton" in value:
+            return [FakeIOSElement(self, "確定") for _ in range(self.buttons)]
+        return []
+
+
+def test_ios_run_taps_single_ok_on_notice():
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeNoticeDriver()
+    assert IOSPlatform().dismiss_dialogs(driver) == ["確定"]
+
+
+def test_ios_notice_with_several_ok_not_guessed():
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeNoticeDriver(buttons=2)
+    assert IOSPlatform().dismiss_dialogs(driver) == []
+    assert driver.clicked == []
+
+
+def test_ios_confirm_dialog_not_tapped():
+    """「請確認是否送出」這種要使用者確認動作的視窗，只有「確定」也不按"""
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeNoticeDriver(title="請確認是否送出委託")
+    assert IOSPlatform().dismiss_dialogs(driver) == []
+    assert driver.clicked == []
+
+
+def test_ios_crawler_does_not_tap_notice_ok():
+    """爬蟲維持原本的規則（只在系統 Alert 上按確定）"""
+    from aitest.platforms import ios
+
+    driver = FakeNoticeDriver()
+    assert ios.dismiss_modal(driver) == []

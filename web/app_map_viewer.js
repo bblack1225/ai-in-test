@@ -1286,6 +1286,13 @@
   }
   async function testXPathValueShort(xpath, resultEl) {
     if (!xpath) { resultEl.textContent = "請先輸入 XPath"; resultEl.className = "xpath-editor-result error"; return; }
+    // 含 ${KEY} 的 XPath 執行時才換成變數值，這裡先問一個值代入測試（存的還是含變數的原文）
+    var names = xpathVarNames(xpath);
+    for (var i = 0; i < names.length; i++) {
+      var sample = window.prompt("XPath 含變數 ${" + names[i] + "}，請輸入一個值來測試：", "");
+      if (sample === null) { resultEl.textContent = "已取消測試"; resultEl.className = "xpath-editor-result"; return; }
+      xpath = xpath.split("${" + names[i] + "}").join(sample);
+    }
     resultEl.textContent = "測試中..."; resultEl.className = "xpath-editor-result";
     try {
       var base = API_BASE;
@@ -1295,7 +1302,7 @@
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
       if (data.error) { resultEl.textContent = "XPath 語法錯誤：" + data.error; resultEl.className = "xpath-editor-result error"; return; }
       var suffix = data.count === 1 ? "（唯一，可以儲存）" : data.count === 0 ? "（查無結果）" : "（有歧義，不建議儲存）";
-      resultEl.textContent = "查到 " + data.count + " 個結果" + suffix;
+      resultEl.textContent = "查到 " + data.count + " 個結果" + suffix + (data.in_popup ? "；在浮動視窗（例如下拉清單）裡找到" : "");
       resultEl.className = "xpath-editor-result " + (data.count === 1 ? "pass" : "fail");
     } catch (err) {
       resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");
@@ -1422,7 +1429,9 @@
       '<div class="el-locator' + (locator.custom ? " custom" : "") + '"><span class="locator-type">' + locatorTypeLabel + "</span>" + escapeHtml(locator.text) + "</div>" +
       '<div class="btn-row"><button class="btn primary" id="modalTapBtn">📲 送出點擊到裝置</button></div>' +
       '<div class="tap-result pending" id="modalTapResult">還沒送出</div>' +
-      '<div class="btn-row"><button class="btn" id="modalXpathToggle">✏️ 重新定義XPath／🤖 AI定位</button></div>' +
+      '<div class="btn-row"><button class="btn" id="modalXpathToggle">✏️ 重新定義XPath／🤖 AI定位</button>' +
+      '<button class="btn" id="modalVarXpathBtn" title="清單裡依變數（例如股票代號）點對應的那一列">🔁 依變數定位</button></div>' +
+      '<div id="modalVarXpath" class="var-xpath" hidden></div>' +
       '<div id="modalXpathEditor" hidden>' +
       '<select class="plain-select" id="modalAncestorSelect" style="width:100%;margin-bottom:6px;"><option value="">-- 先載入上層元素 --</option></select>' +
       '<textarea class="xpath-input" id="modalXpathInput">' + escapeHtml(locator.rawXPath || "") + "</textarea>" +
@@ -1503,6 +1512,72 @@
         result.textContent = message;
         result.className = "xpath-editor-result pass";
       });
+    });
+    document.getElementById("modalVarXpathBtn").addEventListener("click", function () {
+      var hostEl = document.getElementById("modalVarXpath");
+      hostEl.hidden = !hostEl.hidden;
+      if (!hostEl.hidden) loadVarXpathOptions(el, hostEl);
+    });
+  }
+
+  // ---- 🔁 依變數定位：列出這一列裡的文字，選「哪段每次會換」＋變數名稱，組出含 ${KEY} 的自訂 XPath ----
+  // XPath 由 viewer_server /var_xpath 照規則組好、用目前的值實測過（core/var_xpath.py），這裡只負責選和存
+  var VAR_PLACEHOLDER = "{{VAR}}";
+  async function loadVarXpathOptions(el, hostEl) {
+    hostEl.innerHTML = '<div class="xpath-editor-result">讀取手機畫面中...（手機要停在清單有出來的畫面）</div>';
+    try {
+      var base = API_BASE;
+      await assertPlatformMatches(base, mapPlatform());
+      var res = await fetch(base + "/var_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      if (!data.found) {
+        hostEl.innerHTML = '<div class="xpath-editor-result error">' + escapeHtml(data.error || "找不到這一列") + "</div>";
+        return;
+      }
+      renderVarXpathOptions(el, hostEl, data.options || []);
+    } catch (err) {
+      hostEl.innerHTML = '<div class="xpath-editor-result error">' + escapeHtml(failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）")) + "</div>";
+    }
+  }
+  function renderVarXpathOptions(el, hostEl, options) {
+    var keys = [];
+    projectVars.forEach(function (v) { (v.keys || []).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+    // 不預設勾選：選錯整條 XPath 就錯了（例如勾到名稱，但搜尋框輸入的是代號），一定要使用者自己選
+    var anyUsable = options.some(function (o) { return o.usable; });
+    hostEl.innerHTML =
+      '<div class="var-xpath-title">1. 哪段文字要等於變數的值？</div>' +
+      '<div class="var-xpath-hint">選你會放進變數、在前面步驟輸入的那段（例如搜尋框輸入股票代號，就選代號）。' +
+      '整列其他文字跟著它換，不用選</div>' +
+      options.map(function (o, i) {
+        var note = o.usable ? "" : '<span class="var-xpath-bad">（' + escapeHtml(o.reason || "不能用") + "）</span>";
+        return '<label class="var-xpath-opt' + (o.usable ? "" : " disabled") + '"><input type="radio" name="varXpathOpt" value="' + i + '"' +
+          (o.usable ? "" : " disabled") + "> " + escapeHtml(o.text) + note + "</label>";
+      }).join("") +
+      '<div class="var-xpath-title">2. 變數名稱</div>' +
+      '<input type="text" class="var-xpath-key" id="varXpathKey" list="varXpathKeys" placeholder="例如 STOCK_CODE" autocomplete="off">' +
+      '<datalist id="varXpathKeys">' + keys.map(function (k) { return '<option value="' + escapeHtml(k) + '">'; }).join("") + "</datalist>" +
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn primary" id="varXpathApply">套用並儲存</button></div>' +
+      '<div class="xpath-editor-result" id="varXpathResult">' +
+      (!anyUsable ? "沒有能唯一定位這一列的文字，請改用「✏️ 重新定義XPath／🤖 AI定位」" : "選好後按「套用並儲存」，會存成這個元件的自訂 XPath") + "</div>";
+    document.getElementById("varXpathApply").addEventListener("click", function () {
+      var resultEl = document.getElementById("varXpathResult");
+      var picked = hostEl.querySelector('input[name="varXpathOpt"]:checked');
+      var key = document.getElementById("varXpathKey").value.trim();
+      if (!picked) { resultEl.textContent = "請先選一段文字"; resultEl.className = "xpath-editor-result error"; return; }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        resultEl.textContent = "變數名稱只能用英文、數字、底線，而且不能數字開頭（建議全大寫，例如 STOCK_CODE）";
+        resultEl.className = "xpath-editor-result error"; return;
+      }
+      var opt = options[Number(picked.value)];
+      el.custom_xpath = opt.template.split(VAR_PLACEHOLDER).join("${" + key + "}");
+      // 描述改成依變數的意思：測案編輯的 LLM 只看描述挑元件，還寫著錄製時那一筆的話它會挑錯
+      el.d = "清單中文字等於 ${" + key + "} 的那一列（依變數定位，設定時是「" + opt.text + "」）";
+      el.dm = true;
+      markMapDirty();
+      renderModalList(document.getElementById("modalSearch").value, document.getElementById("modalClickableOnly").checked);
+      if (selectedUid) selectScreen(selectedUid);
+      renderModalPicked(el);
     });
   }
 
@@ -2161,12 +2236,21 @@
 
   // 給 LLM 對話式產生測案用：LLM 只需要知道「有哪些元件、長怎樣」來寫出
   // 測案步驟，不需要真的拿去定位，欄位刻意精簡省token。
+  function xpathVarNames(xpath) {
+    var names = [];
+    (xpath || "").replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) { if (names.indexOf(name) < 0) names.push(name); return m; });
+    return names;
+  }
   function shortScreensToLlmgenFormat(srcScreens) {
     return srcScreens.map(function (s) {
       return {
         screen_name: s.name,
         elements: (s.els || []).map(function (el) {
-          return { unique_id: el.u, id_source: el.src, class: el.c, label: el.l, description: el.d };
+          var out = { unique_id: el.u, id_source: el.src, class: el.c, label: el.l, description: el.d };
+          // 自訂 XPath 含 ${KEY}（例如依股票代號挑搜尋結果）：告訴 LLM 這個元件會依哪些變數定位，不送 XPath 本身
+          var vars = xpathVarNames(el.custom_xpath);
+          if (vars.length) out.xpath_vars = vars;
+          return out;
         }),
       };
     });
@@ -2236,7 +2320,9 @@
       return {
         screen_name: screen.screen_name,
         elements: (screen.elements || []).map(function (el) {
-          return { unique_id: el.unique_id, id_source: el.id_source, class: el.class, label: el.label, description: el.description };
+          var out = { unique_id: el.unique_id, id_source: el.id_source, class: el.class, label: el.label, description: el.description };
+          if (el.xpath_vars) out.xpath_vars = el.xpath_vars;
+          return out;
         }),
       };
     });
