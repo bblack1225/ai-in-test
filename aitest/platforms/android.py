@@ -591,12 +591,21 @@ _KEYCODES = {**{str(d): 7 + d for d in range(10)},
              "?": (76, _SHIFT), ":": (74, _SHIFT), "~": (68, _SHIFT)}
 
 
+# AutoCompleteTextView（含 SearchView 的搜尋框）是 EditText 子類別，但 class 名稱不以 EditText 結尾
+_EDIT_TEXT_SUFFIXES = ("EditText", "AutoCompleteTextView")
+_EDIT_TEXT_XPATH_COND = "contains(@class,'EditText') or contains(@class,'AutoCompleteTextView')"
+
+
+def _is_edit_text(element) -> bool:
+    return (element.get_attribute("class") or "").endswith(_EDIT_TEXT_SUFFIXES)
+
+
 def _find_edit_text(element):
     """抓到的是外層容器、旁邊的標籤時，往下找真正的 EditText；本身就是 EditText 就用它"""
-    if (element.get_attribute("class") or "").endswith("EditText"):
+    if _is_edit_text(element):
         return element
     try:
-        inner = element.find_elements(AppiumBy.XPATH, ".//android.widget.EditText")
+        inner = element.find_elements(AppiumBy.XPATH, f".//*[{_EDIT_TEXT_XPATH_COND}]")
     except InvalidSessionIdException:
         raise
     except WebDriverException:
@@ -611,13 +620,13 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
     EditText 出現。點了也等不到就回傳 (None, True)
     """
     target = _find_edit_text(element)
-    if (target.get_attribute("class") or "").endswith("EditText"):
+    if _is_edit_text(target):
         return target, False
     element.click()
     deadline = time.time() + timeout
     while True:
         ctx.raise_if_stopped()
-        focused = driver.find_elements(AppiumBy.XPATH, "//android.widget.EditText[@focused='true']")
+        focused = driver.find_elements(AppiumBy.XPATH, f"//*[@focused='true'][{_EDIT_TEXT_XPATH_COND}]")
         if focused:
             logger.info(f"    [輸入] 元件不是輸入框，點開後找到取得焦點的輸入框 resource-id="
                         f"{focused[0].get_attribute('resource-id')!r}")
