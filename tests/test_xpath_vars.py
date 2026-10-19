@@ -1,5 +1,7 @@
 """自訂XPath 裡的 ${KEY}：執行時換成變數值；查不到時不退回自動定位或座標"""
 
+from contextlib import nullcontext
+
 from aitest.core.run_test_case import execute_step
 from aitest.run_context import RunContext
 
@@ -36,6 +38,9 @@ class FakePlatform:
 
     def __init__(self):
         self.auto_located = 0
+
+    def popup_windows_scope(self, driver):
+        return nullcontext(driver)
 
     def ensure_visible(self, driver, element):
         pass

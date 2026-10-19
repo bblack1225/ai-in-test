@@ -1303,7 +1303,7 @@
       if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
       if (data.error) { resultEl.textContent = "XPath 語法錯誤：" + data.error; resultEl.className = "xpath-editor-result error"; return; }
       var suffix = data.count === 1 ? "（唯一，可以儲存）" : data.count === 0 ? "（查無結果）" : "（有歧義，不建議儲存）";
-      resultEl.textContent = "查到 " + data.count + " 個結果" + suffix;
+      resultEl.textContent = "查到 " + data.count + " 個結果" + suffix + (data.in_popup ? "；在浮動視窗（例如下拉清單）裡找到" : "");
       resultEl.className = "xpath-editor-result " + (data.count === 1 ? "pass" : "fail");
     } catch (err) {
       resultEl.textContent = failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）");

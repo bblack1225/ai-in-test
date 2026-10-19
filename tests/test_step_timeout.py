@@ -1,5 +1,7 @@
 """每一步預設的等待（run_test_case.execute_step）：找不到元件時在 timeout 內重試，一找到就繼續"""
 
+from contextlib import nullcontext
+
 import pytest
 from selenium.common.exceptions import NoSuchElementException
 
@@ -41,6 +43,9 @@ class FakePlatform:
     native_by = "id"
     native_id_name = "resource-id"
     generated_locate_label = "自動定位"
+
+    def popup_windows_scope(self, driver):
+        return nullcontext(driver)
 
     def ensure_visible(self, driver, element):
         pass

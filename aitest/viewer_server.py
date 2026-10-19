@@ -263,17 +263,28 @@ def inspect_element(el: dict, max_levels: int = 8) -> dict:
 
 
 def test_xpath(xpath: str) -> dict:
-    """讓使用者儲存前先測試自訂 XPath 查到幾個結果，不用真的存檔/執行測案才知道。"""
-    d = get_driver()
-    try:
-        matches = d.find_elements(AppiumBy.XPATH, xpath)
-    except InvalidSessionIdException:
-        raise
-    except WebDriverException as e:
-        return {"count": 0, "error": f"{type(e).__name__}: {e}"}
+    """讓使用者儲存前先測試自訂 XPath 查到幾個結果，不用真的存檔/執行測案才知道。
+    跟跑測案一樣：主畫面查不到時暫時打開「也看浮動視窗」再查（見 run_test_case._find_with_popups），
+    剛打開時浮動視窗可能還沒回報，多查幾次。"""
+    with PLATFORM.popup_windows_scope(get_driver()) as d:
+        try:
+            matches = d.find_elements(AppiumBy.XPATH, xpath)
+            show = getattr(d, "show_popup_windows", None)
+            if not matches and show is not None and show():
+                deadline = time.time() + 2.0
+                while True:
+                    matches = d.find_elements(AppiumBy.XPATH, xpath)
+                    if matches or time.time() >= deadline:
+                        break
+                    time.sleep(0.3)
+        except InvalidSessionIdException:
+            raise
+        except WebDriverException as e:
+            return {"count": 0, "error": f"{type(e).__name__}: {e}"}
 
-    preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
-    return {"count": len(matches), "preview": preview}
+        preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
+        in_popup = bool(matches) and getattr(d, "popup_windows_opened", False)
+    return {"count": len(matches), "preview": preview, "in_popup": in_popup}
 
 
 # ---------------------------------------------------------------------------

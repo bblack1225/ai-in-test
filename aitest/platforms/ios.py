@@ -923,6 +923,11 @@ class IOSPlatform:
     def stop_capture(self, driver, save_path: str | None) -> str | None:
         return None
 
+    @contextmanager
+    def popup_windows_scope(self, driver):
+        """iOS 的 page source 本來就包含 App 所有視窗（含浮動層），不用另外處理"""
+        yield driver
+
     # --- 錄製建樹（core/recorder.py）：iOS 的 page source 本來就包含 App 所有視窗，不用特別處理 ---
     def begin_recording(self, driver) -> None:
         return None
