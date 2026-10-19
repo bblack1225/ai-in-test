@@ -1286,6 +1286,14 @@
   }
   async function testXPathValueShort(xpath, resultEl) {
     if (!xpath) { resultEl.textContent = "請先輸入 XPath"; resultEl.className = "xpath-editor-result error"; return; }
+    // 含 ${KEY} 的 XPath 執行時才換成變數值，這裡先問一個值代入測試（存的還是含變數的原文）
+    var names = [];
+    xpath.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) { if (names.indexOf(name) < 0) names.push(name); return m; });
+    for (var i = 0; i < names.length; i++) {
+      var sample = window.prompt("XPath 含變數 ${" + names[i] + "}，請輸入一個值來測試：", "");
+      if (sample === null) { resultEl.textContent = "已取消測試"; resultEl.className = "xpath-editor-result"; return; }
+      xpath = xpath.split("${" + names[i] + "}").join(sample);
+    }
     resultEl.textContent = "測試中..."; resultEl.className = "xpath-editor-result";
     try {
       var base = API_BASE;

@@ -196,17 +196,25 @@ def retry_until_pass(ctx, check, timeout=None, poll_interval: float = 0.5,
         time.sleep(poll_interval)
 
 
-def _locate_by_custom_xpath(driver, el: dict):
+def custom_xpath_has_vars(el: dict) -> bool:
+    """自訂XPath 裡有 ${KEY}（例如依股票代號挑搜尋結果）：查不到就是查不到，不退回自動定位或座標
+    ——那兩種是照掃描時的文字、位置找，會點到錄製時的那一筆，而不是這次變數對應的那一筆"""
+    return bool(_ENV_PLACEHOLDER.search(el.get("custom_xpath") or ""))
+
+
+def _locate_by_custom_xpath(ctx, driver, el: dict):
     """
     人工在 viewer 上用「重新定義XPath」/「AI定位」存下來的自訂查詢
     （el["custom_xpath"]），優先於所有自動推導的定位方式使用——這是人工
     測試過、或AI生成後經過實測驗證才存的，比自動邏輯更值得信任。查不到
     唯一結果時（例如畫面已經改版）不強行使用，回傳 None 讓呼叫端繼續走
-    原本的自動定位鏈。
+    原本的自動定位鏈。裡面的 ${KEY} 先換成這次的變數值（沒設定的變數由
+    execute_step 先擋下來）。
     """
     custom_xpath = el.get("custom_xpath")
     if not custom_xpath:
         return None
+    custom_xpath, _ = resolve_env_placeholders(ctx, custom_xpath)
     try:
         matches = driver.find_elements(AppiumBy.XPATH, custom_xpath)
     except InvalidSessionIdException:
@@ -241,6 +249,9 @@ def resolve_env_placeholders(ctx, value: str) -> tuple[str, list[str]]:
     return _ENV_PLACEHOLDER.sub(replace, value or ""), missing
 
 
+_VAR_XPATH_MISS = "自訂XPath 含變數，換成這次的值後查無唯一結果；不退回自動定位或座標"
+
+
 def missing_vars_outcome(ctx, missing: list[str]) -> str:
     chosen = "、".join(ctx.var_sources) if ctx.var_sources else "沒有選"
     return (f"FAIL（找不到變數：{'、'.join(missing)}；這次選的變數檔：{chosen}，也沒有同名的環境變數。"
@@ -249,9 +260,11 @@ def missing_vars_outcome(ctx, missing: list[str]) -> str:
 
 def _locate_input_element(ctx, platform, driver, el: dict):
     """input_text 用的定位：自訂XPath → native id → 自動定位，回傳 (元件, 定位方式)，找不到元件是 None"""
-    custom = _locate_by_custom_xpath(driver, el)
+    custom = _locate_by_custom_xpath(ctx, driver, el)
     if custom is not None:
         return custom, "人工自訂XPath定位"
+    if custom_xpath_has_vars(el):
+        return None, _VAR_XPATH_MISS
     if el["id_source"] == "native":
         try:
             return driver.find_element(platform.native_by, el["native_id"]), f"{platform.native_id_name} 定位"
@@ -305,11 +318,13 @@ def run_input_text(ctx, platform, driver, el: dict, value: str, timeout: float =
 
 def run_tap(ctx, platform, driver, el: dict, coordinate_fallback: bool = True) -> str:
     """coordinate_fallback=False：自動定位找不到就回 FAIL，不關彈窗、不座標盲點（給等待期間重試用）"""
-    custom = _locate_by_custom_xpath(driver, el)
+    custom = _locate_by_custom_xpath(ctx, driver, el)
     if custom is not None:
         platform.ensure_visible(driver, custom)
         custom.click()
         return "PASS（人工自訂XPath定位）"
+    if custom_xpath_has_vars(el):
+        return f"FAIL（{_VAR_XPATH_MISS}）"
 
     if el["id_source"] == "native":
         try:
@@ -345,10 +360,12 @@ def run_tap(ctx, platform, driver, el: dict, coordinate_fallback: bool = True) -
 
 
 def run_assert_visible(ctx, platform, driver, el: dict) -> str:
-    custom = _locate_by_custom_xpath(driver, el)
+    custom = _locate_by_custom_xpath(ctx, driver, el)
     if custom is not None:
         platform.ensure_visible(driver, custom)
         return "PASS（人工自訂XPath定位）" if custom.is_displayed() else "FAIL（元件存在但不可見）"
+    if custom_xpath_has_vars(el):
+        return f"FAIL（{_VAR_XPATH_MISS}）"
 
     if el["id_source"] == "native":
         try:
@@ -419,8 +436,10 @@ def run_assert_text_contains(ctx, platform, driver, el: dict, expected_text: str
     測案產生」分頁），例如「設定頁存了名稱後，首頁問候語有沒有真的出現這個名稱」
     這種需要檢查實際文字內容的情境。
     """
-    custom = _locate_by_custom_xpath(driver, el)
+    custom = _locate_by_custom_xpath(ctx, driver, el)
     target_el, label = custom, "人工自訂XPath定位"
+    if target_el is None and custom_xpath_has_vars(el):
+        return f"FAIL（{_VAR_XPATH_MISS}）"
 
     if target_el is None:
         if el["id_source"] == "native":
@@ -576,15 +595,20 @@ def execute_step(ctx, platform, driver, step: dict, el: dict | None) -> str:
 
     # 每一步都在 timeout 內重試，一通過就往下（畫面突然 loading 不會直接失敗）；
     # 等待期間順便關非預期彈窗（開關沒開時 try_dismiss_dialogs 直接回空清單）
+    if custom_xpath_has_vars(el):
+        _, missing = resolve_env_placeholders(ctx, el["custom_xpath"])
+        if missing:
+            return missing_vars_outcome(ctx, missing)
+
     timeout = step_timeout(step)
     dismiss = lambda: try_dismiss_dialogs(ctx, platform, driver)
     on_fail = dismiss if ctx.dismiss_dialogs else None
     if action == "tap":
         if not timeout:
-            return run_tap(ctx, platform, driver, el)
+            return run_tap(ctx, platform, driver, el, coordinate_fallback=not custom_xpath_has_vars(el))
         outcome = retry_until_pass(ctx, lambda: run_tap(ctx, platform, driver, el, coordinate_fallback=False),
                                    timeout, on_fail=on_fail)
-        if outcome.startswith("FAIL") and el["id_source"] != "native":
+        if outcome.startswith("FAIL") and el["id_source"] != "native" and not custom_xpath_has_vars(el):
             # 等滿了還是找不到，才照原本的方式最後試一次（含座標盲點）
             return with_note(run_tap(ctx, platform, driver, el), f"等了 {timeout:g} 秒仍定位不到元件")
         return outcome
