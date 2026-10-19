@@ -407,15 +407,33 @@ def focus_input(ctx, driver, element, timeout: float = 3.0):
 
 
 _KEYBOARD_DONE_LABELS = ["完成", "Done"]
+# 單行輸入框的送出鍵（文字鍵盤右下角那顆，標籤依輸入框類型不同）：按了會收鍵盤。
+# 多行的 TextView 按 return 是換行，不按；「前往／傳送」這類可能觸發別的動作，不放
+_KEYBOARD_RETURN_LABELS = ["return", "Return", "換行", "search", "Search", "搜尋"]
 
 
-def dismiss_keyboard(driver) -> bool:
+def _tap_toolbar_icon(driver, keyboard_top: float) -> bool:
+    """緊貼鍵盤上緣的工具列只有一顆沒有文字的按鈕（收鍵盤圖示）時點它，回傳有沒有點"""
+    for toolbar in driver.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeToolbar"):
+        bottom = toolbar.location["y"] + toolbar.size["height"]
+        if not keyboard_top - 5 <= bottom <= keyboard_top + 5:
+            continue
+        buttons = toolbar.find_elements(AppiumBy.CLASS_NAME, "XCUIElementTypeButton")
+        if len(buttons) == 1 and not (buttons[0].get_attribute("label") or "").strip():
+            logger.info("    [輸入] 點鍵盤上方工具列的收鍵盤圖示")
+            buttons[0].click()
+            return True
+    return False
+
+
+def dismiss_keyboard(driver, return_key: bool = True) -> bool:
     """
     打完字收鍵盤，回傳鍵盤是不是收起來了。Android 打完會收，iOS 不收的話鍵盤會蓋住
     下一步要點的按鈕（例如輸入數量後的「下一步」）。
-      1. 鍵盤上的「完成」鍵（文字鍵盤的 return 鍵常被改成完成）
+      1. 鍵盤上的「完成」鍵；return_key 時再加上 return／search 這類送出鍵（單行輸入框才按）
       2. 數字鍵盤沒有完成鍵，App 常在鍵盤正上方加一條工具列放「完成」按鈕——它不在鍵盤裡，
-         第 1 步找不到。只按緊貼鍵盤上緣的那顆，不會誤按頁面上別的「完成」（例如送出申請）
+         第 1 步找不到。只按緊貼鍵盤上緣的那顆，不會誤按頁面上別的「完成」（例如送出申請）。
+         工具列上只有一顆沒有文字的按鈕（收鍵盤的圖示）也按它；好幾顆時（上一個／下一個…）不猜
     """
     def shown() -> bool:
         try:
@@ -425,10 +443,22 @@ def dismiss_keyboard(driver) -> bool:
         except WebDriverException:
             return False
 
+    def hidden_soon(timeout: float = 1.0) -> bool:
+        """收鍵盤有動畫，剛按完 is_keyboard_shown 可能還是 True，等一下再判斷"""
+        deadline = time.time() + timeout
+        while shown():
+            if time.time() >= deadline:
+                return False
+            time.sleep(0.2)
+        return True
+
     if not shown():
         return True
+    keys = _KEYBOARD_DONE_LABELS + (_KEYBOARD_RETURN_LABELS if return_key else [])
     try:
-        driver.execute_script("mobile: hideKeyboard", {"keys": _KEYBOARD_DONE_LABELS})
+        driver.execute_script("mobile: hideKeyboard", {"keys": keys})
+        if hidden_soon():
+            return True
     except InvalidSessionIdException:
         raise
     except WebDriverException:
@@ -445,7 +475,11 @@ def dismiss_keyboard(driver) -> bool:
                 bottom = button.location["y"] + button.size["height"]
                 if keyboard_top - 60 <= bottom <= keyboard_top + 5:
                     button.click()
+                    if hidden_soon():
+                        return True
                     break
+            if shown() and _tap_toolbar_icon(driver, keyboard_top) and hidden_soon():
+                return True
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
@@ -909,7 +943,8 @@ class IOSPlatform:
     def input_text(self, ctx, driver, element, value: str, submit: bool = False) -> str:
         element.send_keys(value)
         # 字已經打好了，鍵盤收不起來不讓整步 FAIL，但註記出來：下一步被鍵盤擋住時看得出原因
-        if not dismiss_keyboard(driver):
+        multiline = element.get_attribute("type") == "XCUIElementTypeTextView"
+        if not dismiss_keyboard(driver, return_key=not multiline):
             logger.info("    [輸入] 鍵盤收不起來，照原本流程繼續")
             return "PASS（鍵盤收不起來，可能會擋住下一步）"
         return "PASS"
