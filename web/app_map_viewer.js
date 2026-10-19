@@ -1287,8 +1287,7 @@
   async function testXPathValueShort(xpath, resultEl) {
     if (!xpath) { resultEl.textContent = "請先輸入 XPath"; resultEl.className = "xpath-editor-result error"; return; }
     // 含 ${KEY} 的 XPath 執行時才換成變數值，這裡先問一個值代入測試（存的還是含變數的原文）
-    var names = [];
-    xpath.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) { if (names.indexOf(name) < 0) names.push(name); return m; });
+    var names = xpathVarNames(xpath);
     for (var i = 0; i < names.length; i++) {
       var sample = window.prompt("XPath 含變數 ${" + names[i] + "}，請輸入一個值來測試：", "");
       if (sample === null) { resultEl.textContent = "已取消測試"; resultEl.className = "xpath-editor-result"; return; }
@@ -2169,12 +2168,21 @@
 
   // 給 LLM 對話式產生測案用：LLM 只需要知道「有哪些元件、長怎樣」來寫出
   // 測案步驟，不需要真的拿去定位，欄位刻意精簡省token。
+  function xpathVarNames(xpath) {
+    var names = [];
+    (xpath || "").replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, function (m, name) { if (names.indexOf(name) < 0) names.push(name); return m; });
+    return names;
+  }
   function shortScreensToLlmgenFormat(srcScreens) {
     return srcScreens.map(function (s) {
       return {
         screen_name: s.name,
         elements: (s.els || []).map(function (el) {
-          return { unique_id: el.u, id_source: el.src, class: el.c, label: el.l, description: el.d };
+          var out = { unique_id: el.u, id_source: el.src, class: el.c, label: el.l, description: el.d };
+          // 自訂 XPath 含 ${KEY}（例如依股票代號挑搜尋結果）：告訴 LLM 這個元件會依哪些變數定位，不送 XPath 本身
+          var vars = xpathVarNames(el.custom_xpath);
+          if (vars.length) out.xpath_vars = vars;
+          return out;
         }),
       };
     });
@@ -2244,7 +2252,9 @@
       return {
         screen_name: screen.screen_name,
         elements: (screen.elements || []).map(function (el) {
-          return { unique_id: el.unique_id, id_source: el.id_source, class: el.class, label: el.label, description: el.description };
+          var out = { unique_id: el.unique_id, id_source: el.id_source, class: el.class, label: el.label, description: el.description };
+          if (el.xpath_vars) out.xpath_vars = el.xpath_vars;
+          return out;
         }),
       };
     });

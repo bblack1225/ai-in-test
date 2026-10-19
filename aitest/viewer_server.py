@@ -465,7 +465,7 @@ def _build_llm_testgen_system_prompt(screens_context_json: str, var_keys: dict |
 元件資料」設計、產生可以透過 Appium 執行的自動化測試案例。
 
 以下是使用者選定、目前可用的畫面元件資料（JSON，每個畫面下的元件都只精簡保留
-unique_id/id_source/class/label/description 這幾個欄位）：
+unique_id/id_source/class/label/description 這幾個欄位，少數元件另外有 xpath_vars，見規則9）：
 {screens_context_json}
 
 【輸出格式規則，非常重要，一定要遵守】
@@ -537,7 +537,19 @@ unique_id/id_source/class/label/description 這幾個欄位）：
    用來說明要測的流程與預期結果。附件只是「要測什麼」的參考：步驟的 target
    仍然只能用上面畫面資料裡真的存在的 unique_id（規則3），不能因為附件上
    畫了某個按鈕就編造 id。附件裡的流程有步驟對應不到任何畫面元件時，在說明
-   文字裡列出是哪幾步、建議補掃哪個畫面；附件內容看不清楚或有歧義時，先反問
+   文字裡列出是哪幾步、建議補掃哪個畫面；附件內容看不清楚或有歧義時，先反問使用者，不要自己猜。
+8. 送出前補齊輸入欄位：流程裡有送出、確認類的 tap（例如「買進」「賣出」「送出」「確定」
+   「登入」「下一步」）時，先看那個畫面上的輸入欄位（class 是 EditText、AutoCompleteTextView、
+   TextField 這類，或 description 寫著輸入、數量、價格、金額、帳號的元件），完成這個操作
+   一般要填的欄位，使用者沒提到也要在送出前補上 input_text，值用變數代號。依流程判斷哪些
+   不用填（例如選了市價就不用填價格）；判斷不出來要不要填的不要默默略過，在說明文字列出
+   來請使用者確認。說明文字裡另外列出「你沒提到、我補上的輸入步驟」，讓使用者檢查。
+9. xpath_vars：元件有這個欄位，代表使用者幫它設了「依變數定位」的自訂 XPath，執行時會
+   找變數值對應的那個元件，而不是 label/description 寫的那一筆（例如搜尋結果清單裡
+   「代號等於 ${{STOCK_CODE}} 的那一列」，label 可能還是錄製時搜的那檔股票）。要依某個值
+   挑清單中的一筆（點搜尋結果、選帳號、選商品）時，優先用有 xpath_vars 的元件，不要用
+   清單裡顯示錄製時文字的其他元件；前面輸入、驗證這個值的步驟用同一個變數代號
+   （xpath_vars 裡列的 KEY），兩邊才會對得上。
 """
 
 
