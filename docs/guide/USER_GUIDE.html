@@ -404,7 +404,7 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 </figure>
 
 <h4 id="var-row">點搜尋結果裡指定的那一筆（例如輸入股票代號後，點代號相同的那一筆）</h4>
-<p>搜尋框輸入 <code>${STOCK_CODE}</code> 之後要點「代號等於它的那一筆」。地圖裡的元件是照錄製時的內容記的（例如錄製時搜的是 0050），換成別的代號就找不到，最後只能照錄製時的位置盲點。這種情況要先在地圖上幫那個元件設一條<strong>含變數的自訂 XPath</strong>，只要設一次，用到這個元件的測案都適用。</p>
+<p>搜尋框輸入 <code>${STOCK_CODE}</code> 之後要點「代號等於它的那一筆」。地圖裡的元件是照錄製時的內容記的（例如錄製時搜的是 0050），換成別的代號就找不到，最後只能照錄製時的位置盲點。這種情況要先在地圖上幫那個元件設一條<strong>含變數的自訂 XPath</strong>：用「🔁 依變數定位」點選兩下就能設好，不用自己寫 XPath。只要設一次，用到這個元件的測案都適用。</p>
 <div class="callout note">
   <div class="callout-title">舉例</div>
   <p>測試進入下單頁以後搜尋我們自訂的股票代號（<code>${STOCK_CODE}</code>），點擊搜尋結果清單裡的那一筆後進行下單。</p>
@@ -412,28 +412,23 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 <ol>
   <li><strong>錄製時讓清單出現</strong>：錄到搜尋那一步時真的輸入一個代號，讓下拉清單跑出來，清單裡的列才會進地圖。</li>
   <li><strong>選對元件</strong>：在地圖上點開那個畫面，選清單第一列<strong>可以點的那一層</strong>（「只顯示可點擊元件」勾著時看到的那個，通常是 <code>LinearLayout</code>），不要選裡面顯示名稱或代號的 <code>TextView</code>。</li>
-  <li><strong>寫 XPath</strong>：按「✏️ 重新定義XPath／🤖 AI定位」，寫成「清單裡，某個子元件的文字<strong>剛好等於</strong>變數的那一列」，例如：
-    <div class="cmd"><pre><code>//android.widget.ListView//android.widget.LinearLayout[./android.widget.TextView[@text='${STOCK_CODE}']]</code></pre><button class="copy" type="button">複製</button></div>
-    <ul>
-      <li>用 <code>@text='…'</code> 完全相等，不要用 <code>contains</code>：搜 0050 時 0050N、060050 也會中，查到好幾個就算失敗。</li>
-      <li>前面限定在清單（<code>ListView</code>）裡，才不會連搜尋框本身（文字也是代號）一起查到。</li>
-      <li>清單的 class 和層次每支 App 不同，照地圖裡看到的結構改；不確定可以先按「🤖 AI定位」產生一條，再把裡面的代號換成 <code>${STOCK_CODE}</code>。AI 偶爾會選錯元件，一定要按「測試」確認。</li>
-    </ul>
-  </li>
-  <li><strong>測試再儲存</strong>：手機停在清單有出來的畫面，按「測試」，跳出視窗時填一個真實的代號。要看到「查到 1 個結果（唯一）」才按「儲存」。存下來的是含 <code>${STOCK_CODE}</code> 的原文。
+  <li><strong>按「🔁 依變數定位」</strong>：手機停在清單有出來的畫面（清單內容是什麼都可以），按元件下方的「🔁 依變數定位」，工具會讀手機畫面，列出這一列裡的文字：
+    <ol>
+      <li>選「哪段文字要等於變數的值」：就是你會放進變數、在前面步驟輸入的那段。搜尋框輸入股票代號的話就選代號 <code>0050</code>；名稱雖然也會跟著換，但不用選。旁邊標「查到 N 個」的不能用（換了值會查到好幾列）。</li>
+      <li>填變數名稱，例如 <code>STOCK_CODE</code>（輸入框會列出專案變數檔裡已有的名稱）。</li>
+      <li>按「套用並儲存」。XPath 是工具照畫面結構組的，而且已經用目前的值實測過，剛好查到這一列才列為可選；描述也會一起改成「清單中文字等於 ${STOCK_CODE} 的那一列」，測案編輯的 LLM 才會挑對元件。</li>
+    </ol>
     <figure class="shot">
-      <a href="輸入自訂XPath.png" target="_blank" rel="noopener" title="點一下放大"><img src="輸入自訂XPath.png" alt="自訂 XPath 編輯區：輸入框填了含 ${STOCK_CODE} 的 XPath，下方有載入上層元素、測試、儲存、清除自訂、AI定位按鈕" loading="lazy"></a>
-      <figcaption>按「✏️ 重新定義XPath／🤖 AI定位」打開的編輯區：貼上 XPath 後先按「測試」，查到唯一一個再按「儲存」（點圖片放大）</figcaption>
-    </figure></li>
-  <li><strong>改元件描述</strong>：把描述改成像「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」。測案編輯的 LLM 看不到自訂 XPath，只看描述挑元件，描述還寫著錄製時的那檔股票的話，它可能挑錯。
+      <a href="依變數定位問答.png" target="_blank" rel="noopener" title="點一下放大"><img src="依變數定位問答.png" alt="按「依變數定位」後出現的面板：1. 哪段文字要等於變數的值？選項有「國泰金」和「2882」；2. 變數名稱輸入框；套用並儲存按鈕" loading="lazy"></a>
+      <figcaption>按「🔁 依變數定位」後出現的面板。搜尋框輸入的是股票代號，所以第 1 題要選代號 <code>2882</code>，不是名稱「國泰金」；變數名稱填 <code>STOCK_CODE</code>（點圖片放大）</figcaption>
+    </figure>
     <figure class="shot">
-      <a href="依變數點擊.png" target="_blank" rel="noopener" title="點一下放大"><img src="依變數點擊.png" alt="地圖的選元件視窗：選中搜尋結果清單第一列的 LinearLayout，描述改成「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」，下方顯示存好的自訂 XPath；右邊手機畫面輸入 2882，下拉清單第一筆是代號 2882" loading="lazy"></a>
-      <figcaption>設定完成的樣子：左邊選中清單第一列（可點的 <code>LinearLayout</code>），描述和自訂 XPath 都改好了；右邊是實際執行時輸入別的代號（2882）跑出的清單，會點代號剛好等於 2882 的那一列（點圖片放大，可以縮放）</figcaption>
+      <a href="依變數定位示意.png" target="_blank" rel="noopener" title="點一下放大"><img src="依變數定位示意.png" alt="套用後的元件視窗：選中清單第一列的 LinearLayout，描述自動改成「清單中文字等於 ${STOCK_CODE} 的那一列」，下方是工具組好的自訂 XPath；右邊手機畫面搜尋 2882，下拉清單第一筆是代號 2882" loading="lazy"></a>
+      <figcaption>套用後的樣子：描述和自訂 XPath 都自動填好了；右邊是實際執行時搜尋別的代號（2882）跑出的清單，會點代號剛好等於 2882 的那一列（點圖片放大，可以縮放）</figcaption>
     </figure></li>
   <li><strong>寫測案</strong>：prompt 裡直接指定，例如：
-    <div class="cmd"><pre><code>點搜尋結果這一步用「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」那個元件，不要用清單裡的文字元件；
-選完股票後，驗證下單頁顯示的代號包含 ${STOCK_CODE}，再往下按市價、輸入張數。</code></pre><button class="copy" type="button">複製</button></div>
-    選完後加一步驗證，萬一點擊沒生效會在這裡就失敗，不會一路走到送出委託。</li>
+    <div class="cmd"><pre><code>幫我從首頁進入下單頁以後，搜尋股票並市價買進一張</code></pre><button class="copy" type="button">複製</button></div>
+    經實測，以上的 prompt 就可以成功產生對應的測試案例</li>
   <li><strong>執行</strong>：變數檔裡要有 <code>STOCK_CODE</code>，執行時選這個變數檔。</li>
 </ol>
 <div class="callout note">
@@ -444,12 +439,23 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
     <li>Android 的下拉清單是另一個浮動視窗，主畫面找不到時工具會暫時多看浮動視窗再找，結果會多註記「有暫時打開浮動視窗再找」，這是正常的。剛打開時清單可能還沒被讀到，這一步不要把等待時間設成 0。</li>
   </ul>
 </div>
+<div class="callout note">
+  <div class="callout-title">進階：自己寫 XPath</div>
+  <p>「🔁 依變數定位」說找不到清單容器、或沒有能唯一定位的文字時，可以按「✏️ 重新定義XPath／🤖 AI定位」自己寫，寫成「清單裡，某個子元件的文字<strong>剛好等於</strong>變數的那一列」，例如：</p>
+  <div class="cmd"><pre><code>//android.widget.ListView//android.widget.LinearLayout[./android.widget.TextView[@text='${STOCK_CODE}']]</code></pre><button class="copy" type="button">複製</button></div>
+  <ul>
+    <li>用 <code>@text='…'</code> 完全相等，不要用 <code>contains</code>：搜 0050 時 0050N、060050 也會中，查到好幾個就算失敗。</li>
+    <li>前面限定在清單（<code>ListView</code>）裡，才不會連搜尋框本身（文字也是代號）一起查到。</li>
+    <li>清單的 class 和層次每支 App 不同，照地圖裡看到的結構改；不確定可以先按「🤖 AI定位」產生一條，再把裡面的代號換成 <code>${STOCK_CODE}</code>。AI 偶爾會選錯元件，一定要按「測試」確認。</li>
+  </ul>
+  <p>按「測試」時會跳視窗問一個值代入，要看到「查到 1 個結果（唯一）」才按「儲存」，再自己把描述改成依變數的意思。</p>
+</div>
 <div class="callout warn">
   <div class="callout-title">什麼時候要重設</div>
   <ul>
     <li>同一張地圖、同一個元件：不用。</li>
-    <li>重新錄製成新地圖，或元件 id 變了：新元件沒有自訂 XPath，第 2～5 步要重做，測案的目標元件也要更新。</li>
-    <li>App 改版、清單結構變了：XPath 會查不到，執行時直接 FAIL（訊息寫「自訂XPath 含變數…查無唯一結果」），照新的結構重寫。</li>
+    <li>重新錄製成新地圖，或元件 id 變了：新元件沒有自訂 XPath，第 2、3 步要重做，測案的目標元件也要更新。</li>
+    <li>App 改版、清單結構變了：XPath 會查不到，執行時直接 FAIL（訊息寫「自訂XPath 含變數…查無唯一結果」），重新按一次「🔁 依變數定位」。</li>
   </ul>
 </div>
 <h3 id="web-run">測案執行</h3>
