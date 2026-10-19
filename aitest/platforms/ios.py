@@ -866,6 +866,8 @@ class IOSPlatform:
     # 第0步畫面檢查（run_test_case.match_screen_in_source）：id / 文字放在哪些屬性
     screen_id_attrs = ("name",)
     screen_label_attrs = ("label",)
+    # 「依變數定位」往上找清單容器用（core/var_xpath.py）
+    list_classes = ("XCUIElementTypeTable", "XCUIElementTypeCollectionView")
 
     # /agent_xpath prompt 裡的平台用語（見 viewer_server._build_agent_xpath_prompt）
     xpath_intro = ("你是 iOS UI 自動化測試專家。以下是透過 Appium XCUITest 取得的\n"

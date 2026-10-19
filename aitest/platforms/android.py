@@ -1089,6 +1089,9 @@ class AndroidPlatform:
     supports_banner = True
     screen_id_attrs = ("resource-id",)
     screen_label_attrs = ("text", "content-desc")
+    # 「依變數定位」往上找清單容器用（core/var_xpath.py）
+    list_classes = ("android.widget.ListView", "androidx.recyclerview.widget.RecyclerView",
+                    "android.support.v7.widget.RecyclerView", "android.widget.GridView")
 
     xpath_intro = ("你是 Android UI 自動化測試專家。以下是透過 Appium UiAutomator2 取得的\n"
                    "畫面 Accessibility Tree（XML 格式，可以用 XPath 查詢，概念上跟網頁 DOM 類似）。")

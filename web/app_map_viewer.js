@@ -1429,7 +1429,9 @@
       '<div class="el-locator' + (locator.custom ? " custom" : "") + '"><span class="locator-type">' + locatorTypeLabel + "</span>" + escapeHtml(locator.text) + "</div>" +
       '<div class="btn-row"><button class="btn primary" id="modalTapBtn">📲 送出點擊到裝置</button></div>' +
       '<div class="tap-result pending" id="modalTapResult">還沒送出</div>' +
-      '<div class="btn-row"><button class="btn" id="modalXpathToggle">✏️ 重新定義XPath／🤖 AI定位</button></div>' +
+      '<div class="btn-row"><button class="btn" id="modalXpathToggle">✏️ 重新定義XPath／🤖 AI定位</button>' +
+      '<button class="btn" id="modalVarXpathBtn" title="清單裡依變數（例如股票代號）點對應的那一列">🔁 依變數定位</button></div>' +
+      '<div id="modalVarXpath" class="var-xpath" hidden></div>' +
       '<div id="modalXpathEditor" hidden>' +
       '<select class="plain-select" id="modalAncestorSelect" style="width:100%;margin-bottom:6px;"><option value="">-- 先載入上層元素 --</option></select>' +
       '<textarea class="xpath-input" id="modalXpathInput">' + escapeHtml(locator.rawXPath || "") + "</textarea>" +
@@ -1510,6 +1512,72 @@
         result.textContent = message;
         result.className = "xpath-editor-result pass";
       });
+    });
+    document.getElementById("modalVarXpathBtn").addEventListener("click", function () {
+      var hostEl = document.getElementById("modalVarXpath");
+      hostEl.hidden = !hostEl.hidden;
+      if (!hostEl.hidden) loadVarXpathOptions(el, hostEl);
+    });
+  }
+
+  // ---- 🔁 依變數定位：列出這一列裡的文字，選「哪段每次會換」＋變數名稱，組出含 ${KEY} 的自訂 XPath ----
+  // XPath 由 viewer_server /var_xpath 照規則組好、用目前的值實測過（core/var_xpath.py），這裡只負責選和存
+  var VAR_PLACEHOLDER = "{{VAR}}";
+  async function loadVarXpathOptions(el, hostEl) {
+    hostEl.innerHTML = '<div class="xpath-editor-result">讀取手機畫面中...（手機要停在清單有出來的畫面）</div>';
+    try {
+      var base = API_BASE;
+      await assertPlatformMatches(base, mapPlatform());
+      var res = await fetch(base + "/var_xpath", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toFullEl(el)) });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+      if (!data.found) {
+        hostEl.innerHTML = '<div class="xpath-editor-result error">' + escapeHtml(data.error || "找不到這一列") + "</div>";
+        return;
+      }
+      renderVarXpathOptions(el, hostEl, data.options || []);
+    } catch (err) {
+      hostEl.innerHTML = '<div class="xpath-editor-result error">' + escapeHtml(failText("連線失敗", err, "（viewer_server.py 有啟動嗎？）")) + "</div>";
+    }
+  }
+  function renderVarXpathOptions(el, hostEl, options) {
+    var keys = [];
+    projectVars.forEach(function (v) { (v.keys || []).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+    // 不預設勾選：選錯整條 XPath 就錯了（例如勾到名稱，但搜尋框輸入的是代號），一定要使用者自己選
+    var anyUsable = options.some(function (o) { return o.usable; });
+    hostEl.innerHTML =
+      '<div class="var-xpath-title">1. 哪段文字要等於變數的值？</div>' +
+      '<div class="var-xpath-hint">選你會放進變數、在前面步驟輸入的那段（例如搜尋框輸入股票代號，就選代號）。' +
+      '整列其他文字跟著它換，不用選</div>' +
+      options.map(function (o, i) {
+        var note = o.usable ? "" : '<span class="var-xpath-bad">（' + escapeHtml(o.reason || "不能用") + "）</span>";
+        return '<label class="var-xpath-opt' + (o.usable ? "" : " disabled") + '"><input type="radio" name="varXpathOpt" value="' + i + '"' +
+          (o.usable ? "" : " disabled") + "> " + escapeHtml(o.text) + note + "</label>";
+      }).join("") +
+      '<div class="var-xpath-title">2. 變數名稱</div>' +
+      '<input type="text" class="var-xpath-key" id="varXpathKey" list="varXpathKeys" placeholder="例如 STOCK_CODE" autocomplete="off">' +
+      '<datalist id="varXpathKeys">' + keys.map(function (k) { return '<option value="' + escapeHtml(k) + '">'; }).join("") + "</datalist>" +
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn primary" id="varXpathApply">套用並儲存</button></div>' +
+      '<div class="xpath-editor-result" id="varXpathResult">' +
+      (!anyUsable ? "沒有能唯一定位這一列的文字，請改用「✏️ 重新定義XPath／🤖 AI定位」" : "選好後按「套用並儲存」，會存成這個元件的自訂 XPath") + "</div>";
+    document.getElementById("varXpathApply").addEventListener("click", function () {
+      var resultEl = document.getElementById("varXpathResult");
+      var picked = hostEl.querySelector('input[name="varXpathOpt"]:checked');
+      var key = document.getElementById("varXpathKey").value.trim();
+      if (!picked) { resultEl.textContent = "請先選一段文字"; resultEl.className = "xpath-editor-result error"; return; }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        resultEl.textContent = "變數名稱只能用英文、數字、底線，而且不能數字開頭（建議全大寫，例如 STOCK_CODE）";
+        resultEl.className = "xpath-editor-result error"; return;
+      }
+      var opt = options[Number(picked.value)];
+      el.custom_xpath = opt.template.split(VAR_PLACEHOLDER).join("${" + key + "}");
+      // 描述改成依變數的意思：測案編輯的 LLM 只看描述挑元件，還寫著錄製時那一筆的話它會挑錯
+      el.d = "清單中文字等於 ${" + key + "} 的那一列（依變數定位，設定時是「" + opt.text + "」）";
+      el.dm = true;
+      markMapDirty();
+      renderModalList(document.getElementById("modalSearch").value, document.getElementById("modalClickableOnly").checked);
+      if (selectedUid) selectScreen(selectedUid);
+      renderModalPicked(el);
     });
   }
 

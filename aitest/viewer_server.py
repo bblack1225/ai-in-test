@@ -83,6 +83,7 @@ from aitest.core.run_test_case import (
     with_dismiss_note,
 )
 from aitest.core.run_report import render_batch_report, render_run_report
+from aitest.core.var_xpath import build_options as build_var_xpath_options, fill as fill_var_xpath
 from aitest.core.workspace import DEFAULT_ROOT, RUNS_DIR, Workspace, WorkspaceError
 from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
@@ -285,6 +286,40 @@ def test_xpath(xpath: str) -> dict:
         preview = [{"location": m.location, "size": m.size, **PLATFORM.match_preview(m)} for m in matches[:5]]
         in_popup = bool(matches) and getattr(d, "popup_windows_opened", False)
     return {"count": len(matches), "preview": preview, "in_popup": in_popup}
+
+
+def var_xpath_options(el: dict) -> dict:
+    """
+    「🔁 依變數定位」：列出清單這一列裡的文字，每段文字各組一條含變數的 XPath（core/var_xpath.py），
+    再用這段文字目前的值實測：剛好查到 1 個、而且就是這一列，才標成可以用（usable）。
+    Android 的下拉清單是浮動視窗，先打開「也看浮動視窗」再讀；剛打開時可能還沒回報，多讀幾次。
+    """
+    with PLATFORM.popup_windows_scope(get_driver()) as d:
+        show = getattr(d, "show_popup_windows", None)
+        if show is not None:
+            show()
+        deadline = time.time() + 2.0
+        while True:
+            result = build_var_xpath_options(PLATFORM, d.page_source, el)
+            if result["found"] or time.time() >= deadline:
+                break
+            time.sleep(0.4)
+        if not result["found"]:
+            return result
+        row = result["row_bounds"]
+        for opt in result["options"]:
+            try:
+                matches = d.find_elements(AppiumBy.XPATH, fill_var_xpath(opt["template"], opt["text"]))
+            except InvalidSessionIdException:
+                raise
+            except WebDriverException as e:
+                opt.update(count=0, usable=False, reason=f"查詢失敗：{type(e).__name__}")
+                continue
+            hit = len(matches) == 1 and abs(matches[0].location["x"] - row["x"]) <= 3 \
+                and abs(matches[0].location["y"] - row["y"]) <= 3
+            opt.update(count=len(matches), usable=hit,
+                       reason="" if hit else ("查到的不是這一列" if len(matches) == 1 else f"查到 {len(matches)} 個"))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1418,7 +1453,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     KNOWN_PATHS = (
-        "/tap", "/assert_visible", "/inspect", "/test_xpath", "/agent_xpath",
+        "/tap", "/assert_visible", "/inspect", "/test_xpath", "/var_xpath", "/agent_xpath",
         "/llm_chat", "/run_test_script", "/stop_test_script", "/scan_screen", "/llm_scenarios",
         "/run_batch", "/check_screen", "/describe_screen",
         "/record/start", "/record/tap", "/record/input", "/record/swipe", "/record/back", "/record/refresh",
@@ -1656,6 +1691,8 @@ class Handler(BaseHTTPRequestHandler):
             return inspect_element(payload)
         if path == "/test_xpath":
             return test_xpath(payload.get("xpath", ""))
+        if path == "/var_xpath":
+            return var_xpath_options(payload)
         if path == "/agent_xpath":
             return agent_generate_xpath(payload)
         if path == "/llm_chat":
