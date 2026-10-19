@@ -710,6 +710,32 @@ def _first_button_label(driver, labels: list[str], any_type: bool = False):
     return None, None
 
 
+# App 自己畫的純資訊視窗（公告、提醒）常常只有一顆「確定」。這些字眼出現、而且畫面上只有一顆
+# 確認類按鈕時才按（見 _single_ack_on_notice）。刻意不放「請確認是否」：那是要使用者確認動作的視窗
+# （例如確認送出委託），只有「確定」時按下去就等於幫使用者確認了
+_NOTICE_MARKERS = ("公告", "提醒您", "溫馨提醒", "重要通知", "連線中斷", "偵測到系統")
+
+
+def _single_ack_on_notice(driver):
+    """App 自己畫的公告視窗（不是系統 Alert）：畫面上有公告類字眼、而且只有一顆確認類按鈕時，
+    回傳 (那顆按鈕, 文字)；不符合回傳 (None, None)。好幾顆「確定」時不猜"""
+    notice = " OR ".join(f"label CONTAINS {predicate_literal(m)}" for m in _NOTICE_MARKERS)
+    label_in = "label IN {" + ", ".join(predicate_literal(label) for label in MODAL_ACK_ONLY_LABELS) + "}"
+    try:
+        if not driver.find_elements(AppiumBy.IOS_PREDICATE, notice):
+            return None, None
+        buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, f"type == 'XCUIElementTypeButton' AND {label_in}")
+        if not buttons:  # App 自己畫的按鈕可能不是 Button
+            buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, label_in)
+        if len(buttons) != 1:
+            return None, None
+        return buttons[0], (buttons[0].get_attribute("label") or "").strip()
+    except InvalidSessionIdException:
+        raise
+    except WebDriverException:
+        return None, None
+
+
 def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False,
                   keep_labels=()) -> list[str]:
     """
@@ -717,8 +743,9 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
     「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
 
     先點「純關閉」語意的按鈕（我知道了 / 關閉 / 略過…）；找不到、且畫面上
-    出現 XCUIElementTypeAlert 時，才點「確定 / OK」這類確認語意的。永遠不點
-    NEVER_TAP_LABELS（關閉APP…，兩份按鈕清單裡本來就沒有）。
+    出現 XCUIElementTypeAlert 時，才點「確定 / OK」這類確認語意的。跑測案時（any_type）
+    另外處理 App 自己畫的公告：有公告類字眼、而且只有一顆確認類按鈕就按（_single_ack_on_notice）。
+    永遠不點 NEVER_TAP_LABELS（關閉APP…，兩份按鈕清單裡本來就沒有）。
 
     效能（兩層）：
       1. 傳 page_source 進來時，先用字串快篩，沒有任何 modal 線索就直接 return，
@@ -750,6 +777,8 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
                 has_alert = False
             if has_alert:
                 element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS)
+            elif any_type:
+                element, target = _single_ack_on_notice(driver)
         if element is None:
             break
         if target in keep_labels:
