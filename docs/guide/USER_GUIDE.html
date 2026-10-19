@@ -72,10 +72,18 @@ nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 nav.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.5; }
 nav.toc a:hover { background: var(--accent-soft); color: var(--accent); }
 nav.toc .grp { margin-top: 12px; font-size: 12px; color: var(--muted); padding-left: 10px; letter-spacing: .04em; }
+/* 子目錄：往右縮、字小一點，越深越淡 */
+nav.toc ol ol { display: block; margin: 2px 0 4px 12px; padding-left: 8px; border-left: 1px solid var(--line); }
+nav.toc ol ol a { font-size: 13px; padding: 3px 10px; color: var(--muted); }
+nav.toc ol ol ol a { font-size: 12.5px; }
+nav.toc ol ol a:hover { color: var(--accent); }
+h4 { scroll-margin-top: 16px; }
+.callout[id] { scroll-margin-top: 16px; }
 @media (max-width: 900px) {
   nav.toc { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-block: 24px 16px; }
   nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   nav.toc .grp { grid-column: 1 / -1; }
+  nav.toc li:has(> ol) { grid-column: 1 / -1; }
 }
 
 /* ---- 內文 ---- */
@@ -198,9 +206,32 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <ol>
     <li><a href="#overview">這套工具做什麼</a></li>
     <li><a href="#kit">你會拿到什麼</a></li>
-    <li><a href="#project">準備專案</a></li>
+    <li><a href="#project">準備專案</a>
+      <ol>
+        <li><a href="#project-new">A. 從頭建立</a></li>
+        <li><a href="#project-zip">B. 有交付的專案 zip</a></li>
+      </ol>
+    </li>
     <li><a href="#daily">每次使用</a></li>
-    <li><a href="#web">網頁四個分頁</a></li>
+    <li><a href="#web">網頁四個分頁</a>
+      <ol>
+        <li><a href="#web-map">地圖檢視</a></li>
+        <li><a href="#web-scenario">測試情境產生</a></li>
+        <li><a href="#web-edit">測案編輯</a>
+          <ol>
+            <li><a href="#prompt">prompt 怎麼寫</a></li>
+            <li><a href="#vars">測案裡的變數</a></li>
+            <li><a href="#var-row">點搜尋結果裡指定的那一筆</a></li>
+          </ol>
+        </li>
+        <li><a href="#web-run">測案執行</a>
+          <ol>
+            <li><a href="#run-single">單份執行</a></li>
+            <li><a href="#run-batch">批次執行</a></li>
+          </ol>
+        </li>
+      </ol>
+    </li>
     <li><a href="#share">團隊內交換資料</a></li>
     <li><a href="#update">更新工具</a></li>
     <li><a href="#faq">常見問題</a></li>
@@ -243,7 +274,7 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 <h2 id="project">準備專案</h2>
 <p>一支 App 的一個平台是一個專案，例如 <code>xxx-ios</code> 和 <code>xxx-android</code>。資料放在 <code>workspace/projects/&lt;專案代號&gt;/</code>，不進 git。</p>
 
-<h3>A. 從頭建立</h3>
+<h3 id="project-new">A. 從頭建立</h3>
 <p>先查待測 App 的 bundle id（iOS）或 package（Android）：</p>
 <div class="os-label">iOS</div>
 <div class="cmd"><pre><code>xcrun devicectl device info apps --device 你的UDID</code></pre><button class="copy" type="button">複製</button></div>
@@ -269,7 +300,7 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <p>連正式環境或真實帳號時一定要加 <code>--safe_keywords</code>（跳過下單、送出、確認這類按鈕），可以先加 <code>--dry_run</code> 看它要點哪些。重爬同一張地圖會整張蓋掉（會先備份到 <code>backups/</code>），分功能爬時換 <code>--map</code> 名稱。</p>
 </div>
 
-<h3>B. 有交付的專案 zip</h3>
+<h3 id="project-zip">B. 有交付的專案 zip</h3>
 <ol>
   <li>只開網頁、不接手機或是本身已經啟動 Appium：
     <div class="os-label">uv</div>
@@ -317,21 +348,21 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 </div>
 
 <h2 id="web">網頁四個分頁</h2>
-<h3>地圖檢視</h3>
+<h3 id="web-map">地圖檢視</h3>
 <ul>
   <li>頁首選「專案」和「地圖」。一個專案可以有好幾張地圖，「⚙ 管理地圖」新增、改名、複製、刪除。</li>
   <li>點節點看畫面和元件，點截圖可以直接選元件。修改會自動存檔。</li>
 </ul>
-<h3>測試情境產生</h3>
+<h3 id="web-scenario">測試情境產生</h3>
 <p>勾選畫面後按「分析並產生情境列表」，每個情境旁的按鈕會帶到測案編輯開一份新測案。</p>
-<h3>測案編輯</h3>
+<h3 id="web-edit">測案編輯</h3>
 <ol>
   <li>「＋ 新測案」「📁 開啟專案測案」或「📂 匯入測案 JSON」。</li>
   <li>勾選相關畫面，用自然語言描述流程讓 LLM 產生或修改，可以附流程圖或規格書。 <span class="chip warn">待優化</span></li>
   <li>「💾 存到專案」，或「➡ 送去執行」直接試跑。</li>
 </ol>
 
-<h4>prompt 怎麼寫</h4>
+<h4 id="prompt">prompt 怎麼寫</h4>
 <p>用一般的話描述「在哪個畫面做什麼、最後要看到什麼」就好，畫面要先在上方勾選。幾個範例：</p>
 <div class="table-wrap"><table>
   <thead><tr><th>prompt 範例</th><th>LLM 會怎麼處理</th></tr></thead>
@@ -358,7 +389,7 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <div class="callout-title">loading 之後接的是「點擊」怎麼辦</div>
   <p>等待時間只能加在驗證步驟上。loading 結束後要點某個按鈕的話，可以這樣說：「loading 完先確認『下一步』按鈕出現，最多等八秒，再點它」，讓 LLM 先產生一個會等待的驗證步驟，再點擊。</p>
 </div>
-<div class="callout note">
+<div class="callout note" id="vars">
   <div class="callout-title">測案裡的變數</div>
   <p>帳號密碼、委託數量、股票代號這類每次可能換的值，測案裡寫成 <code>${KEY}</code>，執行時換成選的變數檔裡的值（頁首「🧩 變數」編輯）。可以用在輸入文字、驗證文字、跑馬燈驗證的值。</p>
   <ul>
@@ -371,10 +402,60 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
   <a href="變數設定視窗.png" target="_blank" rel="noopener" title="點一下放大"><img src="變數設定視窗.png" alt="「這份測案用到的變數」視窗：列出測案用到的 ${ORDER_QTY} 還沒有變數檔，可以選新的變數檔或加進現有的，填值後按建立" loading="lazy"></a>
   <figcaption>LLM 產生的測案用到還沒有值的變數（這裡是委託數量 <code>${ORDER_QTY}</code>）時跳出的視窗（點圖片放大，可以縮放）</figcaption>
 </figure>
-<h3>測案執行</h3>
+
+<h4 id="var-row">點搜尋結果裡指定的那一筆（例如輸入股票代號後，點代號相同的那一筆）</h4>
+<p>搜尋框輸入 <code>${STOCK_CODE}</code> 之後要點「代號等於它的那一筆」。地圖裡的元件是照錄製時的內容記的（例如錄製時搜的是 0050），換成別的代號就找不到，最後只能照錄製時的位置盲點。這種情況要先在地圖上幫那個元件設一條<strong>含變數的自訂 XPath</strong>，只要設一次，用到這個元件的測案都適用。</p>
+<div class="callout note">
+  <div class="callout-title">舉例</div>
+  <p>測試進入下單頁以後搜尋我們自訂的股票代號（<code>${STOCK_CODE}</code>），點擊搜尋結果清單裡的那一筆後進行下單。</p>
+</div>
+<ol>
+  <li><strong>錄製時讓清單出現</strong>：錄到搜尋那一步時真的輸入一個代號，讓下拉清單跑出來，清單裡的列才會進地圖。</li>
+  <li><strong>選對元件</strong>：在地圖上點開那個畫面，選清單第一列<strong>可以點的那一層</strong>（「只顯示可點擊元件」勾著時看到的那個，通常是 <code>LinearLayout</code>），不要選裡面顯示名稱或代號的 <code>TextView</code>。</li>
+  <li><strong>寫 XPath</strong>：按「✏️ 重新定義XPath／🤖 AI定位」，寫成「清單裡，某個子元件的文字<strong>剛好等於</strong>變數的那一列」，例如：
+    <div class="cmd"><pre><code>//android.widget.ListView//android.widget.LinearLayout[./android.widget.TextView[@text='${STOCK_CODE}']]</code></pre><button class="copy" type="button">複製</button></div>
+    <ul>
+      <li>用 <code>@text='…'</code> 完全相等，不要用 <code>contains</code>：搜 0050 時 0050N、060050 也會中，查到好幾個就算失敗。</li>
+      <li>前面限定在清單（<code>ListView</code>）裡，才不會連搜尋框本身（文字也是代號）一起查到。</li>
+      <li>清單的 class 和層次每支 App 不同，照地圖裡看到的結構改；不確定可以先按「🤖 AI定位」產生一條，再把裡面的代號換成 <code>${STOCK_CODE}</code>。AI 偶爾會選錯元件，一定要按「測試」確認。</li>
+    </ul>
+  </li>
+  <li><strong>測試再儲存</strong>：手機停在清單有出來的畫面，按「測試」，跳出視窗時填一個真實的代號。要看到「查到 1 個結果（唯一）」才按「儲存」。存下來的是含 <code>${STOCK_CODE}</code> 的原文。
+    <figure class="shot">
+      <a href="輸入自訂XPath.png" target="_blank" rel="noopener" title="點一下放大"><img src="輸入自訂XPath.png" alt="自訂 XPath 編輯區：輸入框填了含 ${STOCK_CODE} 的 XPath，下方有載入上層元素、測試、儲存、清除自訂、AI定位按鈕" loading="lazy"></a>
+      <figcaption>按「✏️ 重新定義XPath／🤖 AI定位」打開的編輯區：貼上 XPath 後先按「測試」，查到唯一一個再按「儲存」（點圖片放大）</figcaption>
+    </figure></li>
+  <li><strong>改元件描述</strong>：把描述改成像「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」。測案編輯的 LLM 看不到自訂 XPath，只看描述挑元件，描述還寫著錄製時的那檔股票的話，它可能挑錯。
+    <figure class="shot">
+      <a href="依變數點擊.png" target="_blank" rel="noopener" title="點一下放大"><img src="依變數點擊.png" alt="地圖的選元件視窗：選中搜尋結果清單第一列的 LinearLayout，描述改成「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」，下方顯示存好的自訂 XPath；右邊手機畫面輸入 2882，下拉清單第一筆是代號 2882" loading="lazy"></a>
+      <figcaption>設定完成的樣子：左邊選中清單第一列（可點的 <code>LinearLayout</code>），描述和自訂 XPath 都改好了；右邊是實際執行時輸入別的代號（2882）跑出的清單，會點代號剛好等於 2882 的那一列（點圖片放大，可以縮放）</figcaption>
+    </figure></li>
+  <li><strong>寫測案</strong>：prompt 裡直接指定，例如：
+    <div class="cmd"><pre><code>點搜尋結果這一步用「搜尋結果中代號等於 ${STOCK_CODE} 的那一列」那個元件，不要用清單裡的文字元件；
+選完股票後，驗證下單頁顯示的代號包含 ${STOCK_CODE}，再往下按市價、輸入張數。</code></pre><button class="copy" type="button">複製</button></div>
+    選完後加一步驗證，萬一點擊沒生效會在這裡就失敗，不會一路走到送出委託。</li>
+  <li><strong>執行</strong>：變數檔裡要有 <code>STOCK_CODE</code>，執行時選這個變數檔。</li>
+</ol>
+<div class="callout note">
+  <div class="callout-title">執行時會怎麼找</div>
+  <ul>
+    <li>XPath 裡的 <code>${STOCK_CODE}</code> 換成這次的值再查，查到唯一一個就點，結果顯示「PASS（人工自訂XPath定位）」。</li>
+    <li>等到這一步的等待時間結束還是查不到就 <strong>FAIL</strong>，不會退回自動定位或座標盲點（那兩種會點到錄製時的那一筆）。變數檔裡沒有 <code>STOCK_CODE</code> 也會直接 FAIL，並寫出缺哪個變數。</li>
+    <li>Android 的下拉清單是另一個浮動視窗，主畫面找不到時工具會暫時多看浮動視窗再找，結果會多註記「有暫時打開浮動視窗再找」，這是正常的。剛打開時清單可能還沒被讀到，這一步不要把等待時間設成 0。</li>
+  </ul>
+</div>
+<div class="callout warn">
+  <div class="callout-title">什麼時候要重設</div>
+  <ul>
+    <li>同一張地圖、同一個元件：不用。</li>
+    <li>重新錄製成新地圖，或元件 id 變了：新元件沒有自訂 XPath，第 2～5 步要重做，測案的目標元件也要更新。</li>
+    <li>App 改版、清單結構變了：XPath 會查不到，執行時直接 FAIL（訊息寫「自訂XPath 含變數…查無唯一結果」），照新的結構重寫。</li>
+  </ul>
+</div>
+<h3 id="web-run">測案執行</h3>
 <p>分成「單份執行」和「批次執行」兩種，在分頁右上角切換。</p>
 
-<h4>單份執行：跑一份測案</h4>
+<h4 id="run-single">單份執行：跑一份測案</h4>
 <ol>
   <li>手機先停在測案第一步的畫面（例如已經登入、在首頁）。</li>
   <li>選要跑的測案，測案用到變數的話在「變數檔」選要代入的檔。</li>
@@ -382,7 +463,7 @@ footer { margin-top: 24px; font-size: 13px; color: var(--muted); }
 </ol>
 <p class="muted">單份執行不會自動登入，登入狀態要自己先準備好。適合剛寫好一份測案、想先試跑的時候。</p>
 
-<h4>批次執行：一次跑多份測案，可以換帳號</h4>
+<h4 id="run-batch">批次執行：一次跑多份測案，可以換帳號</h4>
 <p>把多份測案排好依序執行，每份開始前會自動把手機帶回它的起始畫面；每份測案也可以指定要用哪個帳號登入，所以同一份測案可以用不同帳號各跑一次。</p>
 <ol>
   <li><strong>準備帳號</strong>：在頁首「🧩 變數」為每個帳號建一個變數檔，裡面放 <code>LOGIN_ID</code>、<code>LOGIN_PASSWORD</code> 等登入資料。</li>
@@ -440,6 +521,7 @@ pip install -e .</code></pre><button class="copy" type="button">複製</button><
     <tr><td>port 8767 被佔用</td><td>關掉另一個視窗的伺服器，或加 <code>--port 8768</code></td></tr>
     <tr><td><span class="chip os">Windows</span> <code>Ctrl+C</code> 後下次連不上</td><td>關掉所有 Appium 視窗再重開</td></tr>
     <tr><td><span class="chip android">Android</span> BlueStacks 看不到裝置</td><td>重開過 BlueStacks，再 <code>adb connect 127.0.0.1:5555</code></td></tr>
+    <tr><td><span class="chip ios">iOS</span> 輸入結果是「PASS（鍵盤收不起來，可能會擋住下一步）」</td><td>工具會依序試鍵盤上的「完成」鍵、return／search 鍵、鍵盤上方工具列的完成鈕或收鍵盤圖示，都沒有才會這樣。下一步被鍵盤擋住時，請附上鍵盤的截圖回報</td></tr>
     <tr><td>操作沒反應、卡住</td><td>手機保持解鎖；iOS 確認畫面有 Automation Running</td></tr>
     <tr><td>LLM 找不到模型</td><td>預覽版模型下架，<code>config.toml</code> 的 <code>[llm] model_pro</code> 換成正式版</td></tr>
   </tbody>
