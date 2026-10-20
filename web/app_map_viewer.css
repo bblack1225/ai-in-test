@@ -314,6 +314,13 @@ a { color: var(--accent); }
 .vars-chip.missing { background: none; border: 1px dashed var(--danger); color: var(--danger); }
 .vars-chip button { border: none; background: none; color: inherit; cursor: pointer; padding: 0 3px; }
 .vars-need-key { font-family: "IBM Plex Mono", monospace; }
+#runscriptVarsPick .vars-chip:not(.missing) .vars-chip-name { cursor: pointer; }
+#runscriptVarsPick .vars-chip:not(.missing) .vars-chip-name:hover { text-decoration: underline; }
+.vars-need-sub { margin: 2px 0 6px 22px; padding-left: 10px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.vars-summary { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-width: 0; }
+.vars-summary-item { overflow-wrap: anywhere; }
+.vars-summary-item.missing { color: var(--danger); }
+.vars-summary-src { color: var(--ink-soft); font-size: calc(11.5px * var(--font-scale)); }
 /* ---------- 合併匯入視窗 ---------- */
 /* 補 LLM 描述的選項視窗：每一類元件一列，人工那列用分隔線隔開、用警告色 */
 .describe-options { display: flex; flex-direction: column; gap: 8px; font-size: calc(12.5px * var(--font-scale)); }

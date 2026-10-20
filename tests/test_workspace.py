@@ -126,6 +126,17 @@ def test_delete_case_removes_batch_refs(ws):
     assert ws.batches_using_case("demo-ios", "下單") == ["回歸", "沒用到"]
 
 
+def test_rename_vars_updates_case_vars(ws):
+    ws.write_item("demo-ios", "vars", "股票", {"sensitive": False, "values": {"QTY": "1"}}, overwrite=False)
+    ws.write_item("demo-ios", "cases", "下單", {**CASE, "vars": ["帳號A", "股票"]}, overwrite=False)
+    ws.write_item("demo-ios", "cases", "登入", CASE, overwrite=False)
+
+    ws.rename_item("demo-ios", "vars", "股票", "股票_零股")
+
+    assert ws.read_item("demo-ios", "cases", "下單")["vars"] == ["帳號A", "股票_零股"]
+    assert ws.read_item("demo-ios", "cases", "登入") == CASE
+
+
 # ---- 匯出 ----------------------------------------------------------------
 
 def test_export_skips_sensitive_vars(ws):
