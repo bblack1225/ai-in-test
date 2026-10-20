@@ -9,7 +9,7 @@
             ├── maps/<名稱>.json    ← 地圖（crawl_app_tree.py 的全名格式），依功能分開爬可以有很多張，預設 main
             ├── backups/            ← 爬蟲覆蓋地圖前的備份 <地圖>-<時間>.json
             ├── screenshots/        ← 所有地圖共用，地圖裡的 "screenshots/xxx.png" 相對於專案資料夾
-            ├── cases/<名稱>.json   ← 測試案例（不綁地圖）
+            ├── cases/<名稱>.json   ← 測試案例（不綁地圖）；vars＝這份測案記住要用的變數檔名稱
             ├── batches/<名稱>.json ← 批次設定，地圖、測案都用名稱引用
             ├── vars/<名稱>.json    ← 變數檔 {"sensitive", "values": {KEY: 值}}，測案裡的 ${KEY} 執行時換成值
             └── runs/<測案>/        ← 執行紀錄 <紀錄id>.json＋失敗截圖 <紀錄id>_shots/（不跟著專案匯出）
@@ -539,6 +539,15 @@ class Workspace:
                         changed = True
             if changed:
                 _write_json_atomic(batch_path, batch)
+        # 測案記住的變數檔（測案的 vars）也一起改
+        for case_path in (src.parent.parent / "cases").glob("*.json"):
+            try:
+                case = _read_json(case_path)
+            except (json.JSONDecodeError, OSError):
+                continue
+            if isinstance(case, dict) and isinstance(case.get("vars"), list) and name in case["vars"]:
+                case["vars"] = [new_name if v == name else v for v in case["vars"]]
+                _write_json_atomic(case_path, case)
 
     @staticmethod
     def _rename_run_shots(d: Path, name: str, new_name: str) -> None:
