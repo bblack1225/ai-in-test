@@ -105,6 +105,7 @@ def test_ios_keeps_expected_dialog():
 class ScreenPlatform:
     screen_id_attrs = ("resource-id",)
     screen_label_attrs = ("text",)
+    screen_ignored_id_prefixes = ()
 
 
 class SourceDriver:

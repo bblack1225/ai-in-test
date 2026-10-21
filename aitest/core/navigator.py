@@ -113,16 +113,19 @@ def identify_screen(platform, page_source: str, index: MapIndex) -> tuple[dict |
     看 id，沒有的看不含數字的固定文字。多個畫面都過門檻時，要分出誰「更像」：
     子畫面常常也帶著上一層的導覽列、分頁列，光看「這頁的元件有幾成出現」分不出來，
     所以同時看反方向——目前畫面上「地圖認得的 id」有幾成屬於這一頁，兩個比例相乘當分數。
+    平台的 screen_ignored_id_prefixes（例如 Android 狀態列）兩邊都不算，理由同第0步檢查。
     """
     try:
         present_ids, present_labels = _present_ids_and_labels(page_source, platform)
     except ET.ParseError:
         return None, "畫面結構解析失敗"
+    ignored = platform.screen_ignored_id_prefixes
+    present_ids = {i for i in present_ids if not i.startswith(ignored)}
     present_known = present_ids & index.known_ids
 
     best, best_score = None, 0.0
     for screen in index.screens:
-        ids = _stable_ids(screen["elements"])
+        ids = {i for i in _stable_ids(screen["elements"]) if not i.startswith(ignored)}
         if ids:
             found = len(ids & present_ids)
             recall = found / len(ids)

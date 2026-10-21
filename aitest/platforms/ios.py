@@ -866,6 +866,7 @@ class IOSPlatform:
     # 第0步畫面檢查（run_test_case.match_screen_in_source）：id / 文字放在哪些屬性
     screen_id_attrs = ("name",)
     screen_label_attrs = ("label",)
+    screen_ignored_id_prefixes = ()
     # 「依變數定位」往上找清單容器用（core/var_xpath.py）
     list_classes = ("XCUIElementTypeTable", "XCUIElementTypeCollectionView")
 
