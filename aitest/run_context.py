@@ -66,6 +66,8 @@ class RunContext:
       banner_capture_started  跑馬燈監看前開始錄影的時間（Android），監看完決定要不要留檔
       dismissed_while_locating  定位元件途中（捲動找之前）關掉的彈窗按鈕文字，
                          步驟結束時註記在結果裡（run_test_case.execute_step_dismissing_dialogs）
+      map_buttons        目前這一步的畫面在地圖上的按鈕（platforms/base.map_buttons），
+                         執行這一步期間關彈窗不按它們（例如搜尋頁本來就有的「取消」）
     """
     vars: dict = field(default_factory=dict)
     var_sources: list = field(default_factory=list)
@@ -76,6 +78,7 @@ class RunContext:
     platform_state: dict = field(default_factory=dict)
     banner_capture_started: float | None = None
     dismissed_while_locating: list = field(default_factory=list)
+    map_buttons: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.lock = threading.Lock()

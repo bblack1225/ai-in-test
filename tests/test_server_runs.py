@@ -50,11 +50,11 @@ def test_progress_while_running(server, monkeypatch):
     reached_step_2, release = threading.Event(), threading.Event()
     original = server.run_step_in_case
 
-    def slow_step(ctx, platform, driver, steps, i, el, banner_outcomes):
+    def slow_step(ctx, platform, driver, steps, i, el, banner_outcomes, screen_elements=()):
         if i == 2:
             reached_step_2.set()
             release.wait(5)
-        return original(ctx, platform, driver, steps, i, el, banner_outcomes)
+        return original(ctx, platform, driver, steps, i, el, banner_outcomes, screen_elements)
 
     monkeypatch.setattr(server, "run_step_in_case", slow_step)
     worker = threading.Thread(target=server.run_test_script, args=({

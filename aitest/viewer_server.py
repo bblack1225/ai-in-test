@@ -888,7 +888,8 @@ def _run_steps(ctx, d, steps: list, screens_by_name: dict, results: list, track_
         if screen is not None:
             el = next((e for e in screen.get("elements", []) if e.get("unique_id") == step.get("target")), None)
         try:
-            outcome = run_step_in_case(ctx, PLATFORM, d, steps, i, el, banner_outcomes)
+            outcome = run_step_in_case(ctx, PLATFORM, d, steps, i, el, banner_outcomes,
+                                       screen.get("elements", []) if screen is not None else ())
         except StopRequested:
             outcome = "SKIP（使用者已停止，這一步做到一半就中斷）"
         if shots is not None and outcome.startswith("FAIL"):

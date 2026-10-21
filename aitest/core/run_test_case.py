@@ -63,7 +63,7 @@ from selenium.common.exceptions import (
 from aitest.config import APPIUM_SERVER_URL, DEFAULT_STEP_TIMEOUT
 from aitest.log import setup_logging
 from aitest.platforms import PLATFORMS, get_platform
-from aitest.platforms.base import wait_until_stable
+from aitest.platforms.base import map_buttons, wait_until_stable
 from aitest.run_context import RunContext, StopRequested
 
 logger = logging.getLogger(__name__)
@@ -94,11 +94,12 @@ def try_dismiss_dialogs(ctx, platform, driver, keep_labels=()) -> list[str]:
     """ctx.dismiss_dialogs 有開才去找彈窗，回傳按過的按鈕文字；沒開或沒找到回傳空清單。
     開關對應網頁的勾選框／命令列 --dismiss_dialogs，預設關閉：測案本來就要操作的對話框
     （例如「確定買進」確認框）不該被自動關掉。
-    keep_labels：要按的按鈕文字在這裡面就不處理（測案開始前用，見 labels_if_on_screen）"""
+    keep_labels：要按的按鈕文字在這裡面就不處理（測案開始前用，見 labels_if_on_screen）
+    地圖裡目前這一步畫面上本來就有的按鈕（ctx.map_buttons）也不按，例如搜尋頁的「取消」"""
     if not ctx.dismiss_dialogs:
         return []
     try:
-        dismissed = platform.dismiss_dialogs(driver, keep_labels=keep_labels)
+        dismissed = platform.dismiss_dialogs(driver, keep_labels=keep_labels, skip_buttons=ctx.map_buttons)
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
@@ -795,13 +796,23 @@ def _execute_step_safely(ctx, platform, driver, step: dict, el: dict | None) -> 
         return f"FAIL（執行時發生錯誤：{type(e).__name__}{'：' + first_line[0] if first_line else ''}）"
 
 
-def run_step_in_case(ctx, platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
+def run_step_in_case(ctx, platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict,
+                     screen_elements=()) -> str:
     """
     在一份測案裡執行第 i 步（從1起算）。遇到 assert_banner 時，把它跟後面連續的
     assert_banner 一起交給 run_banner_group 合併監看，後面那幾步的結果先存在
     banner_outcomes（呼叫端整份測案共用同一個 dict），輪到它們時直接取出，
     所以每一步在結果清單裡還是各自一列。
+    screen_elements：這一步的畫面在地圖上的元件，執行期間關彈窗不按它們（見 base.map_buttons）
     """
+    ctx.map_buttons = map_buttons(screen_elements)
+    try:
+        return _run_step_in_case(ctx, platform, driver, steps, i, el, banner_outcomes)
+    finally:
+        ctx.map_buttons = {}
+
+
+def _run_step_in_case(ctx, platform, driver, steps: list, i: int, el: dict | None, banner_outcomes: dict) -> str:
     if i in banner_outcomes:
         return banner_outcomes.pop(i)
     step = steps[i - 1]
@@ -845,7 +856,7 @@ def run_test_case(ctx, platform, driver, test_case: dict, element_lookup: dict):
     banner_outcomes = {}
     for i, step in enumerate(steps, 1):
         outcome = run_step_in_case(ctx, platform, driver, steps, i, element_lookup.get(step.get("target")),
-                                   banner_outcomes)
+                                   banner_outcomes, element_lookup.values())
         results.append((i, step, outcome))
         logger.info(f"  {i}. [{step.get('action')}] {step.get('target') or step.get('value')} -> {outcome}")
         if should_wait_after(platform, steps, i):

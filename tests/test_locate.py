@@ -160,7 +160,7 @@ class DialogPlatform(FakePlatform):
         super().__init__(**kwargs)
         self.dismiss_calls = 0
 
-    def dismiss_dialogs(self, driver):
+    def dismiss_dialogs(self, driver, skip_buttons=None):
         self.dismiss_calls += 1
         return ["下次再說"] if self.dismiss_calls == 1 else []
 

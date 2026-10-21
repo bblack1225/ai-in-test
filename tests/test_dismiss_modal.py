@@ -184,3 +184,111 @@ def test_ios_crawler_does_not_tap_notice_ok():
 
     driver = FakeNoticeDriver()
     assert ios.dismiss_modal(driver) == []
+
+
+class FakeIdButton(FakeButton):
+    def __init__(self, driver, text, rid):
+        super().__init__(driver, text)
+        self.rid = rid
+
+    def get_attribute(self, name):
+        return self.rid if name == "resource-id" else super().get_attribute(name)
+
+
+class FakeIdDriver(FakeDriver):
+    """按鈕是 (文字, resource-id)"""
+
+    def find_elements(self, by, xpath):
+        if not self.dialog_open:
+            return []
+        return [FakeIdButton(self, t, rid) for t, rid in self.buttons if f'@text="{t}"' in xpath]
+
+
+SEARCH_SCREEN = [{"label": "取消", "native_id": "app:id/btn_cancel"}, {"label": "搜尋股票代號/名稱"}]
+
+
+def test_skips_button_on_current_map_screen():
+    """搜尋頁本來就有「取消」：結果還在 loading 時不能被當成彈窗按掉"""
+    from aitest.platforms.base import map_buttons
+
+    driver = FakeIdDriver([("取消", "app:id/btn_cancel")])
+    assert android.android_dismiss_modal(driver, skip_buttons=map_buttons(SEARCH_SCREEN)) == []
+    assert driver.clicked == []
+
+
+def test_dismisses_popup_button_with_same_text_but_other_id():
+    """彈窗的「取消」是別的 id：照樣關"""
+    from aitest.platforms.base import map_buttons
+
+    driver = FakeIdDriver([("取消", "app:id/btn_cancel"), ("取消", "android:id/button2")])
+    assert android.android_dismiss_modal(driver, skip_buttons=map_buttons(SEARCH_SCREEN)) == ["取消"]
+
+
+def test_skips_map_button_and_taps_next():
+    """第一顆符合的是地圖上的按鈕：跳過它，按下一顆"""
+    from aitest.platforms.base import map_buttons
+
+    driver = FakeIdDriver([("取消", "app:id/btn_cancel"), ("關閉", "app:id/iv_close")])
+    assert android.android_dismiss_modal(driver, skip_buttons=map_buttons(SEARCH_SCREEN)) == ["關閉"]
+
+
+def test_map_button_without_native_id_matches_text_only():
+    from aitest.platforms.base import is_map_button, map_buttons
+
+    buttons = map_buttons([{"label": "略過", "native_id": None}])
+    assert is_map_button(buttons, "略過", "app:id/anything")
+    assert not is_map_button(buttons, "關閉", None)
+
+
+class FakeIOSIdElement(FakeIOSElement):
+    def __init__(self, driver, label, name):
+        super().__init__(driver, label)
+        self.name = name
+
+    def get_attribute(self, name):
+        return self.name if name == "name" else super().get_attribute(name)
+
+
+class FakeIOSCancelDriver(FakeIOSDriver):
+    """搜尋頁右上角的「取消」Button，地圖裡有這顆"""
+
+    def find_elements(self, by, value):
+        if self.dialog_open and "XCUIElementTypeButton" in value and "'取消'" in value:
+            return [FakeIOSIdElement(self, "取消", "btn_cancel")]
+        return []
+
+
+def test_ios_skips_button_on_current_map_screen():
+    from aitest.platforms.base import map_buttons
+    from aitest.platforms.ios import IOSPlatform
+
+    driver = FakeIOSCancelDriver()
+    skip = map_buttons([{"label": "取消", "native_id": "btn_cancel"}])
+    assert IOSPlatform().dismiss_dialogs(driver, skip_buttons=skip) == []
+    assert driver.clicked == []
+    assert IOSPlatform().dismiss_dialogs(driver) == ["取消"]
+
+
+def test_run_step_in_case_sets_map_buttons_for_the_step():
+    """執行一步期間 ctx.map_buttons 是這一步畫面的按鈕，結束後清掉"""
+    from aitest.core import run_test_case
+    from aitest.run_context import RunContext
+
+    ctx = RunContext()
+    seen = {}
+
+    def fake_execute(ctx, platform, driver, step, el):
+        seen.update(ctx.map_buttons)
+        return "PASS"
+
+    original = run_test_case.execute_step_dismissing_dialogs
+    run_test_case.execute_step_dismissing_dialogs = fake_execute
+    try:
+        class P:
+            supports_banner = False
+        steps = [{"action": "tap", "target": "x"}]
+        assert run_test_case.run_step_in_case(ctx, P(), None, steps, 1, {}, {}, SEARCH_SCREEN) == "PASS"
+    finally:
+        run_test_case.execute_step_dismissing_dialogs = original
+    assert seen == {"取消": {"app:id/btn_cancel"}, "搜尋股票代號/名稱": {""}}
+    assert ctx.map_buttons == {}

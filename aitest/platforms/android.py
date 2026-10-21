@@ -52,6 +52,7 @@ from aitest.platforms.base import (
     NEVER_TAP_LABELS,
     candidate_pattern,
     histogram_bucket,
+    is_map_button,
     looks_like_data,
     main_scroll_area,
     no_idle_wait,
@@ -982,21 +983,31 @@ def _is_dialog(page_source: str) -> bool:
     return bool(b and screen_area and b["width"] * b["height"] < screen_area * 0.85)
 
 
-def _find_by_texts(driver, texts: list[str]) -> list:
+def _find_by_texts(driver, texts: list[str], skip_buttons=None) -> list:
+    """skip_buttons：地圖裡這個畫面本來就有的按鈕（見 base.is_map_button），不算進結果"""
     conds = " or ".join(f"@text={xpath_literal(t)} or @content-desc={xpath_literal(t)}" for t in texts)
     try:
-        return driver.find_elements(AppiumBy.XPATH, f"//*[{conds}]")
+        matches = driver.find_elements(AppiumBy.XPATH, f"//*[{conds}]")
+        if not skip_buttons:
+            return matches
+        return [m for m in matches
+                if not is_map_button(skip_buttons, _element_label(m), m.get_attribute("resource-id"))]
     except InvalidSessionIdException:
         raise
     except WebDriverException:
         return []
 
 
+def _element_label(element) -> str:
+    return ((element.get_attribute("text") or element.get_attribute("content-desc")) or "").strip()
+
+
 def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None,
-                          keep_labels=()) -> list[str]:
+                          keep_labels=(), skip_buttons=None) -> list[str]:
     """iOS 版 dismiss_modal 的 Android 對應：先找「純關閉」語意的按鈕；找不到、
     且畫面確定是對話框時，才點「確定 / OK」這類確認語意的。永遠不點 NEVER_TAP_LABELS。
     要按的按鈕在 keep_labels 裡就整個不處理（測案預期的視窗，見 iOS 版說明）。
+    skip_buttons：地圖裡目前這一步畫面上本來就有的按鈕，跳過它們、找下一顆（見 base.is_map_button）。
     快篩：沒有任何 modal 線索、也不是對話框，就不做任何裝置查詢。"""
     if (page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS)
             and not _is_dialog(page_source)):
@@ -1004,7 +1015,7 @@ def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None =
 
     dismissed: list[str] = []
     for _ in range(max_rounds):
-        matches = _find_by_texts(driver, MODAL_DISMISS_LABELS)
+        matches = _find_by_texts(driver, MODAL_DISMISS_LABELS, skip_buttons)
         if not matches:
             try:
                 is_dialog = _is_dialog(driver.page_source)
@@ -1013,12 +1024,12 @@ def android_dismiss_modal(driver, max_rounds: int = 3, page_source: str | None =
             except WebDriverException:
                 is_dialog = False
             if is_dialog:
-                matches = _find_by_texts(driver, MODAL_ACK_ONLY_LABELS)
+                matches = _find_by_texts(driver, MODAL_ACK_ONLY_LABELS, skip_buttons)
         if not matches:
             break
         element = matches[0]
         try:
-            target = ((element.get_attribute("text") or element.get_attribute("content-desc")) or "").strip()
+            target = _element_label(element)
             if target in NEVER_TAP_LABELS:
                 break
             if target in keep_labels:
@@ -1259,9 +1270,9 @@ class AndroidPlatform:
     def recording_source(self, page_source: str, state: dict | None) -> str:
         return app_windows_only(page_source, (state or {}).get("package"))
 
-    def dismiss_dialogs(self, driver, keep_labels=()) -> list[str]:
+    def dismiss_dialogs(self, driver, keep_labels=(), skip_buttons=None) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 android_dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels 見 android_dismiss_modal"""
+        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels、skip_buttons 見 android_dismiss_modal"""
         # 系統權限視窗不處理（使用者決定）：權限框是系統的 permissioncontroller／packageinstaller
         # 跳出來的，出現時目前前景的 package 就是它
         try:
@@ -1273,7 +1284,7 @@ class AndroidPlatform:
         if "permissioncontroller" in package or "packageinstaller" in package:
             logger.info(f"    [關閉非預期彈窗] 畫面上是系統權限視窗（{package}），不處理")
             return []
-        return android_dismiss_modal(driver, keep_labels=keep_labels)
+        return android_dismiss_modal(driver, keep_labels=keep_labels, skip_buttons=skip_buttons)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("text") or element.get_attribute("content-desc") or "").strip()
