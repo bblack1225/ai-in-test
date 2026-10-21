@@ -39,3 +39,16 @@ def test_home_with_quotes_loaded():
 def test_really_on_mine():
     current = page(["ic24PxGreyPriceNormaNsp", *TAB_BAR])
     assert identify_screen(IOSPlatform(), current, MAP)[0]["name"] == "我的"
+
+
+def test_android_status_bar_ids_are_ignored():
+    """地圖掃描時混進狀態列 id、現在畫面抓不到：不能因此拉低比例、認不出這一頁"""
+    from aitest.platforms.android import AndroidPlatform
+
+    status_bar = [f"com.android.systemui:id/{n}" for n in ("clock", "battery", "wifi_signal", "status_bar")]
+    app_ids = ["com.example.demo:id/gridView", "com.example.demo:id/toolbar"]
+    index = MapIndex({"screens": [
+        {"screen_uid": "home", "screen_name": "root_screen", "elements": native([*app_ids, *status_bar])},
+    ]})
+    current = "<hierarchy>" + "".join(f'<node resource-id="{i}" text=""/>' for i in app_ids) + "</hierarchy>"
+    assert identify_screen(AndroidPlatform(), current, index)[0]["name"] == "root_screen"

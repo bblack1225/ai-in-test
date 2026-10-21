@@ -67,3 +67,30 @@ def test_android_attrs(android_watchlist):
     assert status == "pass"
     status, _ = match_screen_in_source(android_watchlist, _generated("新增自選", "自選股"), "自選", **ANDROID_ATTRS)
     assert status == "pass"
+
+
+def test_ignored_id_prefixes_not_counted(android_watchlist):
+    """地圖裡混進狀態列元件（手機畫面現在抓不到）時，不能拉低比例擋住比對"""
+    elements = _native("com.example.demo:id/btn_add",
+                       "com.android.systemui:id/clock", "com.android.systemui:id/battery")
+    status, _ = match_screen_in_source(android_watchlist, elements, "自選", **ANDROID_ATTRS)
+    assert status == "fail"
+    status, message = match_screen_in_source(android_watchlist, elements, "自選", **ANDROID_ATTRS,
+                                             ignored_id_prefixes=("com.android.systemui:",))
+    assert status == "pass"
+    assert "1 個" in message
+
+
+def test_fail_message_lists_missing(ios_login):
+    elements = _native("loginbutton", "doesNotExist1", "doesNotExist2")
+    _, message = match_screen_in_source(ios_login, elements, "登入", **IOS_ATTRS)
+    assert "找不到：doesNotExist1、doesNotExist2" in message
+    assert "loginbutton" not in message.split("找不到")[1]
+
+
+def test_fail_message_truncates_long_missing_list(ios_login):
+    elements = _native(*(f"missing{i:02d}" for i in range(15)))
+    _, message = match_screen_in_source(ios_login, elements, "登入", **IOS_ATTRS)
+    assert "missing09" in message
+    assert "missing10" not in message
+    assert "等 15 個" in message

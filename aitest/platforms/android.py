@@ -1089,6 +1089,9 @@ class AndroidPlatform:
     supports_banner = True
     screen_id_attrs = ("resource-id",)
     screen_label_attrs = ("text", "content-desc")
+    # 狀態列（時鐘、電池、wifi）不是 App 的元件，每個畫面都一樣，掃描時偶爾被一起抓進地圖，
+    # 不列入畫面比對（run_test_case.match_screen_in_source）
+    screen_ignored_id_prefixes = ("com.android.systemui:",)
     # 「依變數定位」往上找清單容器用（core/var_xpath.py）
     list_classes = ("android.widget.ListView", "androidx.recyclerview.widget.RecyclerView",
                     "android.support.v7.widget.RecyclerView", "android.widget.GridView")

@@ -491,8 +491,12 @@ def run_assert_text_contains(ctx, platform, driver, el: dict, expected_text: str
     return f"FAIL（{label}，預期文字包含「{expected_text}」，實際文字：「{actual_text}」）"
 
 
+_MISSING_SHOWN = 10  # 畫面比對失敗時，訊息最多列幾個找不到的元件
+
+
 def match_screen_in_source(page_source: str, elements: list, screen_name: str,
-                           id_attrs: tuple, label_attrs: tuple) -> tuple[str, str]:
+                           id_attrs: tuple, label_attrs: tuple,
+                           ignored_id_prefixes: tuple = ()) -> tuple[str, str]:
     """
     比對目前畫面（page_source）是不是 screen_name 這個畫面，回傳 (status, message)，
     status 是 "pass" / "fail" / "unchecked"（沒有東西可以比對，放行但提醒）。
@@ -501,6 +505,9 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
     做法：優先用這個畫面已知的 native id 元件當指紋；畫面完全沒有 native id 時，
     改用元件文字（label）比對，並排除含數字的文字（價格、時間、筆數這類
     每次都會變的內容，拿來比對只會誤判）。過半數找得到，才視為目前在這個畫面上。
+    ignored_id_prefixes 開頭的 id 不列入比對（例如 Android 狀態列，掃描時偶爾會被一起
+    抓進地圖，但它在每個畫面都一樣，分不出是哪一頁，之後手機畫面抓不到時反而會誤判）。
+    比對不過時訊息會列出找不到的是哪幾個，方便排查。
     整份 page_source 只抓一次再比對，不是每個元件各查一次，元件多時也不會拖很久。
     """
     try:
@@ -518,7 +525,8 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
             if text:
                 present_labels.add(text)
 
-    native_ids = {el["native_id"] for el in elements if el.get("id_source") == "native" and el.get("native_id")}
+    native_ids = {el["native_id"] for el in elements if el.get("id_source") == "native" and el.get("native_id")
+                  and not el["native_id"].startswith(ignored_id_prefixes)}
     if native_ids:
         expected, present, kind = native_ids, present_ids, " native 元件"
     else:
@@ -531,12 +539,18 @@ def match_screen_in_source(page_source: str, elements: list, screen_name: str,
     found = len(expected & present)
     ratio = found / len(expected)
     message = f"「{screen_name}」的 {len(expected)} 個{kind}中，目前畫面找到 {found} 個（{ratio:.0%}）"
-    return ("pass" if ratio >= 0.5 else "fail"), message
+    if ratio < 0.5:
+        missing = sorted(expected - present)
+        shown = "、".join(missing[:_MISSING_SHOWN])
+        more = f"…等 {len(missing)} 個" if len(missing) > _MISSING_SHOWN else ""
+        return "fail", f"{message}；找不到：{shown}{more}"
+    return "pass", message
 
 
 def check_current_screen(platform, driver, screen_name: str, elements: list) -> tuple[str, str]:
     return match_screen_in_source(driver.page_source, elements, screen_name,
-                                  id_attrs=platform.screen_id_attrs, label_attrs=platform.screen_label_attrs)
+                                  id_attrs=platform.screen_id_attrs, label_attrs=platform.screen_label_attrs,
+                                  ignored_id_prefixes=platform.screen_ignored_id_prefixes)
 
 
 def labels_if_on_screen(platform, driver, screen_name: str | None, screen: dict | None) -> set[str]:
