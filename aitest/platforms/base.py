@@ -145,6 +145,24 @@ MODAL_HINT_MARKERS = (
     "公告",
 )
 
+
+def map_buttons(elements) -> dict[str, set[str]]:
+    """地圖上一個畫面的元件：{文字: {native id…}}，沒有 native id 的記成 ""。
+    跑測案時關彈窗不按這些（例如搜尋頁本來就有的「取消」），見 is_map_button"""
+    buttons: dict[str, set[str]] = {}
+    for el in elements:
+        label = (el.get("label") or "").strip()
+        if label:
+            buttons.setdefault(label, set()).add(el.get("native_id") or "")
+    return buttons
+
+
+def is_map_button(buttons: dict | None, text: str, element_id: str | None) -> bool:
+    """畫面上這顆按鈕是不是地圖裡這個畫面本來就有的：文字一樣，而且 native id 也一樣
+    （地圖上那顆沒有 native id 的，只比文字）。彈窗的「取消」通常是別的 id，照樣會關"""
+    ids = (buttons or {}).get(text)
+    return ids is not None and ("" in ids or (element_id or "") in ids)
+
 # 底部導覽 / 頂部導覽列這類「常駐框架」：畫面最上緣 / 最下緣的可點元件，
 # 不管實際 class 是不是 XCUIElementTypeTabBar（很多 App 的底部導覽是一排 Button）
 CHROME_TOP_FRACTION = 0.11

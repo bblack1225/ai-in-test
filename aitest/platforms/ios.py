@@ -34,6 +34,7 @@ from aitest.platforms.base import (
     MODAL_HINT_MARKERS,
     candidate_pattern,
     histogram_bucket,
+    is_map_button,
     looks_like_data,
     no_idle_wait,
     wait_until_stable,
@@ -692,15 +693,24 @@ def persistent_chrome_keys(page_source: str, screen_height: float) -> set[tuple[
     return keys
 
 
-def _first_button_label(driver, labels: list[str], any_type: bool = False):
+def _skip_map_buttons(matches: list, skip_buttons) -> list:
+    """去掉地圖裡目前這一步畫面上本來就有的按鈕（見 base.is_map_button）"""
+    if not skip_buttons:
+        return matches
+    return [m for m in matches if not is_map_button(
+        skip_buttons, (m.get_attribute("label") or "").strip(), m.get_attribute("name"))]
+
+
+def _first_button_label(driver, labels: list[str], any_type: bool = False, skip_buttons=None):
     """畫面上第一個文字在 labels 裡的按鈕，回傳 (元件, 文字)；沒有回傳 (None, None)。
     any_type=True：Button 找不到再放寬到任何類型——App 自己畫的彈窗，「下次再說」常常
-    只是一段文字（StaticText／Other）不是 Button。Android 版本來就不分類型"""
+    只是一段文字（StaticText／Other）不是 Button。Android 版本來就不分類型。
+    skip_buttons：跳過地圖裡這個畫面本來就有的按鈕（見 _skip_map_buttons）"""
     label_in = "label IN {" + ", ".join(predicate_literal(label) for label in labels) + "}"
     predicates = [f"type == 'XCUIElementTypeButton' AND {label_in}"] + ([label_in] if any_type else [])
     for predicate in predicates:
         try:
-            matches = driver.find_elements(AppiumBy.IOS_PREDICATE, predicate)
+            matches = _skip_map_buttons(driver.find_elements(AppiumBy.IOS_PREDICATE, predicate), skip_buttons)
             if matches:
                 return matches[0], (matches[0].get_attribute("label") or "").strip()
         except InvalidSessionIdException:
@@ -716,7 +726,7 @@ def _first_button_label(driver, labels: list[str], any_type: bool = False):
 _NOTICE_MARKERS = ("公告", "提醒您", "溫馨提醒", "重要通知", "連線中斷", "偵測到系統")
 
 
-def _single_ack_on_notice(driver):
+def _single_ack_on_notice(driver, skip_buttons=None):
     """App 自己畫的公告視窗（不是系統 Alert）：畫面上有公告類字眼、而且只有一顆確認類按鈕時，
     回傳 (那顆按鈕, 文字)；不符合回傳 (None, None)。好幾顆「確定」時不猜"""
     notice = " OR ".join(f"label CONTAINS {predicate_literal(m)}" for m in _NOTICE_MARKERS)
@@ -727,6 +737,7 @@ def _single_ack_on_notice(driver):
         buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, f"type == 'XCUIElementTypeButton' AND {label_in}")
         if not buttons:  # App 自己畫的按鈕可能不是 Button
             buttons = driver.find_elements(AppiumBy.IOS_PREDICATE, label_in)
+        buttons = _skip_map_buttons(buttons, skip_buttons)
         if len(buttons) != 1:
             return None, None
         return buttons[0], (buttons[0].get_attribute("label") or "").strip()
@@ -737,7 +748,7 @@ def _single_ack_on_notice(driver):
 
 
 def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, any_type: bool = False,
-                  keep_labels=()) -> list[str]:
+                  keep_labels=(), skip_buttons=None) -> list[str]:
     """
     偵測並關掉擋在前面的提示對話框（報價連線中斷、root 偵測、行銷推播、
     「我知道了」公告…）。回傳被關掉的按鈕文字清單（記進輸出供人工複核）。
@@ -759,13 +770,16 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
     檢查）；爬蟲每一頁都會檢查，維持只找 Button，免得誤點一般畫面上剛好叫「取消」「關閉」的文字
 
     keep_labels：要按的按鈕文字在這裡面，就當作這個視窗是測案預期的畫面，整個不處理（不改按別顆）
+
+    skip_buttons：地圖裡目前這一步畫面上本來就有的按鈕（例如搜尋頁的「取消」），跳過它們、找下一顆
+    （見 base.is_map_button）
     """
     if page_source is not None and not any(m in page_source for m in MODAL_HINT_MARKERS):
         return []
 
     dismissed: list[str] = []
     for _ in range(max_rounds):
-        element, target = _first_button_label(driver, MODAL_DISMISS_LABELS, any_type)
+        element, target = _first_button_label(driver, MODAL_DISMISS_LABELS, any_type, skip_buttons)
         if element is None:
             # 找不到「純關閉」類，只有真的出現 XCUIElementTypeAlert 時才進一步
             # 查「確定/OK」這類確認語意的——避免在一般畫面上把「確定」誤點掉
@@ -776,9 +790,9 @@ def dismiss_modal(driver, max_rounds: int = 3, page_source: str | None = None, a
             except WebDriverException:
                 has_alert = False
             if has_alert:
-                element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS)
+                element, target = _first_button_label(driver, MODAL_ACK_ONLY_LABELS, skip_buttons=skip_buttons)
             elif any_type:
-                element, target = _single_ack_on_notice(driver)
+                element, target = _single_ack_on_notice(driver, skip_buttons)
         if element is None:
             break
         if target in keep_labels:
@@ -1023,9 +1037,9 @@ class IOSPlatform:
             return None
         return (info or {}).get("bundleId")
 
-    def dismiss_dialogs(self, driver, keep_labels=()) -> list[str]:
+    def dismiss_dialogs(self, driver, keep_labels=(), skip_buttons=None) -> list[str]:
         """關掉擋在前面的非預期彈窗，回傳按過的按鈕文字。沿用爬蟲的 dismiss_modal（按鈕清單、
-        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels 見 dismiss_modal"""
+        永遠不點「關閉APP／登出」的規則都在那裡）；keep_labels、skip_buttons 見 dismiss_modal"""
         # 系統權限視窗不處理（使用者決定）：有些權限框的按鈕是「不允許／好」，
         # 「好」在 dismiss_modal 的確認清單裡，不擋的話會變成幫使用者按了允許
         try:
@@ -1036,7 +1050,7 @@ class IOSPlatform:
             raise
         except WebDriverException:
             return []
-        return dismiss_modal(driver, any_type=True, keep_labels=keep_labels)
+        return dismiss_modal(driver, any_type=True, keep_labels=keep_labels, skip_buttons=skip_buttons)
 
     def element_text(self, element) -> str:
         return (element.get_attribute("label") or element.get_attribute("value") or "").strip()

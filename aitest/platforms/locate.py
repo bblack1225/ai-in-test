@@ -219,7 +219,7 @@ def _dismiss_dialogs(ctx, platform, driver) -> list[str]:
     if not ctx.dismiss_dialogs:
         return []
     try:
-        dismissed = platform.dismiss_dialogs(driver)
+        dismissed = platform.dismiss_dialogs(driver, skip_buttons=ctx.map_buttons)
     except InvalidSessionIdException:
         raise
     except WebDriverException as e:
